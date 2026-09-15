@@ -10,6 +10,11 @@
     <Property Id="ARPPRODUCTICON" Value="NetPawIco" />
     <Property Id="ARPURLINFOABOUT" Value="https://github.com/smol-kitten/netpaw" />
     <Property Id="ARPNOMODIFY" Value="1" />
+    <?ifdef var.Telemetry ?>
+    <Property Id="ARPCOMMENTS" Value="Telemetry build: sends crash reports and anonymous usage counts to telemetry.catboy.systems. See docs/TELEMETRY.md." />
+    <?else?>
+    <Property Id="ARPCOMMENTS" Value="Standard build: no telemetry." />
+    <?endif?>
 
     <StandardDirectory Id="ProgramFiles64Folder">
       <Directory Id="INSTALLFOLDER" Name="NetPaw">

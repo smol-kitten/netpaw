@@ -58,6 +58,17 @@ sealed class SettingsForm : Form
         Row("Monitor", monitor);
         Row("Sticky alert", sticky);
 
+        CheckBox? telemetry = null;
+        if (TelemetryHost.IsTelemetryBuild)
+        {
+            telemetry = new CheckBox { Text = "send crash reports and anonymous usage counts to telemetry.catboy.systems", Checked = s.TelemetryEnabled, AutoSize = true, Enabled = !pol.IsSet("AllowTelemetry") };
+            var what = new LinkLabel { Text = "what is sent (docs/TELEMETRY.md)", AutoSize = true, Font = Theme.Small };
+            what.LinkClicked += (_, _) => Process.Start(new ProcessStartInfo("https://github.com/smol-kitten/netpaw/blob/main/docs/TELEMETRY.md") { UseShellExecute = true });
+            var box = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.TopDown, WrapContents = false, Margin = Padding.Empty };
+            box.Controls.Add(telemetry); box.Controls.Add(what);
+            Row("Telemetry", box);
+        }
+
         var folder = new Button { Text = "Open config folder", Width = 150, Height = 28 };
         folder.Click += (_, _) => Process.Start(new ProcessStartInfo(app.Service.Store.Directory) { UseShellExecute = true });
         Row("Files", folder);
@@ -115,6 +126,7 @@ sealed class SettingsForm : Form
             s.InfoHotkey = ik.ToString();
             ck.Enabled = checksOn.Checked; ck.IntervalSeconds = (int)interval.Value; ck.IntranetTargets = Hosts(intranet.Text); ck.InternetTargets = Hosts(internet.Text);
             ck.DnsCheckHost = dnsHost.Text.Trim(); ck.MonitorMode = monitor.Checked; ck.StickyAlerts = sticky.Checked;
+            if (telemetry is not null) { s.TelemetryEnabled = telemetry.Checked; TelemetryHost.Refresh(app.Service); }
             if (!pol.IsSet("WorkAdapter")) s.WorkAdapter = adapter.SelectedIndex <= 0 ? null : (string)adapter.SelectedItem!;
             if (!pol.IsSet("PanelHotkey")) s.PanelHotkey = hk.ToString();
             if (!pol.IsSet("ConfirmBeforeApply")) s.ConfirmBeforeApply = confirm.Checked;

@@ -244,6 +244,21 @@ try
                 default: return Fail("pack: keygen | sign | verify | build");
             }
         }
+        case "telemetry":
+        {
+            // Operator tool: mints the project ingest token once. The token is a CI secret; end users never adopt.
+            if (argv.Count < 2 || argv[1] != "adopt") return Fail("telemetry adopt [--endpoint URL] [--project netpaw]");
+            var endpoint = Opt("--endpoint") ?? NetPaw.Telemetry.TelemetryClient.DefaultEndpoint;
+            var project = Opt("--project") ?? "netpaw";
+            var version = typeof(NetPawService).Assembly.GetName().Version?.ToString(3) ?? "0";
+            var req = NetPaw.Telemetry.TelemetryClient.RequestAdoption(endpoint, project, version).GetAwaiter().GetResult();
+            Console.WriteLine($"Confirm code  {req.Code}  in Workflow Manager → Adoptions (repo smol-kitten/netpaw) within 10 minutes. Waiting…");
+            var token = NetPaw.Telemetry.TelemetryClient.WaitForToken(endpoint, req, st => Console.Error.WriteLine("  " + st)).GetAwaiter().GetResult();
+            if (token is null) return Fail("not confirmed (rejected or expired) — run again");
+            Console.WriteLine(token);
+            Console.WriteLine("Store it as the GitHub secret NETPAW_TELEMETRY_TOKEN; the next tag build then ships NetPaw-<ver>-telemetry.msi.");
+            return 0;
+        }
         case "where":
             Console.WriteLine(svc.Store.Directory);
             Console.WriteLine(svc.Machine.Directory + "  (managed, read-only)");

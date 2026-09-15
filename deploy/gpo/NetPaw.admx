@@ -51,5 +51,9 @@
       <parentCategory ref="NetPaw" /><supportedOn ref="windows:SUPPORTED_Windows_10_0" />
       <enabledValue><decimal value="1" /></enabledValue><disabledValue><decimal value="0" /></disabledValue>
     </policy>
+    <policy name="AllowTelemetry" class="Machine" displayName="$(string.AllowTelemetry)" explainText="$(string.AllowTelemetry_Help)" key="SOFTWARE\Policies\NetPaw" valueName="AllowTelemetry">
+      <parentCategory ref="NetPaw" /><supportedOn ref="windows:SUPPORTED_Windows_10_0" />
+      <enabledValue><decimal value="1" /></enabledValue><disabledValue><decimal value="0" /></disabledValue>
+    </policy>
   </policies>
 </policyDefinitions>

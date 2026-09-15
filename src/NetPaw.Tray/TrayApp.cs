@@ -57,6 +57,11 @@ sealed class TrayApp : ApplicationContext
         NetworkChange.NetworkAvailabilityChanged += (_, _) => OnNetworkEvent();
         NetworkChange.NetworkAddressChanged += (_, _) => OnNetworkEvent();
         _ = RunCheck();
+        if (TelemetryHost.IsTelemetryBuild && !_svc.Settings.TelemetryNoticeShown)
+        {
+            _svc.Settings.TelemetryNoticeShown = true; _svc.SaveSettings();
+            Notify("Telemetry build", "This build sends crash reports and anonymous usage counts to telemetry.catboy.systems (no addresses, no names). Settings → Telemetry turns it off.", ToolTipIcon.Info, force: true);
+        }
         if (showPanelAtStart) { var once = new System.Windows.Forms.Timer { Interval = 200 }; once.Tick += (_, _) => { once.Dispose(); ShowPanel(); }; once.Start(); }
     }
 
@@ -107,6 +112,7 @@ sealed class TrayApp : ApplicationContext
                     if (_svc.Settings.Checks.MonitorMode || linkEvent)
                     {
                         _svc.Store.Log($"monitor: {change.From} -> {change.To}: {change.Text}");
+                        TelemetryHost.Event("monitor", change.To.ToString(), change.From.ToString());
                         Notify(change.Title, change.Text, change.IsProblem ? ToolTipIcon.Warning : ToolTipIcon.Info, force: true);
                     }
                 }
@@ -312,7 +318,8 @@ sealed class TrayApp : ApplicationContext
         }
         if (_svc.Settings.ConfirmBeforeApply || plan.Warnings.Count > 0)
             if (!PlanPreviewForm.Confirm(plan, subtitle)) { Status?.Invoke("Cancelled.", "warn"); return; }
-        RunInBackground($"Applying {plan.Title}", custom ?? (() => _svc.Apply(plan)), $"{plan.Title} → {plan.Adapter}");
+        var kind = plan.Title == "DHCP" ? "dhcp" : plan.Title.StartsWith("reach ") ? "reach" : subtitle is not null ? "preset" : "profile";
+        RunInBackground($"Applying {plan.Title}", () => { ApplyOutcome? o = null; try { o = (custom ?? (() => _svc.Apply(plan)))(); return o; } finally { TelemetryHost.Apply(kind, plan, o); } }, $"{plan.Title} → {plan.Adapter}");
     }
 
     void RunInBackground(string title, Func<ApplyOutcome> work, string doneText)
@@ -326,6 +333,7 @@ sealed class TrayApp : ApplicationContext
             if (outcome is null)
             {
                 _svc.Store.Log("apply crashed: " + t.Exception);
+                if (t.Exception is not null) TelemetryHost.Error(t.Exception.GetBaseException(), "apply");
                 var msg = t.Exception?.GetBaseException().Message ?? "unknown";
                 Status?.Invoke(msg, "error"); Notify("NetPaw error", msg, ToolTipIcon.Error);
             }
