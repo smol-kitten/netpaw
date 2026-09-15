@@ -77,16 +77,21 @@ public sealed class RenewScheduler
 {
     public int Attempts { get; private set; }
     public DateTimeOffset? LastAttempt { get; private set; }
+    DateTimeOffset? _since;
+    /// <summary>A renewable finding must persist this long before the first automatic attempt — DHCP usually finishes on its own within it.</summary>
+    public static readonly TimeSpan MinPersist = TimeSpan.FromSeconds(10);
 
     public bool ShouldRenew(RepairSettings r, IReadOnlyList<Advisory> advisories, DateTimeOffset now)
     {
         if (!r.AutoRenew) return false;
         if (!advisories.Any(a => a.CanRenew)) { Reset(); return false; }
+        _since ??= now;
+        if (now - _since < MinPersist) return false;
         if (Attempts >= Math.Max(1, r.AutoRenewMaxAttempts)) return false;
         if (LastAttempt is { } last && now - last < TimeSpan.FromSeconds(Math.Max(15, r.AutoRenewIntervalSeconds))) return false;
         return true;
     }
 
     public void Mark(DateTimeOffset now) { Attempts++; LastAttempt = now; }
-    public void Reset() { Attempts = 0; LastAttempt = null; }
+    public void Reset() { Attempts = 0; LastAttempt = null; _since = null; }
 }

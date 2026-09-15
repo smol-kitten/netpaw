@@ -38,9 +38,9 @@ MIT licensed. Windows 10/11, .NET 10.
 |---|---|---|
 | ![editor](docs/editor.png) | ![settings](docs/settings.png) | ![apply](docs/apply.png) |
 
-| network info card | sticky alert (cable pulled) | F1 help |
-|---|---|---|
-| ![info](docs/info.png) | ![alert](docs/alert.png) | ![help](docs/help.png) |
+| network info card | sticky alert (cable pulled) | advice row | F1 help |
+|---|---|---|---|
+| ![info](docs/info.png) | ![alert](docs/alert.png) | ![advice](docs/advice.png) | ![help](docs/help.png) |
 
 *Screenshots from the Windows 11 test VM; every `netsh` path in this README was verified there.*
 

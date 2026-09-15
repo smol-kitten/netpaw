@@ -348,6 +348,7 @@ static int Report(ApplyPlan plan, ApplyOutcome? outcome, bool dryRun)
         Console.WriteLine(plan.IsEmpty ? "(nothing to do)" : $"plan '{plan.Title}' on '{plan.Adapter}':\n{plan}");
         return 0;
     }
+    if (outcome.Results.Count == 0) { Console.WriteLine("(nothing to do)"); return 0; }
     foreach (var r in outcome.Results)
         Console.WriteLine($"[{(r.Ok ? "ok" : "FAIL")}] {r.Step.Description}{(r.Ok || string.IsNullOrEmpty(r.Output) ? "" : " — " + r.Output.ReplaceLineEndings(" "))}");
     Console.WriteLine(outcome.Success ? $"applied '{plan.Title}' on {plan.Adapter}" : "FAILED" + (outcome.Aborted ? " (aborted at first critical step)" : ""));
