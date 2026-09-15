@@ -348,9 +348,10 @@ try
             svc.Require(Capability.TempAddresses);
             if (!IsElevated()) return Fail("find-routers adds temporary addresses; run from an elevated prompt");
             var arp = new NetPaw.Arp.WindowsArpProvider();
+            var restores = new Dictionary<string, Action>();
             var finder = new NetPaw.Arp.RouterFinder(
-                async (addr, ct) => { var live = svc.GetAdapters().First(a => a.Name == adapter.Name); var plan = ApplyPlanner.PlanAddSecondary(live, addr, "find routers"); if (plan.IsEmpty) return false; var o = svc.Apply(plan); await Task.Delay(300, ct); return o.Success; },
-                (addr, _) => { svc.Apply(ApplyPlanner.PlanRemoveAddresses(adapter.Name, [addr], "find routers")); return Task.CompletedTask; },
+                async (addr, ct) => { var (ok, restore) = svc.Borrow(adapter.Name, addr); if (ok) { restores[addr.ToString()] = restore; await Task.Delay(300, ct); } return ok; },
+                (addr, _) => { if (restores.Remove(addr.ToString(), out var r)) r(); return Task.CompletedTask; },
                 arp);
             var cands = NetPaw.Arp.RouterFinder.Candidates(svc.Presets);
             Console.Error.WriteLine($"probing {cands.Count} common subnets on {adapter.Name}…");

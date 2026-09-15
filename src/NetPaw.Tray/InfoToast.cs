@@ -114,7 +114,7 @@ sealed class InfoToast : Form
                 _grid.Controls.Add(host);
             }
             if (_app.Service.Settings.Repair.DhcpAdvisory)
-                foreach (var adv in Advisor.Analyze(s))
+                foreach (var adv in _app.Advisories)
                 {
                     var color = adv.Severity switch { AdvisorySeverity.Error => Theme.Error, AdvisorySeverity.Warning => Theme.Temp, _ => Theme.Muted };
                     _grid.Controls.Add(new Label { Text = "Advice", AutoSize = true, ForeColor = color, Font = Theme.Small, Margin = new Padding(0, 3, 0, 3) });

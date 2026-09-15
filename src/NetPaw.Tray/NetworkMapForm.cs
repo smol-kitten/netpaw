@@ -37,7 +37,7 @@ sealed class NetworkMapForm : Form
         t1.Controls.Add(_hosts); t1.Controls.Add(bar1); t2.Controls.Add(_routers); t2.Controls.Add(bar2);
         _tabs.TabPages.Add(t1); _tabs.TabPages.Add(t2);
         Controls.Add(_tabs); Controls.Add(_status);
-        _refresh.Click += (_, _) => LoadCache();
+        _refresh.Click += (_, _) => { if (_cts is not null) _cts.Cancel(); else LoadCache(); };
         _check.Click += async (_, _) => await Recheck(sweep: false);
         _sweep.Click += async (_, _) => await Recheck(sweep: true);
         _find.Click += async (_, _) => await FindRouters();
@@ -104,9 +104,10 @@ sealed class NetworkMapForm : Form
         _routers.Items.Clear();
         _cts = new CancellationTokenSource(); _find.Text = "Cancel";
         var svc = _app.Service;
+        var restores = new Dictionary<string, Action>();
         var finder = new RouterFinder(
-            async (addr, ct) => { var live = svc.GetAdapters().First(a => a.Name == _adapter.Name); var plan = Planning.ApplyPlanner.PlanAddSecondary(live, addr, "find routers"); if (plan.IsEmpty) return false; var o = await Task.Run(() => svc.Apply(plan), ct); await Task.Delay(300, ct); return o.Success; },
-            async (addr, _) => { await Task.Run(() => svc.Apply(Planning.ApplyPlanner.PlanRemoveAddresses(_adapter.Name, [addr], "find routers"))); },
+            async (addr, ct) => { var (ok, restore) = await Task.Run(() => svc.Borrow(_adapter.Name, addr), ct); if (ok) { restores[addr.ToString()] = restore; await Task.Delay(300, ct); } return ok; },
+            async (addr, _) => { if (restores.Remove(addr.ToString(), out var r)) await Task.Run(r); },
             _arp);
         var cands = RouterFinder.Candidates(svc.Presets);
         try

@@ -11,7 +11,7 @@ namespace NetPaw.Arp;
 /// <summary>One neighbour from the ARP cache (passive) or an explicit ARP probe (active).</summary>
 public sealed record ArpEntry(string Ip, string Mac, string Kind, string? Adapter, bool? Alive = null, int? Ms = null)
 {
-    public bool IsBroadcastOrMulticast => Mac.StartsWith("ff-ff", StringComparison.OrdinalIgnoreCase) || Mac.StartsWith("01-00-5e", StringComparison.OrdinalIgnoreCase) || Ip.StartsWith("224.") || Ip.StartsWith("239.") || Ip.EndsWith(".255");
+    public bool IsBroadcastOrMulticast => Mac.StartsWith("ff-ff", StringComparison.OrdinalIgnoreCase) || Mac.StartsWith("01-00-5e", StringComparison.OrdinalIgnoreCase) || Ip.StartsWith("224.") || Ip.StartsWith("239.") || Ip == "255.255.255.255";
 }
 
 /// <summary>Neighbours of one subnet the adapter sits in, so a flat cache reads as "networks".</summary>

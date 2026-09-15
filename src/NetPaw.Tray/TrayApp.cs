@@ -124,7 +124,7 @@ sealed class TrayApp : ApplicationContext
             foreach (var msg in VpnDetector.Changes(_vpns, vpns))
             {
                 _svc.Store.Log("vpn: " + msg);
-                if (_svc.Settings.Repair.VpnNotifications && _vpns.Count + vpns.Count > 0 && _snapshot is not null) Notify("VPN", msg, ToolTipIcon.Info, force: true);
+                if (_svc.Settings.Repair.VpnNotifications && _previous is not null) Notify("VPN", msg, ToolTipIcon.Info, force: true);
                 if (_svc.Settings.Repair.IncidentLog) (_incidents ??= new IncidentLog(_svc.Store.IncidentsFile)).Append(new Incident(DateTimeOffset.Now, msg.Contains('\'') ? msg.Split('\'')[1] : "vpn", "vpn", "", "", msg, []));
             }
             _vpns = vpns;
@@ -205,9 +205,10 @@ sealed class TrayApp : ApplicationContext
         RefreshState(); _ = RunCheck();
     }
 
+    readonly Dictionary<string, Action> _borrowed = [];
     AutoSwitcher MakeSwitcher(string adapterName) => new(_arp,
-        async (addr, ct) => { var live = _svc.GetAdapters().First(a => a.Name == adapterName); var plan = ApplyPlanner.PlanAddSecondary(live, addr, "auto-switch"); if (plan.IsEmpty) return false; var o = await Task.Run(() => _svc.Apply(plan), ct); await Task.Delay(300, ct); return o.Success; },
-        async (addr, _) => { await Task.Run(() => _svc.Apply(ApplyPlanner.PlanRemoveAddresses(adapterName, [addr], "auto-switch"))); });
+        async (addr, ct) => { var (ok, restore) = await Task.Run(() => _svc.Borrow(adapterName, addr), ct); if (ok) { _borrowed[addr.ToString()] = restore; await Task.Delay(300, ct); } return ok; },
+        async (addr, _) => { if (_borrowed.Remove(addr.ToString(), out var r)) await Task.Run(r); });
 
     async Task AutoSwitch(AdapterInfo adapter)
     {
@@ -520,13 +521,10 @@ sealed class TrayApp : ApplicationContext
         if (_svc.Settings.ConfirmBeforeApply || plan.Warnings.Count > 0)
             if (!PlanPreviewForm.Confirm(plan, subtitle)) { Status?.Invoke("Cancelled.", "warn"); return; }
         var kind = plan.Title == "DHCP" ? "dhcp" : plan.Title.StartsWith("reach ") ? "reach" : subtitle is not null ? "preset" : "profile";
-        _afterApply = after;
-        RunInBackground($"Applying {plan.Title}", () => { ApplyOutcome? o = null; try { o = (custom ?? (() => _svc.Apply(plan)))(); return o; } finally { TelemetryHost.Apply(kind, plan, o); TelemetryHost.Export(_svc, o is { Success: true } ? "info" : "error", $"apply {kind} '{plan.Title}' on {plan.Adapter}: {(o is null ? "crashed" : o.Success ? "ok" : "failed")}", new() { ["adapter"] = plan.Adapter, ["kind"] = kind, ["profile"] = plan.Title, ["steps"] = plan.Steps.Count, ["result"] = o is null ? "crashed" : o.Success ? "ok" : "failed" }, isIncident: false); } }, $"{plan.Title} → {plan.Adapter}");
+        RunInBackground($"Applying {plan.Title}", () => { ApplyOutcome? o = null; try { o = (custom ?? (() => _svc.Apply(plan)))(); return o; } finally { TelemetryHost.Apply(kind, plan, o); TelemetryHost.Export(_svc, o is { Success: true } ? "info" : "error", $"apply {kind} '{plan.Title}' on {plan.Adapter}: {(o is null ? "crashed" : o.Success ? "ok" : "failed")}", new() { ["adapter"] = plan.Adapter, ["kind"] = kind, ["profile"] = plan.Title, ["steps"] = plan.Steps.Count, ["result"] = o is null ? "crashed" : o.Success ? "ok" : "failed" }, isIncident: false); } }, $"{plan.Title} → {plan.Adapter}", after);
     }
 
-    Action? _afterApply;
-
-    void RunInBackground(string title, Func<ApplyOutcome> work, string doneText)
+    void RunInBackground(string title, Func<ApplyOutcome> work, string doneText, Action? after = null)
     {
         _busy = true; RefreshState();
         Status?.Invoke(title + "…", "busy");
@@ -543,7 +541,7 @@ sealed class TrayApp : ApplicationContext
             }
             else if (outcome.Success)
             {
-                var afterHook = _afterApply; _afterApply = null; afterHook?.Invoke();
+                after?.Invoke();
                 var soft = outcome.Failures.ToList();
                 var text = soft.Count == 0 ? "Done." : "Done, with warnings: " + string.Join("; ", soft.Select(f => f.Step.Description + ": " + f.Output));
                 Status?.Invoke(doneText + " — " + text, soft.Count == 0 ? "ok" : "warn");

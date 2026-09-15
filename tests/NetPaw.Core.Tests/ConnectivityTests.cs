@@ -248,6 +248,8 @@ public class V07AdvisorTests
         Assert.Equal("ipconfig /release \"Ethernet\"", Advisor.PlanRelease(oldNic).Steps.Single().CommandLine);
         Assert.Contains(adv, a => a.Title == "No DHCP lease");                                   // the plain finding is still there
         Assert.DoesNotContain(Advisor.Analyze(snap, [dockNic]), a => a.Repair == RepairKind.Release);
+        var healthyWifi = Nic("Wi-Fi", up: true, dhcp: true, ["192.168.1.20/24"], "192.168.1.1");   // an up adapter with its own lease is not a "holder"
+        Assert.DoesNotContain(Advisor.Analyze(snap, [healthyWifi, dockNic]), a => a.Repair == RepairKind.Release);
     }
 
     [Fact]

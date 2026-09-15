@@ -72,6 +72,20 @@ sealed class ProfileEditorForm : Form
         _advanced.Row("VLAN", Inline(_setVlan, _vlan, _vlanInfo), "vlan");
         _advanced.Row("Routes", _routes, "routes", hint: "one per line: 10.0.0.0/8 via 192.168.1.1 metric 10   (via/metric optional)");
         _advanced.Row("Note", _note, "note");
+        var autoBox = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.TopDown, WrapContents = false, Margin = Padding.Empty };
+        autoBox.Controls.Add(Inline(_autoSwitch, _learn)); autoBox.Controls.Add(_fpInfo);
+        _advanced.Row("Auto-switch", autoBox, "autoswitch", hint: "Fingerprint = gateway MAC + subnet (+ DHCP server). On link-up NetPaw applies the one profile whose fingerprint matches; the first time it asks.");
+        _learn.Click += async (_, _) =>
+        {
+            var name = _adapter.SelectedIndex <= 0 ? _app.Work?.Name : (string)_adapter.SelectedItem!;
+            var live = name is null ? null : _adapters.FirstOrDefault(a => a.Name == name);
+            if (live is null) { _fpInfo.Text = "pick an adapter first"; return; }
+            _learn.Enabled = false; _fpInfo.Text = "learning…";
+            var fp = await _app.LearnFingerprint(live);
+            _learn.Enabled = true;
+            if (fp is null) { _fpInfo.Text = $"{live.Name} has no address+gateway to learn from — apply the profile on the real network, then learn."; return; }
+            _learnedFp = fp; _fpInfo.Text = "learned: " + fp; _autoSwitch.Checked = true;
+        };
 
         var scroll = new Panel { Dock = DockStyle.Fill, AutoScroll = true, Padding = new Padding(Theme.Spacing.L, 0, Theme.Spacing.L, 0) };
         scroll.Controls.Add(_advanced); scroll.Controls.Add(_ipv4); scroll.Controls.Add(_identity); scroll.Controls.Add(_managedNote);

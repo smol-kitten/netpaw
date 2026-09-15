@@ -230,8 +230,16 @@ public class MacBindingTests
         Assert.Equal("Ethernet 3", svc.ResolveAdapter(p).Name);
         p.AdapterMac = "AA:BB:CC:FF:FF:FF";                                                      // MAC gone, name still there
         Assert.Equal("Ethernet", svc.ResolveAdapter(p).Name);
-        p.Adapter = "Ethernet 9";                                                                // neither: work adapter
-        Assert.Equal("Ethernet", svc.ResolveAdapter(p).Name);
+        p.Adapter = "Ethernet 9";                                                                // neither present: refuse, never silently reconfigure another NIC
+        Assert.Throws<InvalidOperationException>(() => svc.ResolveAdapter(p));
+        p.Adapter = null; p.AdapterMac = null;
+        Assert.Equal("Ethernet", svc.ResolveAdapter(p).Name);                                      // unbound: work adapter
+        // Hyper-V: vEthernet shares the uplink's MAC; never resolve onto the uplink
+        var uplink = Fx.Adapter("Ethernet", addrs: []) with { Mac = "AA:BB:CC:00:00:77", VSwitchUplink = true };
+        var veth = Fx.Adapter("vEthernet (External)", gw: "10.0.0.1") with { Mac = "AA:BB:CC:00:00:77", IsPhysical = false, HyperVVirtual = true };
+        var hv = Make(uplink, veth);
+        var hp = Fx.Static("hv"); hp.Adapter = "vEthernet (External)"; hp.AdapterMac = "AA:BB:CC:00:00:77";
+        Assert.Equal("vEthernet (External)", hv.ResolveAdapter(hp).Name);
         var cap = svc.Capture("c", dock);
         Assert.Equal("AA:BB:CC:00:00:99", cap.AdapterMac);
         Assert.Equal("Ethernet 3", svc.PlanProfile(cap).Adapter);

@@ -75,7 +75,7 @@ public static class Advisor
         var others = all.Where(o => o.Name != a.Name && o.HostFacing).ToList();
         if (a.Dhcp && !s.HasAddress)
         {
-            var holder = others.FirstOrDefault(o => o.Addresses.Any(x => !x.Address.StartsWith("169.254.")) && (o.Dhcp || !o.Up));
+            var holder = others.FirstOrDefault(o => !o.Up && o.Addresses.Any(x => !x.Address.StartsWith("169.254.")));
             if (holder is not null)
                 yield return new Advisory(AdvisorySeverity.Warning, "Address held by another adapter",
                     $"{holder.Name}{(holder.Up ? "" : " (disconnected)")} still holds {string.Join(", ", holder.Addresses.Select(x => x.ToString()))}. Windows refuses a DHCP offer for an address another adapter still owns — release it there or reset that adapter.", CanRenew: false)

@@ -172,10 +172,12 @@ public sealed class NetPawService
     public AdapterInfo ResolveAdapter(Profile p, IReadOnlyList<AdapterInfo>? adapters = null)
     {
         adapters ??= GetAdapters();
-        if (p.AdapterMac is { Length: > 0 } mac && adapters.FirstOrDefault(a => string.Equals(a.Mac, mac, StringComparison.OrdinalIgnoreCase)) is { } byMac) return byMac;
+        // A Hyper-V host vEthernet shares the physical NIC's MAC: never resolve onto the address-less uplink.
+        if (p.AdapterMac is { Length: > 0 } mac && adapters.Where(a => !a.VSwitchUplink).OrderBy(a => a.HyperVVirtual ? 0 : 1)
+                .FirstOrDefault(a => string.Equals(a.Mac, mac, StringComparison.OrdinalIgnoreCase)) is { } byMac) return byMac;
         if (p.Adapter is not null && adapters.Any(a => string.Equals(a.Name, p.Adapter, StringComparison.OrdinalIgnoreCase))) return ResolveAdapter(p.Adapter, adapters);
-        if (p.AdapterMac is { Length: > 0 } || p.Adapter is not null)
-            Store.Log($"profile '{p.Name}': adapter {(p.Adapter ?? p.AdapterMac)} not present, using the work adapter");
+        if (p.Adapter is not null || p.AdapterMac is { Length: > 0 })
+            throw new InvalidOperationException($"Adapter '{p.Adapter ?? p.AdapterMac}' for profile '{p.Name}' is not present (unplugged dock or USB NIC?). Pick another adapter in the editor or apply with -a.");
         return ResolveAdapter((string?)null, adapters);
     }
 
@@ -283,6 +285,27 @@ public sealed class NetPawService
         var d = ResolvePreset(preset, adapter);
         if (d.Kind == ReachKind.AlreadyReachable) return (new ApplyPlan { Title = preset.ToString(), Adapter = adapter.Name }, null);
         return Reach(d, adapter, dryRun, replacePrimary);
+    }
+
+    /// <summary>
+    /// Borrow an address for a probe (find-routers, auto-switch): a secondary on a static adapter, or a
+    /// temporary static replacement on a DHCP adapter (netsh cannot add a secondary next to a lease).
+    /// The returned action puts things back (delete the secondary / return to DHCP).
+    /// </summary>
+    public (bool Ok, Action Restore) Borrow(string adapterName, IpAddr addr)
+    {
+        var live = GetAdapters().FirstOrDefault(a => a.Name == adapterName);
+        if (live is null) return (false, () => { });
+        if (live.Dhcp)
+        {
+            var tmp = new Profile { Name = "borrow " + addr, Adapter = adapterName, Addresses = [addr], Temporary = true };
+            var o = Apply(ApplyPlanner.Plan(tmp, live));
+            return (o.Success, () => Apply(ApplyPlanner.PlanDhcp(live)));
+        }
+        var plan = ApplyPlanner.PlanAddSecondary(live, addr, "borrow");
+        if (plan.IsEmpty) return (false, () => { });
+        var ok = Apply(plan).Success;
+        return (ok, () => Apply(ApplyPlanner.PlanRemoveAddresses(adapterName, [addr], "return")));
     }
 
     public IReadOnlyList<TempAddress> TempAddresses => Store.LoadTemp();

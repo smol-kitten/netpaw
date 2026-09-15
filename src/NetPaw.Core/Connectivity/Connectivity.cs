@@ -18,7 +18,8 @@ public interface IProbe
 
 public sealed class NetworkProbe : IProbe
 {
-    static readonly HttpClient Http1 = new(new SocketsHttpHandler { AllowAutoRedirect = false, UseProxy = false }) { Timeout = TimeSpan.FromSeconds(5) };
+    // System proxy honoured on purpose: on a proxy-only corporate LAN a direct GET fails and would look like a portal.
+    static readonly HttpClient Http1 = new(new SocketsHttpHandler { AllowAutoRedirect = false, UseProxy = true }) { Timeout = TimeSpan.FromSeconds(5) };
 
     public async Task<ProbeResult> Http(string url, string expectedBody, int timeoutMs, CancellationToken ct)
     {
@@ -28,7 +29,7 @@ public sealed class NetworkProbe : IProbe
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct); cts.CancelAfter(timeoutMs);
             using var res = await Http1.GetAsync(url, cts.Token);
             var body = res.IsSuccessStatusCode ? (await res.Content.ReadAsStringAsync(cts.Token)).Trim() : "";
-            var ok = res.IsSuccessStatusCode && body == expectedBody;
+            var ok = (res.IsSuccessStatusCode && body == expectedBody) || (int)res.StatusCode == 407; // proxy wants auth: not a captive portal
             return new ProbeResult(url, ok, (int)sw.ElapsedMilliseconds, ok ? null : (int)res.StatusCode is 301 or 302 or 303 or 307 ? "redirected: " + res.Headers.Location : $"HTTP {(int)res.StatusCode}, body differs");
         }
         catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException) { return new ProbeResult(url, false, (int)sw.ElapsedMilliseconds, ex.GetBaseException().Message); }
