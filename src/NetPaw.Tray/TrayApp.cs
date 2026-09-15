@@ -199,7 +199,7 @@ sealed class TrayApp : ApplicationContext
         try { _adapters = _svc.GetAdapters(); } catch (Exception ex) { _svc.Store.Log("adapters: " + ex.Message); }
         var w = Work;
         var temps = _svc.TempAddresses.Count;
-        var color = _busy ? Theme.Busy : w is null || !w.Up ? Theme.Down : temps > 0 ? Theme.Temp : w.Dhcp ? Theme.Dhcp : Theme.Static;
+        var color = _busy ? Theme.Busy : w is null || !w.Up || w.VSwitchUplink ? Theme.Down : temps > 0 ? Theme.Temp : w.Dhcp ? Theme.Dhcp : Theme.Static;
         var problem = _snapshot is not null && Snapshot.IsProblem(_snapshot.State);
         _tray.Icon = Icons.Paw(color, problem ? Theme.Error : null);
         var current = w is null ? null : _svc.Profiles.FirstOrDefault(p => ApplyPlanner.Matches(p, w));
@@ -274,10 +274,10 @@ sealed class TrayApp : ApplicationContext
 
         _menu.Items.Add(new ToolStripSeparator());
         var adapters = new ToolStripMenuItem("Work adapter");
-        foreach (var a in _adapters.Where(a => a.IsPhysical || a.Up))
+        foreach (var a in _adapters.Where(a => a.HostFacing || a.Up))
         {
             var ad = a;
-            var it = new ToolStripMenuItem($"{a.Name}  ·  {a.Summary()}") { Checked = w?.Name == a.Name, Image = Icons.Dot(a.Up ? Theme.Static : Theme.Down) };
+            var it = new ToolStripMenuItem($"{a.Name}  ·  {a.Summary()}") { Checked = w?.Name == a.Name, Image = Icons.Dot(a.VSwitchUplink ? Theme.Muted : a.Up ? Theme.Static : Theme.Down) };
             it.Click += (_, _) => { _svc.Settings.WorkAdapter = ad.Name; _svc.SaveSettings(); RefreshState(); };
             adapters.DropDownItems.Add(it);
         }

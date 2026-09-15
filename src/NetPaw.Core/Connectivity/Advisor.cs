@@ -23,6 +23,11 @@ public static class Advisor
         var list = new List<Advisory>();
         var a = s.Adapter;
         if (a is null || !s.Link) return list;
+        if (a.VSwitchUplink)
+        {
+            list.Add(new(AdvisorySeverity.Info, "Bound to a Hyper-V virtual switch", $"{a.Name} carries the external switch and has no host address by design. Configure the host on its vEthernet adapter instead — pick it as the work adapter (tray menu → Work adapter).", CanRenew: false));
+            return list;
+        }
         if (a.Dhcp)
         {
             if (!s.HasAddress)

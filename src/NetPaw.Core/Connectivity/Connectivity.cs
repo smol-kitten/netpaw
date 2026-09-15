@@ -49,7 +49,7 @@ public sealed class NetworkProbe : IProbe
 }
 
 /// <summary>Coarse verdicts an admin acts on. Ordered from worst to best.</summary>
-public enum NetState { Unknown, LinkDown, NoAddress, NoGateway, IntranetOnly, DnsBroken, Online, ChecksOff }
+public enum NetState { Unknown, LinkDown, NoAddress, NoGateway, IntranetOnly, DnsBroken, Online, ChecksOff, VSwitchUplink }
 
 /// <summary>Everything the info toast shows and the monitor compares.</summary>
 public sealed record Snapshot(
@@ -73,6 +73,7 @@ public sealed record Snapshot(
         {
             if (Adapter is null) return NetState.Unknown;
             if (!Link) return NetState.LinkDown;
+            if (Adapter.VSwitchUplink) return NetState.VSwitchUplink;
             if (!HasAddress) return NetState.NoAddress;
             if (!ChecksEnabled) return HasGateway ? NetState.ChecksOff : NetState.NoGateway;
             if (!HasGateway && !GatewayOk) return NetState.NoGateway;
@@ -92,6 +93,7 @@ public sealed record Snapshot(
         NetState.DnsBroken => "Internet reachable, DNS failing",
         NetState.Online => "Online",
         NetState.ChecksOff => "Configured (checks off)",
+        NetState.VSwitchUplink => "Hyper-V switch uplink — host address is on the vEthernet adapter",
         _ => "Unknown",
     };
 
