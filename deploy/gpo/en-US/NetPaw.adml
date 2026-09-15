@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<policyDefinitionResources xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" revision="1.0" schemaVersion="1.0">
+  <displayName>NetPaw</displayName>
+  <description>Policies for the NetPaw static-IP profile tool</description>
+  <resources>
+    <stringTable>
+      <string id="NetPaw">NetPaw</string>
+      <string id="WorkAdapter">Pin the work adapter</string>
+      <string id="WorkAdapter_Help">Adapter name (alias, e.g. "Ethernet") NetPaw acts on when a profile names none. Users cannot change it while this policy is set.</string>
+      <string id="PanelHotkey">Pin the panel hotkey</string>
+      <string id="PanelHotkey_Help">Global hotkey that opens the NetPaw panel, e.g. Ctrl+Alt+N. Needs at least one modifier.</string>
+      <string id="ConfirmBeforeApply">Always show the command plan before applying</string>
+      <string id="ConfirmBeforeApply_Help">Enabled: every change shows the exact netsh commands and needs confirmation. Disabled: never. Not configured: the user decides.</string>
+      <string id="RepoUrls">Profile repositories</string>
+      <string id="RepoUrls_Help">One index.json URL per line. Optional public key pin per line: https://host/index.json|keyId:base64PublicKey. Entries from these repositories appear as presets/profiles.</string>
+      <string id="AllowUserProfiles">Allow users to create their own profiles</string>
+      <string id="AllowUserProfiles_Help">Disabled: only managed profiles (from %ProgramData%\NetPaw\profiles.d) are available; the user's profiles.json is ignored.</string>
+      <string id="AllowUserRepos">Allow users to add profile repositories</string>
+      <string id="AllowUserRepos_Help">Disabled: only repositories from the "Profile repositories" policy are used.</string>
+      <string id="AllowReach">Allow reach mode</string>
+      <string id="AllowReach_Help">Disabled: typing an IP in the panel and "netpaw-cli reach" are refused (exit code 4).</string>
+      <string id="AllowTempAddresses">Allow temporary addresses</string>
+      <string id="AllowTempAddresses_Help">Disabled: reach mode may only switch to saved profiles; it never adds an ad-hoc address. Device presets are hidden.</string>
+      <string id="AllowDhcp">Allow switching to DHCP</string>
+      <string id="AllowDhcp_Help">Disabled: the DHCP button and "netpaw-cli dhcp" are refused.</string>
+      <string id="AllowUnsignedRepos">Allow unsigned repositories</string>
+      <string id="AllowUnsignedRepos_Help">Disabled: entries from a repository without a valid signature and pinned key are not shown.</string>
+    </stringTable>
+    <presentationTable>
+      <presentation id="WorkAdapter"><textBox refId="WorkAdapter"><label>Adapter name:</label></textBox></presentation>
+      <presentation id="PanelHotkey"><textBox refId="PanelHotkey"><label>Hotkey:</label></textBox></presentation>
+      <presentation id="RepoUrls"><multiTextBox refId="RepoUrls">Repository index URLs (one per line):</multiTextBox></presentation>
+    </presentationTable>
+  </resources>
+</policyDefinitionResources>

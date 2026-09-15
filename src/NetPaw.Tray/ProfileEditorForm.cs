@@ -94,7 +94,12 @@ sealed class ProfileEditorForm : Form
         Controls.Add(split);
         Theme.Apply(this); Theme.Primary(_apply);
         _list.BackColor = Theme.Panel; split.Panel1.BackColor = Theme.Panel;
-        Load += (_, _) => { Native.Dress(this); split.SplitterDistance = 260; Reload(); };
+        Load += (_, _) =>
+        {
+            Native.Dress(this); split.SplitterDistance = 260; Reload();
+            if (!_app.Service.Allowed(Capability.UserProfiles))
+                foreach (Control b in lbar.Controls) b.Enabled = false;
+        };
     }
 
     static Label Muted(string text) => new() { Text = text, AutoSize = true, ForeColor = Theme.Muted, Font = Theme.Small, Margin = new Padding(0, 7, 4, 0) };
@@ -185,8 +190,11 @@ sealed class ProfileEditorForm : Form
 
     void SetReadOnly(bool managed, string? source)
     {
-        _managedNote.Visible = managed;
-        _managedNote.Text = managed ? $"Managed profile (deployed by your organisation{(source is null ? "" : ", " + source)}). You can apply or copy it, not change it." : "";
+        var locked = !_app.Service.Allowed(Capability.UserProfiles);
+        _managedNote.Visible = managed || locked;
+        _managedNote.Text = managed ? $"Managed profile (deployed by your organisation{(source is null ? "" : ", " + source)}). You can apply or copy it, not change it."
+                          : locked ? "Your organisation allows only managed profiles on this machine." : "";
+        managed = managed || locked;
         foreach (var c in new Control[] { _name, _adapter, _dhcp, _static, _addresses, _gateway, _gwMetric, _dns, _suffix, _ifMetric, _setVlan, _vlan, _routes, _hotkey, _note })
             c.Enabled = !managed;
         _save.Enabled = !managed; _delete.Enabled = !managed;

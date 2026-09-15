@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Group Policy template for NetPaw. Registry key: HKLM\SOFTWARE\Policies\NetPaw.
+     Also usable through Intune ADMX ingestion (see docs/ENTERPRISE.md). -->
+<policyDefinitions xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" revision="1.0" schemaVersion="1.0">
+  <policyNamespaces>
+    <target prefix="netpaw" namespace="SmolKitten.Policies.NetPaw" />
+    <using prefix="windows" namespace="Microsoft.Policies.Windows" />
+  </policyNamespaces>
+  <resources minRequiredRevision="1.0" />
+  <categories>
+    <category name="NetPaw" displayName="$(string.NetPaw)" />
+  </categories>
+  <policies>
+    <policy name="WorkAdapter" class="Machine" displayName="$(string.WorkAdapter)" explainText="$(string.WorkAdapter_Help)" presentation="$(presentation.WorkAdapter)" key="SOFTWARE\Policies\NetPaw">
+      <parentCategory ref="NetPaw" /><supportedOn ref="windows:SUPPORTED_Windows_10_0" />
+      <elements><text id="WorkAdapter" valueName="WorkAdapter" required="true" /></elements>
+    </policy>
+    <policy name="PanelHotkey" class="Machine" displayName="$(string.PanelHotkey)" explainText="$(string.PanelHotkey_Help)" presentation="$(presentation.PanelHotkey)" key="SOFTWARE\Policies\NetPaw">
+      <parentCategory ref="NetPaw" /><supportedOn ref="windows:SUPPORTED_Windows_10_0" />
+      <elements><text id="PanelHotkey" valueName="PanelHotkey" required="true" /></elements>
+    </policy>
+    <policy name="ConfirmBeforeApply" class="Machine" displayName="$(string.ConfirmBeforeApply)" explainText="$(string.ConfirmBeforeApply_Help)" key="SOFTWARE\Policies\NetPaw" valueName="ConfirmBeforeApply">
+      <parentCategory ref="NetPaw" /><supportedOn ref="windows:SUPPORTED_Windows_10_0" />
+      <enabledValue><decimal value="1" /></enabledValue><disabledValue><decimal value="0" /></disabledValue>
+    </policy>
+    <policy name="RepoUrls" class="Machine" displayName="$(string.RepoUrls)" explainText="$(string.RepoUrls_Help)" presentation="$(presentation.RepoUrls)" key="SOFTWARE\Policies\NetPaw">
+      <parentCategory ref="NetPaw" /><supportedOn ref="windows:SUPPORTED_Windows_10_0" />
+      <elements><multiText id="RepoUrls" valueName="RepoUrls" required="true" /></elements>
+    </policy>
+    <policy name="AllowUserProfiles" class="Machine" displayName="$(string.AllowUserProfiles)" explainText="$(string.AllowUserProfiles_Help)" key="SOFTWARE\Policies\NetPaw" valueName="AllowUserProfiles">
+      <parentCategory ref="NetPaw" /><supportedOn ref="windows:SUPPORTED_Windows_10_0" />
+      <enabledValue><decimal value="1" /></enabledValue><disabledValue><decimal value="0" /></disabledValue>
+    </policy>
+    <policy name="AllowUserRepos" class="Machine" displayName="$(string.AllowUserRepos)" explainText="$(string.AllowUserRepos_Help)" key="SOFTWARE\Policies\NetPaw" valueName="AllowUserRepos">
+      <parentCategory ref="NetPaw" /><supportedOn ref="windows:SUPPORTED_Windows_10_0" />
+      <enabledValue><decimal value="1" /></enabledValue><disabledValue><decimal value="0" /></disabledValue>
+    </policy>
+    <policy name="AllowReach" class="Machine" displayName="$(string.AllowReach)" explainText="$(string.AllowReach_Help)" key="SOFTWARE\Policies\NetPaw" valueName="AllowReach">
+      <parentCategory ref="NetPaw" /><supportedOn ref="windows:SUPPORTED_Windows_10_0" />
+      <enabledValue><decimal value="1" /></enabledValue><disabledValue><decimal value="0" /></disabledValue>
+    </policy>
+    <policy name="AllowTempAddresses" class="Machine" displayName="$(string.AllowTempAddresses)" explainText="$(string.AllowTempAddresses_Help)" key="SOFTWARE\Policies\NetPaw" valueName="AllowTempAddresses">
+      <parentCategory ref="NetPaw" /><supportedOn ref="windows:SUPPORTED_Windows_10_0" />
+      <enabledValue><decimal value="1" /></enabledValue><disabledValue><decimal value="0" /></disabledValue>
+    </policy>
+    <policy name="AllowDhcp" class="Machine" displayName="$(string.AllowDhcp)" explainText="$(string.AllowDhcp_Help)" key="SOFTWARE\Policies\NetPaw" valueName="AllowDhcp">
+      <parentCategory ref="NetPaw" /><supportedOn ref="windows:SUPPORTED_Windows_10_0" />
+      <enabledValue><decimal value="1" /></enabledValue><disabledValue><decimal value="0" /></disabledValue>
+    </policy>
+    <policy name="AllowUnsignedRepos" class="Machine" displayName="$(string.AllowUnsignedRepos)" explainText="$(string.AllowUnsignedRepos_Help)" key="SOFTWARE\Policies\NetPaw" valueName="AllowUnsignedRepos">
+      <parentCategory ref="NetPaw" /><supportedOn ref="windows:SUPPORTED_Windows_10_0" />
+      <enabledValue><decimal value="1" /></enabledValue><disabledValue><decimal value="0" /></disabledValue>
+    </policy>
+  </policies>
+</policyDefinitions>

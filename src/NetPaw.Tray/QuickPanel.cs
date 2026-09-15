@@ -104,7 +104,9 @@ sealed class QuickPanel : Form
         var svc = _app.Service; var w = _app.Work;
         var looksLikeIp = q.Length > 0 && char.IsAsciiDigit(q[0]) && q.Contains('.');
 
-        if (looksLikeIp)
+        if (looksLikeIp && !svc.Allowed(Capability.Reach))
+            _items.Add(new Item("Reach mode is disabled by policy", "Your organisation manages this setting.", Theme.Error, () => { }));
+        else if (looksLikeIp)
         {
             if (IpMath.TryParseCidr(q, out _, svc.Settings.ReachDefaultPrefix))
             {
@@ -133,9 +135,9 @@ sealed class QuickPanel : Form
                 var badgeColor = current ? Theme.Static : p.Managed ? Theme.Temp : Theme.Accent;
                 _items.Add(new Item(p.Name, p.Summary() + (p.Hotkey is null ? "" : "   " + p.Hotkey), p.Dhcp ? Theme.Dhcp : Theme.Static, () => _app.ApplyProfile(p), null, p, Badge: badge, BadgeColor: badgeColor));
             }
-            if (q.Length == 0 || Fuzzy("dhcp", q))
+            if ((q.Length == 0 || Fuzzy("dhcp", q)) && svc.Allowed(Capability.Dhcp))
                 _items.Add(new Item("DHCP now", $"Let {w?.Name ?? "the adapter"} take a lease", Theme.Dhcp, _app.ApplyDhcp, Badge: w?.Dhcp == true ? "current" : null, BadgeColor: Theme.Static));
-            if (q.Length > 0)
+            if (q.Length > 0 && svc.Allowed(Capability.Reach) && svc.Allowed(Capability.TempAddresses))
                 foreach (var pr in PresetLibrary.Search(svc.Presets, q).Take(8))
                     _items.Add(new Item($"{pr.Vendor} {pr.Model}", $"{pr.Ip}/{pr.Prefix}{(pr.Note is null ? "" : "   " + pr.Note)}", Theme.Temp, () => _app.ApplyPreset(pr)));
             var temps = svc.TempAddresses;

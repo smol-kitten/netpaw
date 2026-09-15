@@ -93,11 +93,12 @@ sealed class TrayApp : ApplicationContext
             _menu.Items.Add(item);
         }
         _menu.Items.Add(new ToolStripSeparator());
-        var dhcp = new ToolStripMenuItem("DHCP now", Icons.Dot(Theme.Dhcp), (_, _) => ApplyDhcp()) { Checked = w?.Dhcp == true };
-        _menu.Items.Add(dhcp);
-        _menu.Items.Add(new ToolStripMenuItem("Reach IP…", null, (_, _) => ShowPanel()) { ShortcutKeyDisplayString = _svc.Settings.PanelHotkey });
+        if (_svc.Allowed(Capability.Dhcp))
+            _menu.Items.Add(new ToolStripMenuItem("DHCP now", Icons.Dot(Theme.Dhcp), (_, _) => ApplyDhcp()) { Checked = w?.Dhcp == true });
+        if (_svc.Allowed(Capability.Reach))
+            _menu.Items.Add(new ToolStripMenuItem("Reach IP…", null, (_, _) => ShowPanel()) { ShortcutKeyDisplayString = _svc.Settings.PanelHotkey });
 
-        var presets = new ToolStripMenuItem("Device presets");
+        var presets = new ToolStripMenuItem("Device presets") { Visible = _svc.Allowed(Capability.Reach) && _svc.Allowed(Capability.TempAddresses) };
         foreach (var vendor in _svc.Presets.GroupBy(p => p.Vendor).OrderBy(g => g.Key))
         {
             var vm = new ToolStripMenuItem(vendor.Key);
@@ -131,7 +132,8 @@ sealed class TrayApp : ApplicationContext
         adapters.DropDownItems.Add(auto);
         adapters.DropDown.Renderer = _menu.Renderer;
         _menu.Items.Add(adapters);
-        _menu.Items.Add(new ToolStripMenuItem("Capture current as profile…", null, (_, _) => CaptureCurrent()));
+        if (_svc.Allowed(Capability.UserProfiles))
+            _menu.Items.Add(new ToolStripMenuItem("Capture current as profile…", null, (_, _) => CaptureCurrent()));
         _menu.Items.Add(new ToolStripMenuItem("Manage profiles…", null, (_, _) => ShowEditor()));
         _menu.Items.Add(new ToolStripMenuItem("Settings…", null, (_, _) => ShowSettings()));
         _menu.Items.Add(new ToolStripMenuItem("Open log", null, (_, _) => OpenLog()));
@@ -144,14 +146,17 @@ sealed class TrayApp : ApplicationContext
     public void ApplyProfile(Profile p)
     {
         try { Execute(_svc.PlanProfile(p, _svc.ResolveAdapter(p.Adapter, _adapters))); }
-        catch (InvalidOperationException ex) { Notify("Cannot apply " + p.Name, ex.Message, ToolTipIcon.Error); }
+        catch (InvalidOperationException ex) { Status?.Invoke(ex.Message, "error"); Notify("Cannot apply " + p.Name, ex.Message, ToolTipIcon.Error); }
     }
 
     public void ApplyDhcp()
     {
         var w = Work; if (w is null) { Notify("No adapter", "Pick a work adapter first.", ToolTipIcon.Warning); return; }
+        if (!_svc.Allowed(Capability.Dhcp)) { Denied(Capability.Dhcp); return; }
         Execute(ApplyPlanner.PlanDhcp(w));
     }
+
+    void Denied(Capability c) { var msg = new DeniedByPolicyException(c).Message; Status?.Invoke(msg, "error"); Notify("Not allowed", msg, ToolTipIcon.Warning); }
 
     public void ApplyPreset(Presets.Preset preset)
     {
@@ -165,7 +170,9 @@ sealed class TrayApp : ApplicationContext
     public void Reach(string target, bool? replace = null)
     {
         var w = Work; if (w is null) { Notify("No adapter", "Pick a work adapter first.", ToolTipIcon.Warning); return; }
+        if (!_svc.Allowed(Capability.Reach)) { Denied(Capability.Reach); return; }
         var d = _svc.ResolveReach(target, w);
+        if (d.Kind is ReachKind.TempAddress or ReachKind.UsePreset && !_svc.Allowed(Capability.TempAddresses)) { Denied(Capability.TempAddresses); return; }
         switch (d.Kind)
         {
             case ReachKind.Invalid: Status?.Invoke(d.Explanation, "error"); Notify("Reach", d.Explanation, ToolTipIcon.Warning); return;
@@ -188,6 +195,7 @@ sealed class TrayApp : ApplicationContext
     void CaptureCurrent()
     {
         var w = Work; if (w is null) return;
+        if (!_svc.Allowed(Capability.UserProfiles)) { Denied(Capability.UserProfiles); return; }
         var name = Prompt.Ask("Capture current configuration", $"Save {w.Name} ({w.Summary()}) as profile:", w.Dhcp ? "DHCP" : w.Primary?.Network ?? "profile");
         if (string.IsNullOrWhiteSpace(name)) return;
         var p = _svc.Capture(name.Trim(), w);

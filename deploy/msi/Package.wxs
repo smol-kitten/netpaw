@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- NetPaw per-machine MSI (WiX v5). No custom actions: installs two files, creates the managed
+     profiles folder, adds a Start-menu shortcut and puts the CLI on PATH. Intune can upload this
+     as a line-of-business app directly; GPO software installation accepts it as-is. -->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="NetPaw" Manufacturer="smol-kitten" Version="$(var.Version)" UpgradeCode="7b6a1d0e-5c1f-4e0a-9f2b-2d3e4f5a6b7c" Scope="perMachine" Language="1033" Codepage="1252" InstallerVersion="500">
+    <MajorUpgrade DowngradeErrorMessage="A newer version of NetPaw is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+    <Icon Id="NetPawIco" SourceFile="$(var.BinDir)\NetPaw.exe" />
+    <Property Id="ARPPRODUCTICON" Value="NetPawIco" />
+    <Property Id="ARPURLINFOABOUT" Value="https://github.com/smol-kitten/netpaw" />
+    <Property Id="ARPNOMODIFY" Value="1" />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="NetPaw">
+        <Component Id="TrayExe" Guid="c1a2b3c4-0001-4a5b-8c9d-0e1f2a3b4c5d" Bitness="always64">
+          <File Id="NetPawExe" Source="$(var.BinDir)\NetPaw.exe" KeyPath="yes" />
+        </Component>
+        <Component Id="CliExe" Guid="c1a2b3c4-0002-4a5b-8c9d-0e1f2a3b4c5d" Bitness="always64">
+          <File Id="NetPawCliExe" Source="$(var.BinDir)\netpaw-cli.exe" KeyPath="yes" />
+          <Environment Id="PathEntry" Name="PATH" Value="[INSTALLFOLDER]" Permanent="no" Part="last" Action="set" System="yes" />
+        </Component>
+      </Directory>
+    </StandardDirectory>
+
+    <StandardDirectory Id="CommonAppDataFolder">
+      <Directory Id="DataFolder" Name="NetPaw">
+        <Directory Id="ProfilesD" Name="profiles.d">
+          <Component Id="ProfilesFolder" Guid="c1a2b3c4-0003-4a5b-8c9d-0e1f2a3b4c5d" Bitness="always64">
+            <CreateFolder />
+            <RemoveFolder Id="RemoveProfilesD" On="uninstall" />
+            <RemoveFolder Id="RemoveDataFolder" Directory="DataFolder" On="uninstall" />
+            <RegistryValue Root="HKLM" Key="SOFTWARE\NetPaw" Name="ProfilesD" Value="[ProfilesD]" Type="string" KeyPath="yes" />
+          </Component>
+        </Directory>
+      </Directory>
+    </StandardDirectory>
+
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Component Id="StartMenuShortcut" Guid="c1a2b3c4-0004-4a5b-8c9d-0e1f2a3b4c5d" Bitness="always64">
+        <Shortcut Id="StartMenuNetPaw" Name="NetPaw" Description="Static-IP profiles in the tray" Target="[INSTALLFOLDER]NetPaw.exe" WorkingDirectory="INSTALLFOLDER" Icon="NetPawIco" />
+        <RegistryValue Root="HKCU" Key="SOFTWARE\NetPaw" Name="StartMenu" Value="1" Type="integer" KeyPath="yes" />
+      </Component>
+    </StandardDirectory>
+
+    <Feature Id="Main" Title="NetPaw" Level="1">
+      <ComponentRef Id="TrayExe" />
+      <ComponentRef Id="CliExe" />
+      <ComponentRef Id="ProfilesFolder" />
+      <ComponentRef Id="StartMenuShortcut" />
+    </Feature>
+  </Package>
+</Wix>
