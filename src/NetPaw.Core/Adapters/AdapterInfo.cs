@@ -56,7 +56,9 @@ public static class AdapterSelector
             var named = adapters.FirstOrDefault(a => string.Equals(a.Name, preferredName, StringComparison.OrdinalIgnoreCase));
             if (named is not null) return named;
         }
-        var host = adapters.Where(a => a.HostFacing).OrderBy(a => a.IsPhysical ? 0 : 1).ToList();
+        // vEthernet adapters qualify only when they carry a gateway (external switch shared with the host);
+        // internal switches (WSL, Default Switch, Docker) have NAT addresses and must never become the work adapter.
+        var host = adapters.Where(a => a.IsPhysical || (a.HyperVVirtual && a.HasGateway)).OrderBy(a => a.IsPhysical ? 0 : 1).ToList();
         return host.FirstOrDefault(a => a.Up && a.HasGateway && !a.VSwitchUplink)
             ?? host.FirstOrDefault(a => a.Up && a.HasRealAddress && !a.VSwitchUplink)
             ?? host.FirstOrDefault(a => a.Up && !a.VSwitchUplink)
@@ -64,10 +66,14 @@ public static class AdapterSelector
             ?? host.FirstOrDefault();
     }
 
-    /// <summary>Marks physical NICs that are bound to an external Hyper-V switch (up, no IPv4 at all, and a vEthernet adapter exists on the machine).</summary>
+    /// <summary>
+    /// Marks physical NICs that are bound to an external Hyper-V switch: up with no IPv4 at all while a
+    /// vEthernet adapter that is up and has a gateway exists (an external switch shared with the host).
+    /// Internal switches (WSL, Default Switch) do not count, so a NIC waiting for DHCP is not mis-tagged.
+    /// </summary>
     public static IReadOnlyList<AdapterInfo> TagVSwitchUplinks(IReadOnlyList<AdapterInfo> adapters)
     {
-        if (!adapters.Any(a => a.HyperVVirtual)) return adapters;
+        if (!adapters.Any(a => a.HyperVVirtual && a.Up && a.HasGateway)) return adapters;
         return adapters.Select(a => a.IsPhysical && a.Up && a.Addresses.Count == 0 ? a with { VSwitchUplink = true } : a).ToList();
     }
 }
