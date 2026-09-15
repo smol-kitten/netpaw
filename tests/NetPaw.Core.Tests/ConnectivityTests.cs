@@ -136,3 +136,47 @@ public class AdvisorTests
         Assert.False(s.ShouldRenew(r, [new Advisory(AdvisorySeverity.Info, "s", "t", false)], t0.AddSeconds(400)));
     }
 }
+
+public class HyperVTests
+{
+    static NetPaw.Adapters.AdapterInfo Nic(string name, string desc, bool physical, bool hyperv, string[]? addrs, string? gw) =>
+        new(name, desc, "{" + name + "}", 1, true, physical, addrs is not null, (addrs ?? []).Select(NetPaw.Model.IpAddr.Parse).ToList(), gw is null ? [] : [gw], [], "AA") { HyperVVirtual = hyperv };
+
+    static IReadOnlyList<NetPaw.Adapters.AdapterInfo> Host() => NetPaw.Adapters.AdapterSelector.TagVSwitchUplinks(
+    [
+        Nic("Ethernet", "Intel(R) 82599 10 Gigabit Network Connection", true, false, null, null),          // bound to the external vSwitch
+        Nic("Ethernet 2", "Marvell AQtion 10GBASE-T Network Adapter", true, false, null, null) with { Up = false },
+        Nic("vEthernet (UwU)", "Hyper-V Virtual Ethernet Adapter #2", false, true, ["10.10.0.42/24"], "10.10.0.1"),
+        Nic("WLAN", "Intel(R) Wi-Fi 6E AX211 160MHz", true, false, null, null) with { Up = false },
+    ]);
+
+    [Fact]
+    public void UplinkIsTaggedAndVEthernetWinsAutoDetect()
+    {
+        var all = Host();
+        Assert.True(all.First(a => a.Name == "Ethernet").VSwitchUplink);
+        Assert.False(all.First(a => a.Name == "Ethernet 2").VSwitchUplink);               // down, not an uplink
+        Assert.Equal("vEthernet (UwU)", NetPaw.Adapters.AdapterSelector.Pick(all, null)!.Name);
+        Assert.Equal("Ethernet", NetPaw.Adapters.AdapterSelector.Pick(all, "Ethernet")!.Name); // explicit choice still honoured
+        Assert.Contains("switch uplink", all.First(a => a.Name == "Ethernet").Summary());
+    }
+
+    [Fact]
+    public async Task UplinkIsNotAProblemAndGetsAnExplanation()
+    {
+        var uplink = Host().First(a => a.Name == "Ethernet");
+        var snap = await new ConnectivityChecker(new FakeProbe()).Check(uplink, new CheckSettings { Enabled = true });
+        Assert.Equal(NetState.VSwitchUplink, snap.State);
+        Assert.False(Snapshot.IsProblem(snap.State));
+        var adv = Assert.Single(Advisor.Analyze(snap));
+        Assert.Equal(AdvisorySeverity.Info, adv.Severity); Assert.Contains("vEthernet", adv.Text); Assert.False(adv.CanRenew);
+    }
+
+    [Fact]
+    public void NoHyperVMeansNoTagging()
+    {
+        var plain = NetPaw.Adapters.AdapterSelector.TagVSwitchUplinks([Nic("Ethernet", "Intel", true, false, null, null)]);
+        Assert.False(plain[0].VSwitchUplink);
+        Assert.Equal("Ethernet", NetPaw.Adapters.AdapterSelector.Pick(plain, null)!.Name);
+    }
+}

@@ -163,7 +163,7 @@ public sealed class NetPawService
         return Settings.InstallId;
     }
 
-    public IReadOnlyList<AdapterInfo> GetAdapters() => Adapters.GetAdapters();
+    public IReadOnlyList<AdapterInfo> GetAdapters() => AdapterSelector.TagVSwitchUplinks(Adapters.GetAdapters());
 
     public AdapterInfo? WorkAdapter(IReadOnlyList<AdapterInfo>? adapters = null) =>
         AdapterSelector.Pick(adapters ?? GetAdapters(), Settings.WorkAdapter);

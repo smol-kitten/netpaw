@@ -17,3 +17,6 @@ Its signature or an entry hash did not match the pinned key. NetPaw keeps the la
 
 ## Something went wrong — where do I look?
 `%APPDATA%\NetPaw\netpaw.log` has every command NetPaw ran with its output. *Open log* is in the tray menu.
+
+## "Link up, no IPv4 address" on a Hyper-V host
+The physical NIC bound to an external virtual switch carries the switch and has no host address by design; the host's address lives on the matching **vEthernet (…)** adapter. NetPaw detects this (summary *Hyper-V switch uplink*), auto-detect prefers the vEthernet adapter, and the info card explains it. If you pinned the physical NIC as work adapter, pick the vEthernet one in *tray menu → Work adapter*.
