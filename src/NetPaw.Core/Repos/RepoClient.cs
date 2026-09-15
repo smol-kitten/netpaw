@@ -16,7 +16,7 @@ public interface IPackFetcher
 public sealed class HttpPackFetcher : IPackFetcher
 {
     static readonly HttpClient Http = new(new SocketsHttpHandler { AutomaticDecompression = DecompressionMethods.All }) { Timeout = TimeSpan.FromSeconds(10) };
-    static HttpPackFetcher() => Http.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("NetPaw", "0.2"));
+    static HttpPackFetcher() => Http.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("NetPaw", "0.2.0"));
 
     public async Task<(HttpStatusCode, string?, string?)> Fetch(string url, string? etag, CancellationToken ct)
     {
