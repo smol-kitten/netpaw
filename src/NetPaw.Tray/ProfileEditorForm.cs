@@ -86,6 +86,7 @@ sealed class ProfileEditorForm : Form
                 case Keys.Control | Keys.P: Preview(); break;
                 case Keys.Control | Keys.Enter: SaveAndApply(); break;
                 case Keys.Escape: Close(); break;
+                case Keys.F1: _app.ShowHelp("profiles"); break;
                 default: return;
             }
             e.Handled = true; e.SuppressKeyPress = true;

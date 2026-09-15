@@ -1,5 +1,7 @@
 using System.Diagnostics;
+using System.Net.NetworkInformation;
 using NetPaw.Adapters;
+using NetPaw.Connectivity;
 using NetPaw.Hotkeys;
 using NetPaw.Model;
 using NetPaw.Planning;
@@ -17,10 +19,17 @@ sealed class TrayApp : ApplicationContext
     readonly System.Windows.Forms.Timer _refresh = new() { Interval = 15_000 };
     QuickPanel? _panel;
     ProfileEditorForm? _editor;
+    InfoToast? _toast;
+    HelpForm? _help;
+    readonly ConnectivityChecker _checker = new(new NetworkProbe());
+    readonly System.Windows.Forms.Timer _checkTimer = new();
+    Snapshot? _snapshot, _previous;
+    bool _checking;
     bool _busy;
     IReadOnlyList<AdapterInfo> _adapters = [];
 
     public NetPawService Service => _svc;
+    public Snapshot? LastSnapshot => _snapshot;
     /// <summary>(text, kind) kind: "busy" | "ok" | "warn" | "error". The quick panel shows it inline instead of a balloon.</summary>
     public event Action<string, string>? Status;
     bool PanelShowing => _panel is { Visible: true };
@@ -39,7 +48,73 @@ sealed class TrayApp : ApplicationContext
         _hotkeys.ShowRequested += () => ShowPanel();
         RegisterHotkeys();
         RefreshState();
+        _checkTimer.Tick += (_, _) => _ = RunCheck();
+        ConfigureChecks();
+        // Instant reaction to cable pulls / address changes, on top of the periodic probe.
+        NetworkChange.NetworkAvailabilityChanged += (_, _) => OnNetworkEvent();
+        NetworkChange.NetworkAddressChanged += (_, _) => OnNetworkEvent();
+        _ = RunCheck();
         if (showPanelAtStart) { var once = new System.Windows.Forms.Timer { Interval = 200 }; once.Tick += (_, _) => { once.Dispose(); ShowPanel(); }; once.Start(); }
+    }
+
+    // ---- connectivity ----------------------------------------------------------------------
+
+    public void ConfigureChecks()
+    {
+        var c = _svc.Settings.Checks;
+        _checkTimer.Stop();
+        if (c.Enabled) { _checkTimer.Interval = Math.Clamp(c.IntervalSeconds, 5, 3600) * 1000; _checkTimer.Start(); }
+    }
+
+    /// <summary>NetworkChange fires on a worker thread, in bursts; hop to the UI thread and let RunCheck coalesce.</summary>
+    void OnNetworkEvent()
+    {
+        if (!_hotkeys.IsHandleCreated) return;
+        try { _hotkeys.BeginInvoke(() => _ = RunCheck()); } catch (InvalidOperationException) { }
+    }
+
+    /// <summary>One probe round on a worker thread; updates icon and toast, and (monitor mode) notifies on transitions.</summary>
+    public async Task RunCheck()
+    {
+        if (_checking) return;
+        _checking = true;
+        try
+        {
+            try { _adapters = _svc.GetAdapters(); } catch (Exception ex) { _svc.Store.Log("adapters: " + ex.Message); }
+            var work = Work;
+            var snap = await Task.Run(() => _checker.Check(work, _svc.Settings.Checks));
+            _previous = _snapshot; _snapshot = snap;
+            RefreshState();
+            _toast?.Render(snap);
+            var change = Transitions.Detect(_previous, snap);
+            // Link-down/up is always announced (it needs no probes); the finer states only in monitor mode.
+            var linkEvent = change is not null && (change.To == NetState.LinkDown || change.From == NetState.LinkDown);
+            if (change is not null && (_svc.Settings.Checks.MonitorMode || linkEvent))
+            {
+                _svc.Store.Log($"monitor: {change.From} -> {change.To}: {change.Text}");
+                Notify(change.Title, change.Text, change.IsProblem ? ToolTipIcon.Warning : ToolTipIcon.Info, force: true);
+            }
+            if (_svc.Settings.Checks.StickyAlerts)
+            {
+                var problem = Snapshot.IsProblem(snap.State);
+                if (problem || _toast is { Visible: true }) { _toast ??= new InfoToast(this); _toast.AutoPin(problem); }
+            }
+        }
+        finally { _checking = false; }
+    }
+
+    public void ShowInfo()
+    {
+        _toast ??= new InfoToast(this);
+        _toast.Present();
+        _ = RunCheck();
+    }
+
+    public void ShowHelp(string topic)
+    {
+        if (_help is null || _help.IsDisposed) _help = new HelpForm();
+        _help.Show(); _help.Activate(); Native.ForceForeground(_help.Handle);
+        _help.Open(topic);
     }
 
     // ---- state -----------------------------------------------------------------------------
@@ -50,9 +125,10 @@ sealed class TrayApp : ApplicationContext
         var w = Work;
         var temps = _svc.TempAddresses.Count;
         var color = _busy ? Theme.Busy : w is null || !w.Up ? Theme.Down : temps > 0 ? Theme.Temp : w.Dhcp ? Theme.Dhcp : Theme.Static;
-        _tray.Icon = Icons.Paw(color);
+        var problem = _snapshot is not null && Snapshot.IsProblem(_snapshot.State);
+        _tray.Icon = Icons.Paw(color, problem ? Theme.Error : null);
         var current = w is null ? null : _svc.Profiles.FirstOrDefault(p => ApplyPlanner.Matches(p, w));
-        var text = w is null ? "NetPaw — no adapter" : $"NetPaw — {w.Name}: {(current?.Name is { } n ? n + " · " : "")}{w.Summary()}";
+        var text = w is null ? "NetPaw — no adapter" : $"NetPaw — {w.Name}: {(current?.Name is { } n ? n + " · " : "")}{w.Summary()}{(_snapshot is { ChecksEnabled: true } ? " · " + Snapshot.Describe(_snapshot.State) : "")}";
         _tray.Text = text.Length > 127 ? text[..124] + "…" : text;
         _panel?.RefreshHeader();
     }
@@ -63,6 +139,8 @@ sealed class TrayApp : ApplicationContext
         var problems = new List<string>();
         if (HotkeyParser.TryParse(_svc.Settings.PanelHotkey, out var panelKey))
             if (_hotkeys.Register(panelKey, () => ShowPanel()) is { } err) problems.Add(err);
+        if (HotkeyParser.TryParse(_svc.Settings.InfoHotkey, out var infoKey))
+            if (_hotkeys.Register(infoKey, ShowInfo) is { } err2) problems.Add(err2);
         foreach (var p in _svc.Profiles.Where(p => p.Hotkey is not null))
         {
             if (!HotkeyParser.TryParse(p.Hotkey, out var k)) { problems.Add($"'{p.Name}': bad hotkey {p.Hotkey}"); continue; }
@@ -134,9 +212,11 @@ sealed class TrayApp : ApplicationContext
         _menu.Items.Add(adapters);
         if (_svc.Allowed(Capability.UserProfiles))
             _menu.Items.Add(new ToolStripMenuItem("Capture current as profile…", null, (_, _) => CaptureCurrent()));
+        _menu.Items.Add(new ToolStripMenuItem("Network info", null, (_, _) => ShowInfo()) { ShortcutKeyDisplayString = _svc.Settings.InfoHotkey });
         _menu.Items.Add(new ToolStripMenuItem("Manage profiles…", null, (_, _) => ShowEditor()));
         _menu.Items.Add(new ToolStripMenuItem("Settings…", null, (_, _) => ShowSettings()));
         _menu.Items.Add(new ToolStripMenuItem("Open log", null, (_, _) => OpenLog()));
+        _menu.Items.Add(new ToolStripMenuItem("Help", null, (_, _) => ShowHelp("overview")) { ShortcutKeyDisplayString = "F1" });
         _menu.Items.Add(new ToolStripSeparator());
         _menu.Items.Add(new ToolStripMenuItem("Exit", null, (_, _) => Quit()));
     }
@@ -249,10 +329,10 @@ sealed class TrayApp : ApplicationContext
         }, TaskScheduler.FromCurrentSynchronizationContext());
     }
 
-    public void Notify(string title, string text, ToolTipIcon icon)
+    public void Notify(string title, string text, ToolTipIcon icon, bool force = false)
     {
         _svc.Store.Log($"notify [{icon}] {title}: {text.ReplaceLineEndings(" | ")}");
-        if (icon == ToolTipIcon.Info && (!_svc.Settings.ShowNotifications || PanelShowing)) return; // the panel shows it inline
+        if (!force && icon == ToolTipIcon.Info && (!_svc.Settings.ShowNotifications || PanelShowing)) return; // the panel shows it inline
         _tray.ShowBalloonTip(icon == ToolTipIcon.Error ? 8000 : 3000, title, text.Length > 250 ? text[..247] + "…" : text, icon);
     }
 
@@ -296,7 +376,7 @@ sealed class TrayApp : ApplicationContext
 
     protected override void Dispose(bool disposing)
     {
-        if (disposing) { _tray.Dispose(); _menu.Dispose(); _refresh.Dispose(); _hotkeys.Dispose(); }
+        if (disposing) { _tray.Dispose(); _menu.Dispose(); _refresh.Dispose(); _checkTimer.Dispose(); _hotkeys.Dispose(); _toast?.Dispose(); _help?.Dispose(); }
         base.Dispose(disposing);
     }
 }

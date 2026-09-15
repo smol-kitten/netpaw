@@ -5,11 +5,12 @@ namespace NetPaw.Tray;
 /// <summary>Tray icons are drawn at runtime (a paw tinted by adapter state) so the repo ships no binary assets.</summary>
 static class Icons
 {
-    static readonly Dictionary<Color, Icon> Cache = [];
+    static readonly Dictionary<(Color, Color?), Icon> Cache = [];
 
-    public static Icon Paw(Color tint)
+    /// <param name="dot">Optional status dot (bottom-right) — red while monitor mode sees a problem.</param>
+    public static Icon Paw(Color tint, Color? dot = null)
     {
-        if (Cache.TryGetValue(tint, out var cached)) return cached;
+        if (Cache.TryGetValue((tint, dot), out var cached)) return cached;
         using var bmp = new Bitmap(32, 32);
         using (var g = Graphics.FromImage(bmp))
         {
@@ -23,11 +24,16 @@ static class Icons
             g.FillEllipse(b, 10, 2, 6, 8);
             g.FillEllipse(b, 17, 2, 6, 8);
             g.FillEllipse(b, 23, 8, 7, 8);
+            if (dot is { } d)
+            {
+                using var ring = new SolidBrush(Color.FromArgb(24, 26, 32)); using var db = new SolidBrush(d);
+                g.FillEllipse(ring, 18, 18, 14, 14); g.FillEllipse(db, 20, 20, 10, 10);
+            }
         }
         var h = bmp.GetHicon();
         var icon = (Icon)Icon.FromHandle(h).Clone();
         Native.DestroyIcon(h);
-        Cache[tint] = icon;
+        Cache[(tint, dot)] = icon;
         return icon;
     }
 

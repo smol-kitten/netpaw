@@ -15,5 +15,8 @@ public sealed class Settings
     public List<string> RepoUrls { get; set; } = [CommunityRepo];
 
     /// <summary>The community pack in this repo, pinned to its signing key. Listed by default, fetched only on an explicit Sync (never at start-up).</summary>
+    public string InfoHotkey { get; set; } = "Ctrl+Alt+I";
+    public Connectivity.CheckSettings Checks { get; set; } = new();
+
     public const string CommunityRepo = "https://raw.githubusercontent.com/smol-kitten/netpaw/main/packs/community/index.json|ec6ef08c:MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEkWwClD0ojzS8c3otMcxZ6nzXZiF0QxFvTgpWMT3zmQDywGACDuUqj21aiLzpjfgJBchHNttrU637vWycRKMMnA==";
 }
