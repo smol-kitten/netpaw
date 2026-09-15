@@ -26,6 +26,8 @@ sealed class TrayApp : ApplicationContext
     Snapshot? _snapshot, _previous, _announced;
     readonly RenewScheduler _renew = new();
     IReadOnlyList<Advisory> _advisories = [];
+    IReadOnlyList<VpnInfo> _vpns = [];
+    public IReadOnlyList<VpnInfo> Vpns => _vpns;
     IReadOnlyList<string> _loggedAdvisories = [];
     DateTime? _advisoriesSince;
     IncidentLog? _incidents;
@@ -106,6 +108,14 @@ sealed class TrayApp : ApplicationContext
             var snap = await Task.Run(() => _checker.Check(work, _svc.Settings.Checks));
             _previous = _snapshot; _snapshot = snap;
             _advisories = _svc.Settings.Repair.DhcpAdvisory ? Advisor.Analyze(snap) : [];
+            var vpns = VpnDetector.Detect(_adapters);
+            foreach (var msg in VpnDetector.Changes(_vpns, vpns))
+            {
+                _svc.Store.Log("vpn: " + msg);
+                if (_svc.Settings.Repair.VpnNotifications && _vpns.Count + vpns.Count > 0 && _snapshot is not null) Notify("VPN", msg, ToolTipIcon.Info, force: true);
+                if (_svc.Settings.Repair.IncidentLog) (_incidents ??= new IncidentLog(_svc.Store.IncidentsFile)).Append(new Incident(DateTimeOffset.Now, msg.Contains('\'') ? msg.Split('\'')[1] : "vpn", "vpn", "", "", msg, []));
+            }
+            _vpns = vpns;
             RefreshState();
             if (_svc.Settings.Repair.IncidentLog)
             {
@@ -118,7 +128,7 @@ sealed class TrayApp : ApplicationContext
                     if (titles.Count == 0 || DateTime.UtcNow - _advisoriesSince >= TimeSpan.FromSeconds(10))
                     {
                         _incidents ??= new IncidentLog(_svc.Store.IncidentsFile);
-                        if (IncidentLog.FromChange(snap, null, _advisories, _loggedAdvisories) is { } cfg) _incidents.Append(cfg);
+                        if (IncidentLog.FromChange(snap, null, _advisories, _loggedAdvisories) is { } cfg) { _incidents.Append(cfg); TelemetryHost.Export(_svc, cfg.Kind == "config" ? "warn" : "info", cfg.Text, new() { ["adapter"] = cfg.Adapter, ["kind"] = cfg.Kind, ["state"] = cfg.To, ["findings"] = string.Join("; ", cfg.Advisories) }, isIncident: true); }
                         _loggedAdvisories = titles; _advisoriesSince = null;
                     }
                     else { _confirm.Stop(); _confirm.Interval = 10_100; _confirm.Start(); }
@@ -148,6 +158,7 @@ sealed class TrayApp : ApplicationContext
                     {
                         _svc.Store.Log($"monitor: {change.From} -> {change.To}: {change.Text}");
                         TelemetryHost.Event("monitor", change.To.ToString(), change.From.ToString());
+                        TelemetryHost.Export(_svc, change.IsProblem ? "warn" : "info", change.Title + ": " + change.Text, new() { ["adapter"] = snap.Adapter?.Name, ["from"] = change.From.ToString(), ["to"] = change.To.ToString(), ["kind"] = change.IsProblem ? "problem" : "recovery" }, isIncident: true);
                         Notify(change.Title, change.Text, change.IsProblem ? ToolTipIcon.Warning : ToolTipIcon.Info, force: true);
                     }
                 }
@@ -180,6 +191,14 @@ sealed class TrayApp : ApplicationContext
         using var f = new ScanForm(this, w);
         f.ShowDialog();
         RefreshState(); _ = RunCheck();
+    }
+
+    public void ShowMap()
+    {
+        var w = Work; if (w is null) { Notify("No adapter", "Pick a work adapter first.", ToolTipIcon.Warning); return; }
+        using var f = new NetworkMapForm(this, w);
+        f.ShowDialog();
+        RefreshState();
     }
 
     public void ShowInfo()
@@ -301,6 +320,7 @@ sealed class TrayApp : ApplicationContext
             _menu.Items.Add(new ToolStripMenuItem("Capture current as profile…", null, (_, _) => CaptureCurrent()));
         _menu.Items.Add(new ToolStripMenuItem("Network info", null, (_, _) => ShowInfo()) { ShortcutKeyDisplayString = _svc.Settings.InfoHotkey });
         _menu.Items.Add(new ToolStripMenuItem("Scan for a working profile…", null, (_, _) => ShowScan()));
+        _menu.Items.Add(new ToolStripMenuItem("Network map (ARP / find routers)…", null, (_, _) => ShowMap()));
         if (_svc.Settings.Repair.IncidentLog)
             _menu.Items.Add(new ToolStripMenuItem("Open incident log", null, (_, _) => { if (File.Exists(_svc.Store.IncidentsFile)) Process.Start(new ProcessStartInfo(_svc.Store.IncidentsFile) { UseShellExecute = true }); }));
         _menu.Items.Add(new ToolStripMenuItem("Manage profiles…", null, (_, _) => ShowEditor()));
@@ -386,7 +406,7 @@ sealed class TrayApp : ApplicationContext
         if (_svc.Settings.ConfirmBeforeApply || plan.Warnings.Count > 0)
             if (!PlanPreviewForm.Confirm(plan, subtitle)) { Status?.Invoke("Cancelled.", "warn"); return; }
         var kind = plan.Title == "DHCP" ? "dhcp" : plan.Title.StartsWith("reach ") ? "reach" : subtitle is not null ? "preset" : "profile";
-        RunInBackground($"Applying {plan.Title}", () => { ApplyOutcome? o = null; try { o = (custom ?? (() => _svc.Apply(plan)))(); return o; } finally { TelemetryHost.Apply(kind, plan, o); } }, $"{plan.Title} → {plan.Adapter}");
+        RunInBackground($"Applying {plan.Title}", () => { ApplyOutcome? o = null; try { o = (custom ?? (() => _svc.Apply(plan)))(); return o; } finally { TelemetryHost.Apply(kind, plan, o); TelemetryHost.Export(_svc, o is { Success: true } ? "info" : "error", $"apply {kind} '{plan.Title}' on {plan.Adapter}: {(o is null ? "crashed" : o.Success ? "ok" : "failed")}", new() { ["adapter"] = plan.Adapter, ["kind"] = kind, ["profile"] = plan.Title, ["steps"] = plan.Steps.Count, ["result"] = o is null ? "crashed" : o.Success ? "ok" : "failed" }, isIncident: false); } }, $"{plan.Title} → {plan.Adapter}");
     }
 
     void RunInBackground(string title, Func<ApplyOutcome> work, string doneText)

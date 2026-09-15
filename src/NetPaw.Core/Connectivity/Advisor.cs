@@ -79,6 +79,8 @@ public sealed class RepairSettings
     public bool IncidentLog { get; set; }
     /// <summary>Scan: include a DHCP candidate before the static profiles.</summary>
     public bool ScanIncludeDhcp { get; set; } = true;
+    /// <summary>Notify when a VPN comes up/down or switches between full and split tunnel.</summary>
+    public bool VpnNotifications { get; set; } = true;
 }
 
 /// <summary>Decides when an automatic renew is due: bounded per incident, spaced by the interval, never while healthy.</summary>

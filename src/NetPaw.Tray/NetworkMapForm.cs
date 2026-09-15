@@ -1,0 +1,126 @@
+using NetPaw.Adapters;
+using NetPaw.Arp;
+using NetPaw.Model;
+
+namespace NetPaw.Tray;
+
+/// <summary>
+/// Two views of "who is on this cable": the ARP neighbour cache bundled per network (passive, with a
+/// refresh and an active re-check/sweep), and the router finder that borrows an address in each common
+/// subnet and ARPs the usual gateway addresses. Both are explicit actions — nothing runs on its own.
+/// </summary>
+sealed class NetworkMapForm : Form
+{
+    readonly TrayApp _app;
+    readonly AdapterInfo _adapter;
+    readonly IArpProvider _arp = new WindowsArpProvider();
+    readonly TabControl _tabs = new() { Dock = DockStyle.Fill };
+    readonly ListView _hosts = new() { Dock = DockStyle.Fill, View = View.Details, FullRowSelect = true, BorderStyle = BorderStyle.None, ShowGroups = true };
+    readonly ListView _routers = new() { Dock = DockStyle.Fill, View = View.Details, FullRowSelect = true, BorderStyle = BorderStyle.None };
+    readonly Label _status = new() { Dock = DockStyle.Bottom, Height = 24, Padding = new Padding(12, 4, 0, 0), ForeColor = Theme.Muted, Font = Theme.Small };
+    readonly Button _refresh = new() { Text = "Refresh cache", Width = 120, Height = 28 }, _check = new() { Text = "Re-check (ARP)", Width = 130, Height = 28 }, _sweep = new() { Text = "Sweep subnet", Width = 120, Height = 28 };
+    readonly Button _find = new() { Text = "Find routers", Width = 130, Height = 28 }, _copy = new() { Text = "Copy", Width = 70, Height = 28 };
+    CancellationTokenSource? _cts;
+
+    public NetworkMapForm(TrayApp app, AdapterInfo adapter)
+    {
+        _app = app; _adapter = adapter;
+        Text = $"NetPaw — network map on {adapter.Name}"; StartPosition = FormStartPosition.CenterScreen; ClientSize = new Size(820, 520); MinimumSize = new Size(640, 400);
+        foreach (var (h, w) in new[] { ("Address", 140), ("MAC", 150), ("Kind", 80), ("Alive", 90), ("Note", 300) }) _hosts.Columns.Add(h, w);
+        foreach (var (h, w) in new[] { ("Network", 140), ("Responder", 130), ("MAC", 150), ("Round-trip", 80), ("Likely vendor(s)", 280) }) _routers.Columns.Add(h, w);
+        foreach (var lv in new[] { _hosts, _routers }) { lv.BackColor = Theme.Panel; lv.ForeColor = Theme.Text; lv.Font = Theme.Base; }
+        var t1 = new TabPage("Neighbours (ARP)") { BackColor = Theme.Bg }; var t2 = new TabPage("Find routers") { BackColor = Theme.Bg };
+        var bar1 = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 40, Padding = new Padding(8, 6, 8, 0) }; bar1.Controls.AddRange([_refresh, _check, _sweep, _copy]);
+        var bar2 = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 40, Padding = new Padding(8, 6, 8, 0) };
+        var hint = new Label { Text = "Borrows a temporary address in each common subnet, ARPs .1/.254 and vendor defaults, then removes it. ~1-2 s per subnet.", AutoSize = true, ForeColor = Theme.Muted, Font = Theme.Small, Margin = new Padding(8, 8, 0, 0) };
+        bar2.Controls.AddRange([_find, hint]);
+        t1.Controls.Add(_hosts); t1.Controls.Add(bar1); t2.Controls.Add(_routers); t2.Controls.Add(bar2);
+        _tabs.TabPages.Add(t1); _tabs.TabPages.Add(t2);
+        Controls.Add(_tabs); Controls.Add(_status);
+        _refresh.Click += (_, _) => LoadCache();
+        _check.Click += async (_, _) => await Recheck(sweep: false);
+        _sweep.Click += async (_, _) => await Recheck(sweep: true);
+        _find.Click += async (_, _) => await FindRouters();
+        _copy.Click += (_, _) => Clipboard.SetText(string.Join("\r\n", _hosts.Items.Cast<ListViewItem>().Select(i => string.Join("\t", i.SubItems.Cast<ListViewItem.ListViewSubItem>().Select(s => s.Text)))));
+        KeyPreview = true; KeyDown += (_, e) => { if (e.KeyCode == Keys.Escape) Close(); if (e.KeyCode == Keys.F1) _app.ShowHelp("network-map"); };
+        FormClosing += (_, _) => _cts?.Cancel();
+        Theme.Apply(this); Theme.Primary(_find);
+        Load += (_, _) => { Native.Dress(this); Native.ForceForeground(Handle); LoadCache(); };
+    }
+
+    void LoadCache()
+    {
+        var entries = _arp.ReadCache();
+        var bundles = ArpTable.Bundle(entries, _app.Service.GetAdapters());
+        Render(bundles);
+        _status.Text = $"{bundles.Sum(b => b.Hosts.Count)} neighbour(s) in {bundles.Count} network(s) from the ARP cache (passive). Re-check ARPs each one; Sweep asks every address of the adapter's subnet.";
+    }
+
+    void Render(IEnumerable<NetworkBundle> bundles)
+    {
+        _hosts.BeginUpdate(); _hosts.Items.Clear(); _hosts.Groups.Clear();
+        foreach (var b in bundles)
+        {
+            var g = new ListViewGroup(b.Network == "other" ? "other (not in a local subnet)" : $"{b.Cidr}  ·  {b.Adapter}  ·  you are {b.OwnAddress}" + (b.Hosts.Any(h => h.Alive is not null) ? $"  ·  {b.Alive} alive" : ""));
+            _hosts.Groups.Add(g);
+            foreach (var h in b.Hosts)
+            {
+                var alive = h.Alive switch { true => $"✓ {h.Ms} ms", false => "✗", null => "—" };
+                var note = _app.Service.Presets.FirstOrDefault(p => p.Ip == h.Ip) is { } pr ? $"default address of {pr.Vendor} {pr.Model}" : _adapter.Gateways.Contains(h.Ip) ? "default gateway" : "";
+                _hosts.Items.Add(new ListViewItem([h.Ip, h.Mac, h.Kind, alive, note]) { Group = g, ForeColor = h.Alive switch { true => Theme.Static, false => Theme.Error, null => Theme.Text } });
+            }
+        }
+        _hosts.EndUpdate();
+    }
+
+    async Task Recheck(bool sweep)
+    {
+        if (_cts is not null) { _cts.Cancel(); return; }
+        var live = _app.Service.GetAdapters().FirstOrDefault(a => a.Name == _adapter.Name) ?? _adapter;
+        var own = live.Addresses.FirstOrDefault(a => !a.Address.StartsWith("169.254."));
+        if (own is null) { _status.Text = "The adapter has no usable address."; return; }
+        var targets = sweep ? ArpTable.SweepTargets(own).ToList() : ArpTable.Bundle(_arp.ReadCache(), [live]).SelectMany(b => b.Hosts.Select(h => h.Ip)).Distinct().ToList();
+        if (targets.Count == 0) { _status.Text = "Nothing to check."; return; }
+        _cts = new CancellationTokenSource(); _check.Enabled = _sweep.Enabled = false; _refresh.Text = "Cancel";
+        try
+        {
+            var prog = new Progress<int>(n => _status.Text = $"{(sweep ? "Sweeping" : "Re-checking")} {own.Network}/{own.PrefixLength}: {n}/{targets.Count}…");
+            var alive = await ArpReachability.Check(_arp, targets, own.Address, 32, prog, _cts.Token);
+            var aliveSet = alive.ToDictionary(a => a.Ip);
+            var cache = _arp.ReadCache().Where(e => !e.IsBroadcastOrMulticast).ToList();
+            var merged = targets.Select(ip => aliveSet.TryGetValue(ip, out var a) ? a with { Kind = cache.FirstOrDefault(c => c.Ip == ip)?.Kind ?? "probe" } : (cache.FirstOrDefault(c => c.Ip == ip) is { } c2 ? c2 with { Alive = false } : null)).Where(e => e is not null).Select(e => e!).ToList();
+            Render(ArpTable.Bundle(merged, [live], hideNoise: true));
+            _status.Text = $"{alive.Count} of {targets.Count} answered ARP on {own.Network}/{own.PrefixLength}.";
+            TelemetryHost.Event("map", sweep ? "sweep" : "recheck", null, alive.Count);
+        }
+        catch (OperationCanceledException) { _status.Text = "Cancelled."; }
+        finally { _cts = null; _check.Enabled = _sweep.Enabled = true; _refresh.Text = "Refresh cache"; }
+    }
+
+    async Task FindRouters()
+    {
+        if (_cts is not null) { _cts.Cancel(); return; }
+        if (!_app.Service.Allowed(Capability.TempAddresses)) { _status.Text = "Temporary addresses are disabled by policy; the router finder needs them."; return; }
+        _routers.Items.Clear();
+        _cts = new CancellationTokenSource(); _find.Text = "Cancel";
+        var svc = _app.Service;
+        var finder = new RouterFinder(
+            async (addr, ct) => { var live = svc.GetAdapters().First(a => a.Name == _adapter.Name); var plan = Planning.ApplyPlanner.PlanAddSecondary(live, addr, "find routers"); if (plan.IsEmpty) return false; var o = await Task.Run(() => svc.Apply(plan), ct); await Task.Delay(300, ct); return o.Success; },
+            async (addr, _) => { await Task.Run(() => svc.Apply(Planning.ApplyPlanner.PlanRemoveAddresses(_adapter.Name, [addr], "find routers"))); },
+            _arp);
+        var cands = RouterFinder.Candidates(svc.Presets);
+        try
+        {
+            var prog = new Progress<(int Index, int Total, RouterCandidate Candidate, RouterHit? Hit)>(p =>
+            {
+                _status.Text = $"Probing {p.Candidate.Cidr} ({p.Index + 1}/{p.Total})…";
+                if (p.Hit is { } h) _routers.Items.Add(new ListViewItem([h.Candidate.Cidr, h.Ip, h.Mac, h.Ms + " ms", string.Join(", ", h.Vendors)]) { ForeColor = Theme.Static });
+            });
+            var hits = await finder.Find(cands, svc.GetAdapters(), _adapter.Name, prog, _cts.Token);
+            _status.Text = hits.Count == 0 ? $"No router answered in {cands.Count} common subnets. The port may be a trunk, isolated, or on an uncommon range." : $"{hits.Count} responder(s) found — type one of the addresses in the panel to reach it.";
+            TelemetryHost.Event("map", "find-routers", null, hits.Count);
+        }
+        catch (OperationCanceledException) { _status.Text = "Cancelled; borrowed addresses removed."; }
+        finally { _cts = null; _find.Text = "Find routers"; _app.RefreshState(); }
+    }
+}

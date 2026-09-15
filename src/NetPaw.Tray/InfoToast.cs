@@ -103,6 +103,7 @@ sealed class InfoToast : Form
             else Row("Checks", "off — enable in Settings for intranet/internet probes");
             var temps = _app.Service.TempAddresses.Count;
             if (temps > 0) Row("Temporary", $"{temps} address{(temps == 1 ? "" : "es")} added by NetPaw");
+            foreach (var v in _app.Vpns) Row("VPN", $"{v.Kind} '{v.Adapter}' — {v.Mode}", v.Up ? true : null);
             if (_app.Service.Settings.Repair.DhcpAdvisory)
                 foreach (var adv in Advisor.Analyze(s))
                 {
