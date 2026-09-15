@@ -4,6 +4,7 @@ using NetPaw.Model;
 using NetPaw.Planning;
 using NetPaw.Presets;
 using NetPaw.Reach;
+using NetPaw.Store;
 
 const string Usage = """
     netpaw-cli — static-IP profiles for Windows admins (CLI twin of the NetPaw tray)
@@ -23,6 +24,11 @@ const string Usage = """
       netpaw-cli clear-temp                       remove them again
       netpaw-cli vlan <adapter> [id]              query / set the driver VLAN id (0 = untagged)
       netpaw-cli where                            print the config directory (profiles.json etc.)
+      netpaw-cli export <file> [--managed]        write profiles as JSON (--managed: only for a profiles.d deployment file)
+      netpaw-cli import <file>                    add profiles from a JSON file (same name = replace)
+      netpaw-cli policy                           show the effective machine policy (HKLM\SOFTWARE\Policies\NetPaw)
+
+    Exit codes: 0 ok · 1 a step failed · 2 usage/unknown · 3 not VLAN capable · 4 denied by policy
 
     Profiles live in %APPDATA%\NetPaw\profiles.json (override with NETPAW_HOME).
     """;
@@ -146,11 +152,54 @@ try
         }
         case "where":
             Console.WriteLine(svc.Store.Directory);
+            Console.WriteLine(svc.Machine.Directory + "  (managed, read-only)");
             return 0;
+        case "export":
+        {
+            if (argv.Count < 2) return Fail("export needs a file name");
+            var managedOnly = Flag("--managed");
+            var list = (managedOnly ? svc.Profiles : svc.UserProfiles).Where(p => !p.Temporary).Select(p => { var c = p.Clone(); if (managedOnly) { c.Id = ""; c.Hotkey = null; } return c; }).ToList();
+            File.WriteAllText(argv[1], System.Text.Json.JsonSerializer.Serialize(list, new System.Text.Json.JsonSerializerOptions { WriteIndented = true, DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull }));
+            Console.WriteLine($"wrote {list.Count} profile(s) to {argv[1]}{(managedOnly ? " — drop it into " + svc.Machine.Directory + " on target machines" : "")}");
+            return 0;
+        }
+        case "import":
+        {
+            if (argv.Count < 2) return Fail("import needs a file name");
+            var incoming = System.Text.Json.JsonSerializer.Deserialize<List<Profile>>(File.ReadAllText(argv[1]), new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? [];
+            var n = 0;
+            foreach (var p in incoming)
+            {
+                var errs = p.Validate(); if (errs.Count > 0) { Console.Error.WriteLine($"skip '{p.Name}': {string.Join("; ", errs)}"); continue; }
+                var i = svc.Profiles.FindIndex(x => !x.Managed && string.Equals(x.Name, p.Name, StringComparison.OrdinalIgnoreCase));
+                if (i >= 0) { p.Id = svc.Profiles[i].Id; svc.Profiles[i] = p; } else svc.Profiles.Add(p);
+                n++;
+            }
+            svc.SaveProfiles();
+            Console.WriteLine($"imported {n} profile(s)");
+            return 0;
+        }
+        case "policy":
+        {
+            var pol = svc.Policy;
+            if (!pol.Any) { Console.WriteLine("no machine policy set"); return 0; }
+            foreach (var k in Policy.Keys)
+            {
+                var v = k switch
+                {
+                    "WorkAdapter" => pol.WorkAdapter, "PanelHotkey" => pol.PanelHotkey, "ConfirmBeforeApply" => pol.ConfirmBeforeApply?.ToString(),
+                    "RepoUrls" => string.Join(" ", pol.RepoUrls), "AllowUserProfiles" => pol.AllowUserProfiles.ToString(), "AllowUserRepos" => pol.AllowUserRepos.ToString(),
+                    "AllowReach" => pol.AllowReach.ToString(), "AllowTempAddresses" => pol.AllowTempAddresses.ToString(), "AllowDhcp" => pol.AllowDhcp.ToString(), _ => pol.AllowUnsignedRepos.ToString(),
+                };
+                Console.WriteLine($"{k,-20} {v,-40} {(pol.IsSet(k) ? "(policy)" : "(default)")}");
+            }
+            return 0;
+        }
         default:
             return Fail($"unknown command '{argv[0]}'\n\n{Usage}");
     }
 }
+catch (DeniedByPolicyException ex) { Console.Error.WriteLine("netpaw: " + ex.Message); return 4; }
 catch (InvalidOperationException ex) { return Fail(ex.Message); }
 
 static Profile Need(NetPawService svc, List<string> argv, int i)

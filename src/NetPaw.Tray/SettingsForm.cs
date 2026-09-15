@@ -7,9 +7,9 @@ sealed class SettingsForm : Form
 {
     public SettingsForm(TrayApp app)
     {
-        var s = app.Service.Settings;
+        var s = app.Service.Settings; var pol = app.Service.Policy;
         Text = "NetPaw — settings"; StartPosition = FormStartPosition.CenterScreen; FormBorderStyle = FormBorderStyle.FixedDialog;
-        MinimizeBox = false; MaximizeBox = false; ShowInTaskbar = false; ClientSize = new Size(560, 372);
+        MinimizeBox = false; MaximizeBox = false; ShowInTaskbar = false; ClientSize = new Size(560, 404);
 
         var grid = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, Padding = new Padding(14), AutoSize = true };
         grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 150)); grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
@@ -26,9 +26,10 @@ sealed class SettingsForm : Form
         var prefix = new NumericUpDown { Minimum = 8, Maximum = 30, Value = s.ReachDefaultPrefix, Width = 70 };
         var startup = new CheckBox { Text = "start with Windows (elevated task, no UAC prompt)", Checked = Startup.IsEnabled(), AutoSize = true };
 
-        Row("Work adapter", adapter);
-        Row("Panel hotkey", hotkey);
-        Row("Confirm", confirm);
+        Row("Work adapter", adapter); adapter.Enabled = !pol.IsSet("WorkAdapter");
+        Row("Panel hotkey", hotkey); hotkey.Enabled = !pol.IsSet("PanelHotkey");
+        Row("Confirm", confirm); confirm.Enabled = !pol.IsSet("ConfirmBeforeApply");
+        if (pol.Any) Row("Policy", new Label { Text = "Greyed values are set by your organisation.", AutoSize = true, ForeColor = Theme.Temp, Font = Theme.Small });
         Row("Notifications", notify);
         Row("Reach mode", secondary);
         Row("Reach default prefix", prefix);
@@ -45,8 +46,10 @@ sealed class SettingsForm : Form
         ok.Click += (_, _) =>
         {
             if (!HotkeyParser.TryParse(hotkey.Text, out var hk)) { err.Text = "hotkey needs a modifier, e.g. Ctrl+Alt+N"; return; }
-            s.WorkAdapter = adapter.SelectedIndex <= 0 ? null : (string)adapter.SelectedItem!;
-            s.PanelHotkey = hk.ToString(); s.ConfirmBeforeApply = confirm.Checked; s.ShowNotifications = notify.Checked;
+            if (!pol.IsSet("WorkAdapter")) s.WorkAdapter = adapter.SelectedIndex <= 0 ? null : (string)adapter.SelectedItem!;
+            if (!pol.IsSet("PanelHotkey")) s.PanelHotkey = hk.ToString();
+            if (!pol.IsSet("ConfirmBeforeApply")) s.ConfirmBeforeApply = confirm.Checked;
+            s.ShowNotifications = notify.Checked;
             s.ReachAsSecondary = secondary.Checked; s.ReachDefaultPrefix = (int)prefix.Value;
             app.Service.SaveSettings();
             var startupErr = Startup.Set(startup.Checked);

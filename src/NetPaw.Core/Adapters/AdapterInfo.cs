@@ -13,8 +13,11 @@ public sealed record AdapterInfo(
     IReadOnlyList<IpAddr> Addresses,
     IReadOnlyList<string> Gateways,
     IReadOnlyList<string> Dns,
-    string Mac)
+    string Mac,
+    long SpeedBps = 0)
 {
+    /// <summary>"1 Gbit/s", "100 Mbit/s" or "" when unknown.</summary>
+    public string SpeedText => SpeedBps <= 0 ? "" : SpeedBps >= 1_000_000_000 ? $"{SpeedBps / 1_000_000_000.0:0.#} Gbit/s" : $"{SpeedBps / 1_000_000} Mbit/s";
     public IpAddr? Primary => Addresses.Count > 0 ? Addresses[0] : null;
     public bool HasGateway => Gateways.Count > 0;
     public bool Covers(string ip) => Addresses.Any(a => a.Contains(ip));

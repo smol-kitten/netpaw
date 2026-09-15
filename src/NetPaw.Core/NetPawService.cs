@@ -11,6 +11,9 @@ namespace NetPaw;
 public sealed class NetPawService
 {
     public JsonStore Store { get; }
+    public MachineStore Machine { get; }
+    public Policy Policy { get; private set; } = Policy.None;
+    readonly Func<Policy> _policyReader;
     public IAdapterProvider Adapters { get; }
     public IVlanProvider Vlan { get; }
     public IStepRunner Runner { get; }
@@ -18,12 +21,13 @@ public sealed class NetPawService
     public List<Profile> Profiles { get; private set; }
     public IReadOnlyList<Preset> Presets { get; private set; }
 
-    public NetPawService(JsonStore store, IAdapterProvider adapters, IVlanProvider vlan, IStepRunner runner)
+    public NetPawService(JsonStore store, IAdapterProvider adapters, IVlanProvider vlan, IStepRunner runner, MachineStore? machine = null, Func<Policy>? policy = null)
     {
         Store = store; Adapters = adapters; Vlan = vlan; Runner = runner;
-        Settings = store.LoadSettings();
-        Profiles = store.LoadProfiles();
-        Presets = PresetLibrary.Load(store.PresetsFile);
+        Machine = machine ?? new MachineStore();
+        _policyReader = policy ?? PolicyReader.ReadMachine;
+        Settings = new Settings(); Profiles = []; Presets = [];
+        Reload();
     }
 
     public static NetPawService CreateDefault(string? dir = null)
@@ -32,14 +36,42 @@ public sealed class NetPawService
         return new NetPawService(new JsonStore(dir ?? JsonStore.DefaultDirectory()), new NetworkInterfaceAdapterProvider(), vlan, new ProcessStepRunner());
     }
 
+    /// <summary>Policy values win over the user's settings.json; the UI greys those fields.</summary>
     public void Reload()
     {
+        Policy = _policyReader();
         Settings = Store.LoadSettings();
-        Profiles = Store.LoadProfiles();
+        if (Policy.WorkAdapter is not null) Settings.WorkAdapter = Policy.WorkAdapter;
+        if (Policy.PanelHotkey is not null) Settings.PanelHotkey = Policy.PanelHotkey;
+        if (Policy.ConfirmBeforeApply is { } c) Settings.ConfirmBeforeApply = c;
+        var managed = Machine.Load();
+        foreach (var e in Machine.Errors) Store.Log("managed profile skipped: " + e);
+        Profiles = MachineStore.Merge(managed, Policy.AllowUserProfiles ? Store.LoadProfiles() : []);
         Presets = PresetLibrary.Load(Store.PresetsFile);
     }
 
-    public void SaveProfiles() => Store.SaveProfiles(Profiles);
+    public IEnumerable<Profile> UserProfiles => Profiles.Where(p => !p.Managed);
+    public IEnumerable<Profile> ManagedProfiles => Profiles.Where(p => p.Managed);
+
+    /// <summary>Only the user's own profiles are written; managed ones stay in profiles.d.</summary>
+    public void SaveProfiles()
+    {
+        Require(Capability.UserProfiles);
+        Store.SaveProfiles(UserProfiles);
+    }
+
+    public bool Allowed(Capability c) => c switch
+    {
+        Capability.UserProfiles => Policy.AllowUserProfiles,
+        Capability.UserRepos => Policy.AllowUserRepos,
+        Capability.Reach => Policy.AllowReach,
+        Capability.TempAddresses => Policy.AllowTempAddresses,
+        Capability.Dhcp => Policy.AllowDhcp,
+        Capability.UnsignedRepos => Policy.AllowUnsignedRepos,
+        _ => true,
+    };
+
+    public void Require(Capability c) { if (!Allowed(c)) throw new DeniedByPolicyException(c); }
     public void SaveSettings() => Store.SaveSettings(Settings);
 
     public IReadOnlyList<AdapterInfo> GetAdapters() => Adapters.GetAdapters();
@@ -80,10 +112,15 @@ public sealed class NetPawService
 
     public ApplyOutcome ApplyProfile(Profile p, AdapterInfo? adapter = null) => Apply(PlanProfile(p, adapter));
 
-    public ApplyOutcome ApplyDhcp(AdapterInfo? adapter = null) => Apply(ApplyPlanner.PlanDhcp(adapter ?? ResolveAdapter(null)));
+    public ApplyOutcome ApplyDhcp(AdapterInfo? adapter = null)
+    {
+        Require(Capability.Dhcp);
+        return Apply(ApplyPlanner.PlanDhcp(adapter ?? ResolveAdapter(null)));
+    }
 
     public ReachDecision ResolveReach(string target, AdapterInfo? adapter = null)
     {
+        Require(Capability.Reach);
         adapter ??= WorkAdapter();
         return ReachResolver.Resolve(target, adapter, Profiles, Presets, Settings.ReachDefaultPrefix);
     }
@@ -92,6 +129,8 @@ public sealed class NetPawService
     public (ApplyPlan Plan, ApplyOutcome? Outcome) Reach(ReachDecision d, AdapterInfo? adapter = null, bool dryRun = false, bool? replacePrimary = null)
     {
         adapter ??= ResolveAdapter(null);
+        Require(Capability.Reach);
+        if (d.Kind is ReachKind.TempAddress or ReachKind.UsePreset) Require(Capability.TempAddresses);
         var replace = replacePrimary ?? !Settings.ReachAsSecondary;
         ApplyPlan plan;
         switch (d.Kind)
@@ -162,6 +201,7 @@ public sealed class NetPawService
     /// <summary>Snapshot the adapter's live configuration into a profile.</summary>
     public Profile Capture(string name, AdapterInfo adapter)
     {
+        Require(Capability.UserProfiles);
         var p = new Profile { Name = name, Adapter = adapter.Name, Dhcp = adapter.Dhcp };
         if (!adapter.Dhcp)
         {

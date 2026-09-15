@@ -25,6 +25,10 @@ public sealed class Profile
     public string? Note { get; set; }
     /// <summary>Created by reach-mode / presets; listed separately and safe to purge.</summary>
     public bool Temporary { get; set; }
+    /// <summary>Deployed machine-wide (profiles.d / policy): visible and applicable, never editable from the UI. Not persisted in the user file.</summary>
+    [System.Text.Json.Serialization.JsonIgnore] public bool Managed { get; set; }
+    /// <summary>Where the profile came from when not the user's own file: "managed", a repo name, … Not persisted.</summary>
+    [System.Text.Json.Serialization.JsonIgnore] public string? Source { get; set; }
 
     public IpAddr? Primary => Addresses.Count > 0 ? Addresses[0] : null;
     public IEnumerable<IpAddr> Secondaries => Addresses.Skip(1);
