@@ -20,3 +20,12 @@ With checks on, *monitor mode* tells you when the state **changes**: internet lo
 ## States
 - **Link down** — cable/port. **No address** — link up, DHCP not answering.
 - **No reachable gateway** — switch/router side. **Intranet only** — WAN or upstream. **DNS failing** — pings work, names do not.
+
+## Advisory
+The info card and alerts explain *what* is wrong with the configuration, not just that something is:
+- DHCP: no lease (169.254 self-assigned), lease without gateway (option 3) or without DNS (option 6), gateway from the lease not answering (stale lease after a port move), DNS servers not answering while the internet is reachable.
+- Static: no gateway (fine for a setup subnet), gateway not answering (wrong subnet/VLAN for this port), no DNS.
+Purely local analysis; probes only when checks are enabled. *Settings → Advisory* turns it off.
+
+## Auto-repair (off by default)
+When an advisory says a fresh lease could help, NetPaw can run `ipconfig /renew` on the adapter by itself: at most *N attempts per incident*, spaced by the interval, and only while the adapter is on DHCP. The counter resets once the state is healthy. Every attempt is in the log. *Renew DHCP lease* is also in the tray menu, the panel, and on the info card.

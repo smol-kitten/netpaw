@@ -84,3 +84,52 @@ public class ApipaTests
         Assert.Empty(probe.Pinged);
     }
 }
+
+public class AdvisorTests
+{
+    static NetPaw.Adapters.AdapterInfo Dhcp(string[]? addrs, string? gw, string[]? dns = null) =>
+        new("Ethernet", "x", "{g}", 1, true, true, true, (addrs ?? []).Select(NetPaw.Model.IpAddr.Parse).ToList(), gw is null ? [] : [gw], dns ?? ["10.0.0.53"], "AA");
+
+    [Fact]
+    public async Task DhcpFindings()
+    {
+        var probe = new FakeProbe(); var c = new ConnectivityChecker(probe); var off = new CheckSettings();
+        Assert.Contains(Advisor.Analyze(await c.Check(Dhcp(["169.254.5.5/16"], null), off)), a => a.Title == "No DHCP lease" && a.CanRenew);
+        var noGw = Advisor.Analyze(await c.Check(Dhcp(["10.0.0.20/24"], null, []), off));
+        Assert.Equal(["Lease without gateway", "Lease without DNS"], noGw.Select(a => a.Title));
+        Assert.Empty(Advisor.Analyze(await c.Check(Dhcp(["10.0.0.20/24"], "10.0.0.1"), off)));
+        // with checks: gateway silent, and DNS failing while internet works
+        var on = new CheckSettings { Enabled = true, InternetTargets = ["1.1.1.1"], DnsCheckHost = "x.test" };
+        probe.Reachable.Add("1.1.1.1");
+        var findings = Advisor.Analyze(await c.Check(Dhcp(["10.0.0.20/24"], "10.0.0.1"), on));
+        Assert.Contains(findings, a => a.Title == "Gateway from lease does not answer" && a.Severity == AdvisorySeverity.Error);
+        Assert.Contains(findings, a => a.Title == "DNS servers not answering" && a.CanRenew);
+        Assert.Empty(Advisor.Analyze(await c.Check(Dhcp(["10.0.0.20/24"], "10.0.0.1") with { Up = false }, on)));
+    }
+
+    [Fact]
+    public async Task StaticFindingsNeverSuggestRenew()
+    {
+        var c = new ConnectivityChecker(new FakeProbe());
+        var f = Advisor.Analyze(await c.Check(Fx.Adapter(gw: null), new CheckSettings()));
+        Assert.Single(f); Assert.False(f[0].CanRenew); Assert.Equal(AdvisorySeverity.Info, f[0].Severity);
+        Assert.Contains("static", Advisor.PlanRenew(Fx.Adapter()).Warnings[0]);
+        Assert.Equal("ipconfig /renew \"Ethernet 2\"", Advisor.PlanRenew(Dhcp(["10.0.0.20/24"], "10.0.0.1") with { Name = "Ethernet 2" }).Steps[0].CommandLine);
+    }
+
+    [Fact]
+    public void SchedulerIsBoundedAndSpaced()
+    {
+        var r = new RepairSettings { AutoRenew = true, AutoRenewIntervalSeconds = 60, AutoRenewMaxAttempts = 2 };
+        var s = new RenewScheduler(); var t0 = DateTimeOffset.UnixEpoch;
+        var fix = new[] { new Advisory(AdvisorySeverity.Error, "x", "y", true) };
+        Assert.False(s.ShouldRenew(new RepairSettings(), fix, t0));                 // off by default
+        Assert.True(s.ShouldRenew(r, fix, t0)); s.Mark(t0);
+        Assert.False(s.ShouldRenew(r, fix, t0.AddSeconds(30)));                     // too soon
+        Assert.True(s.ShouldRenew(r, fix, t0.AddSeconds(61))); s.Mark(t0.AddSeconds(61));
+        Assert.False(s.ShouldRenew(r, fix, t0.AddSeconds(200)));                    // max attempts
+        Assert.False(s.ShouldRenew(r, [], t0.AddSeconds(300)));                     // healthy → resets
+        Assert.Equal(0, s.Attempts);
+        Assert.False(s.ShouldRenew(r, [new Advisory(AdvisorySeverity.Info, "s", "t", false)], t0.AddSeconds(400)));
+    }
+}

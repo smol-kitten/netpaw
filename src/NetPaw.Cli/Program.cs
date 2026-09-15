@@ -15,6 +15,8 @@ const string Usage = """
       netpaw-cli show <profile>                   profile details
       netpaw-cli apply <profile> [-a X] [-n]      apply a profile (-n = dry run, print the plan)
       netpaw-cli dhcp [-a X] [-n]                 switch the adapter to DHCP
+      netpaw-cli renew [-a X] [-n]                ipconfig /renew on the adapter (DHCP only)
+      netpaw-cli advise [-a X]                    DHCP/static configuration advisory (what is missing, what a renew would fix)
       netpaw-cli reach <ip[/prefix]> [--replace] [-a X] [-n]
                                               make <ip> reachable: pick a covering profile, else a preset,
                                               else add a temporary secondary in the assumed /24
@@ -91,6 +93,18 @@ try
         }
         case "dhcp":
             return Run(svc, ApplyPlanner.PlanDhcp(svc.ResolveAdapter(adapterName)), dryRun);
+        case "renew":
+            return Run(svc, NetPaw.Connectivity.Advisor.PlanRenew(svc.ResolveAdapter(adapterName)), dryRun);
+        case "advise":
+        {
+            var adapter = svc.ResolveAdapter(adapterName);
+            var snap = new NetPaw.Connectivity.ConnectivityChecker(new NetPaw.Connectivity.NetworkProbe()).Check(adapter, svc.Settings.Checks).GetAwaiter().GetResult();
+            Console.WriteLine($"{adapter.Name}: {NetPaw.Connectivity.Snapshot.Describe(snap.State)}");
+            var adv = NetPaw.Connectivity.Advisor.Analyze(snap);
+            if (adv.Count == 0) { Console.WriteLine("no findings"); return 0; }
+            foreach (var x in adv) Console.WriteLine($"[{x.Severity}] {x.Title} — {x.Text}{(x.CanRenew ? "  (a DHCP renew may fix this: netpaw-cli renew)" : "")}");
+            return adv.Any(x => x.Severity == NetPaw.Connectivity.AdvisorySeverity.Error) ? 1 : 0;
+        }
         case "reach":
         {
             if (argv.Count < 2) return Fail("reach needs an address");

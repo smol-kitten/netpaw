@@ -103,6 +103,22 @@ sealed class InfoToast : Form
             else Row("Checks", "off — enable in Settings for intranet/internet probes");
             var temps = _app.Service.TempAddresses.Count;
             if (temps > 0) Row("Temporary", $"{temps} address{(temps == 1 ? "" : "es")} added by NetPaw");
+            if (_app.Service.Settings.Repair.DhcpAdvisory)
+                foreach (var adv in Advisor.Analyze(s))
+                {
+                    var color = adv.Severity switch { AdvisorySeverity.Error => Theme.Error, AdvisorySeverity.Warning => Theme.Temp, _ => Theme.Muted };
+                    _grid.Controls.Add(new Label { Text = "Advice", AutoSize = true, ForeColor = color, Font = Theme.Small, Margin = new Padding(0, 3, 0, 3) });
+                    var host = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.TopDown, WrapContents = false, Margin = new Padding(0, 3, 0, 3) };
+                    host.Controls.Add(new Label { Text = adv.Title + " — " + adv.Text, AutoSize = true, MaximumSize = new Size(230, 0), ForeColor = color, Font = Theme.Small, Margin = Padding.Empty });
+                    if (adv.CanRenew && a.Dhcp)
+                    {
+                        var renew = new LinkLabel { Text = _app.RenewInfo, AutoSize = true, Font = Theme.Small, Margin = new Padding(0, 2, 0, 0) };
+                        renew.LinkClicked += (_, _) => _app.Renew(manual: true);
+                        Theme.Apply(renew);
+                        host.Controls.Add(renew);
+                    }
+                    _grid.Controls.Add(host);
+                }
         }
         _grid.ResumeLayout();
         var h = _title.Height + _state.Height + _grid.PreferredSize.Height + 8;

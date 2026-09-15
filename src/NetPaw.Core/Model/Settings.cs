@@ -17,6 +17,7 @@ public sealed class Settings
     /// <summary>The community pack in this repo, pinned to its signing key. Listed by default, fetched only on an explicit Sync (never at start-up).</summary>
     public string InfoHotkey { get; set; } = "Ctrl+Alt+I";
     public Connectivity.CheckSettings Checks { get; set; } = new();
+    public Connectivity.RepairSettings Repair { get; set; } = new();
 
     /// <summary>Random id so the telemetry build can count installs without any machine identity. Created on first use.</summary>
     public string? InstallId { get; set; }
