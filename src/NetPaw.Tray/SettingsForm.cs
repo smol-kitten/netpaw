@@ -10,9 +10,9 @@ sealed class SettingsForm : Form
     {
         var s = app.Service.Settings; var pol = app.Service.Policy;
         Text = "NetPaw — settings"; StartPosition = FormStartPosition.CenterScreen; FormBorderStyle = FormBorderStyle.FixedDialog;
-        MinimizeBox = false; MaximizeBox = false; ShowInTaskbar = false; ClientSize = new Size(700, 580);
+        MinimizeBox = false; MaximizeBox = false; ShowInTaskbar = false; ClientSize = new Size(700, 720);
 
-        var grid = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, Padding = new Padding(14), AutoSize = true };
+        var grid = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, Padding = new Padding(14), AutoSize = true, AutoScroll = true };
         grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 150)); grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         void Row(string label, Control c) { grid.Controls.Add(new Label { Text = label, Anchor = AnchorStyles.Left, AutoSize = true, Margin = new Padding(0, 8, 0, 8) }); c.Anchor = AnchorStyles.Left | AnchorStyles.Right; c.Margin = new Padding(0, 5, 0, 5); grid.Controls.Add(c); }
 
@@ -21,6 +21,7 @@ sealed class SettingsForm : Form
         foreach (var a in app.Service.GetAdapters()) adapter.Items.Add(a.Name);
         adapter.SelectedIndex = s.WorkAdapter is null ? 0 : Math.Max(0, adapter.Items.IndexOf(s.WorkAdapter));
         var hotkey = new TextBox { Text = s.PanelHotkey };
+        var infoHotkey = new TextBox { Text = s.InfoHotkey };
         var confirm = new CheckBox { Text = "show the command plan before applying", Checked = s.ConfirmBeforeApply, AutoSize = true };
         var notify = new CheckBox { Text = "balloon notifications", Checked = s.ShowNotifications, AutoSize = true };
         var secondary = new CheckBox { Text = "add a secondary address (keeps current config)", Checked = s.ReachAsSecondary, AutoSize = true };
@@ -29,12 +30,34 @@ sealed class SettingsForm : Form
 
         Row("Work adapter", adapter); adapter.Enabled = !pol.IsSet("WorkAdapter");
         Row("Panel hotkey", hotkey); hotkey.Enabled = !pol.IsSet("PanelHotkey");
+        Row("Info hotkey", infoHotkey);
         Row("Confirm", confirm); confirm.Enabled = !pol.IsSet("ConfirmBeforeApply");
         if (pol.Any) Row("Policy", new Label { Text = "Greyed values are set by your organisation.", AutoSize = true, ForeColor = Theme.Temp, Font = Theme.Small });
         Row("Notifications", notify);
         Row("Reach mode", secondary);
         Row("Reach default prefix", prefix);
         Row("Startup", startup);
+        // ---- connectivity -------------------------------------------------------------------
+        var ck = s.Checks;
+        var checksOn = new CheckBox { Text = "check reachability (gateway, intranet, internet, DNS)", Checked = ck.Enabled, AutoSize = true };
+        var interval = new NumericUpDown { Minimum = 5, Maximum = 3600, Value = Math.Clamp(ck.IntervalSeconds, 5, 3600), Width = 70 };
+        var intranet = new TextBox { Text = string.Join(" ", ck.IntranetTargets), PlaceholderText = "extra intranet hosts, e.g. 10.0.0.53 fileserver" };
+        var internet = new TextBox { Text = string.Join(" ", ck.InternetTargets) };
+        var dnsHost = new TextBox { Text = ck.DnsCheckHost, PlaceholderText = "empty = no DNS check" };
+        var monitor = new CheckBox { Text = "monitor mode: notify when the state changes (internet lost, link down, back online)", Checked = ck.MonitorMode, AutoSize = true };
+        var sticky = new CheckBox { Text = "keep the info card on screen while there is a problem", Checked = ck.StickyAlerts, AutoSize = true };
+        void ToggleChecks() { foreach (Control c in new Control[] { interval, intranet, internet, dnsHost, monitor }) c.Enabled = checksOn.Checked; }
+        checksOn.CheckedChanged += (_, _) => ToggleChecks(); ToggleChecks();
+        var intervalRow = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = Padding.Empty };
+        intervalRow.Controls.Add(interval); intervalRow.Controls.Add(new Label { Text = "seconds between rounds", AutoSize = true, ForeColor = Theme.Muted, Font = Theme.Small, Margin = new Padding(6, 6, 0, 0) });
+        Row("Connectivity", checksOn);
+        Row("Interval", intervalRow);
+        Row("Intranet hosts", intranet);
+        Row("Internet targets", internet);
+        Row("DNS check host", dnsHost);
+        Row("Monitor", monitor);
+        Row("Sticky alert", sticky);
+
         var folder = new Button { Text = "Open config folder", Width = 150, Height = 28 };
         folder.Click += (_, _) => Process.Start(new ProcessStartInfo(app.Service.Store.Directory) { UseShellExecute = true });
         Row("Files", folder);
@@ -86,6 +109,12 @@ sealed class SettingsForm : Form
         ok.Click += (_, _) =>
         {
             if (!HotkeyParser.TryParse(hotkey.Text, out var hk)) { err.Text = "hotkey needs a modifier, e.g. Ctrl+Alt+N"; return; }
+            if (!HotkeyParser.TryParse(infoHotkey.Text, out var ik)) { err.Text = "info hotkey needs a modifier, e.g. Ctrl+Alt+I"; return; }
+            if (hk.ToString() == ik.ToString()) { err.Text = "panel and info hotkeys must differ"; return; }
+            static List<string> Hosts(string t) => t.Split([' ', ',', ';'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+            s.InfoHotkey = ik.ToString();
+            ck.Enabled = checksOn.Checked; ck.IntervalSeconds = (int)interval.Value; ck.IntranetTargets = Hosts(intranet.Text); ck.InternetTargets = Hosts(internet.Text);
+            ck.DnsCheckHost = dnsHost.Text.Trim(); ck.MonitorMode = monitor.Checked; ck.StickyAlerts = sticky.Checked;
             if (!pol.IsSet("WorkAdapter")) s.WorkAdapter = adapter.SelectedIndex <= 0 ? null : (string)adapter.SelectedItem!;
             if (!pol.IsSet("PanelHotkey")) s.PanelHotkey = hk.ToString();
             if (!pol.IsSet("ConfirmBeforeApply")) s.ConfirmBeforeApply = confirm.Checked;
@@ -94,12 +123,13 @@ sealed class SettingsForm : Form
             app.Service.SaveSettings();
             var startupErr = Startup.Set(startup.Checked);
             if (startupErr is not null) { err.Text = startupErr; return; }
-            app.RegisterHotkeys(); app.RefreshState();
+            app.RegisterHotkeys(); app.ConfigureChecks(); app.RefreshState(); _ = app.RunCheck();
             DialogResult = DialogResult.OK; Close();
         };
         Controls.Add(grid); Controls.Add(bar);
         AcceptButton = ok; CancelButton = cancel;
         Theme.Apply(this); Theme.Primary(ok);
+        KeyPreview = true; KeyDown += (_, e) => { if (e.KeyCode == Keys.F1) { app.ShowHelp("settings"); e.Handled = true; } };
         Load += (_, _) => Native.Dress(this);
     }
 }

@@ -18,7 +18,7 @@ sealed class QuickPanel : Form
     readonly Label _header = new() { Dock = DockStyle.Top, Height = 30, Padding = new Padding(14, 8, 14, 0), ForeColor = Theme.Muted, Font = Theme.Small };
     readonly TextBox _input = new() { Dock = DockStyle.Top, Font = Theme.Big, BorderStyle = BorderStyle.None, Margin = Padding.Empty, PlaceholderText = "profile, device, or IP…" };
     readonly ListBox _list = new() { Dock = DockStyle.Fill, DrawMode = DrawMode.OwnerDrawFixed, ItemHeight = 44, IntegralHeight = false, BorderStyle = BorderStyle.None };
-    readonly Label _footer = new() { Dock = DockStyle.Bottom, Height = 26, Padding = new Padding(14, 6, 14, 0), ForeColor = Theme.Muted, Font = Theme.Small, Text = "Enter apply    Ctrl+D DHCP    Ctrl+E edit    Ctrl+R replace primary    Esc close" };
+    readonly Label _footer = new() { Dock = DockStyle.Bottom, Height = 26, Padding = new Padding(14, 6, 14, 0), ForeColor = Theme.Muted, Font = Theme.Small, Text = "Enter apply    Ctrl+D DHCP    Ctrl+E edit    Ctrl+I info    Ctrl+R replace    F1 help    Esc" };
     readonly Label _status = new() { Dock = DockStyle.Bottom, Height = 0, Padding = new Padding(14, 5, 14, 0), Font = Theme.Small, AutoEllipsis = true, BackColor = Theme.Panel };
     readonly System.Windows.Forms.Timer _autoHide = new() { Interval = 1400 };
     readonly ToolTip _tip = new();
@@ -148,6 +148,10 @@ sealed class QuickPanel : Form
                 _items.Add(new Item($"Remove {temps.Count} temporary address{(temps.Count == 1 ? "" : "es")}", string.Join(", ", temps.Select(t => t.Address.ToString())), Theme.Temp, _app.ClearTemp));
             if (q.Length == 0 || Fuzzy("manage profiles", q) || Fuzzy("edit", q))
                 _items.Add(new Item("Manage profiles…", "Create, edit, hotkeys, routes, VLAN", Theme.Muted, () => _app.ShowEditor(), OpensWindow: true));
+            if (q.Length == 0 || Fuzzy("network info", q) || Fuzzy("status", q))
+                _items.Add(new Item("Network info", "Link, address, gateway, DNS, intranet/internet — pin it with 📌", Theme.Muted, _app.ShowInfo, OpensWindow: true));
+            if (q.Length > 0 && Fuzzy("help", q))
+                _items.Add(new Item("Help  (F1)", "Topics for every view", Theme.Muted, () => _app.ShowHelp("overview"), OpensWindow: true));
             if (q.Length > 0 && Fuzzy("settings", q))
                 _items.Add(new Item("Settings…", "Work adapter, hotkey, confirm, startup", Theme.Muted, _app.ShowSettings, OpensWindow: true));
         }
@@ -180,6 +184,8 @@ sealed class QuickPanel : Form
         switch (e.KeyData)
         {
             case Keys.Escape: Hide(); break;
+            case Keys.F1: Hide(); _app.ShowHelp("quick-panel"); break;
+            case Keys.Control | Keys.I: Hide(); _app.ShowInfo(); break;
             case Keys.Enter: RunSelected(); break;
             case Keys.Down: if (_list.SelectedIndex < _list.Items.Count - 1) _list.SelectedIndex++; break;
             case Keys.Up: if (_list.SelectedIndex > 0) _list.SelectedIndex--; break;

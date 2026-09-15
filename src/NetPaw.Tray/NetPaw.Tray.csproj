@@ -15,12 +15,15 @@
     <PublishSingleFile>true</PublishSingleFile>
     <SelfContained>false</SelfContained>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
-    <Version>0.2.0</Version>
+    <Version>0.3.0</Version>
     <Product>NetPaw</Product>
     <Company>smol-kitten</Company>
     <Copyright>MIT</Copyright>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../NetPaw.Core/NetPaw.Core.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="help\*.md" LogicalName="help/%(Filename)%(Extension)" />
   </ItemGroup>
 </Project>
