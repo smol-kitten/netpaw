@@ -22,3 +22,6 @@ Open the editor with *Manage profiles…* or `Ctrl+E` in the panel. Left: the li
 - **Capture** saves the adapter's live configuration as a new profile. **Copy** duplicates (also the way to make a managed profile your own).
 
 Errors appear under the field they belong to. Managed profiles are read-only.
+
+## Auto-switch
+In *Advanced*, tick **auto-switch** and click **Learn from current network** while the profile's network is on the cable. NetPaw stores a fingerprint — gateway MAC, subnet, DHCP server — and from then on applies the profile by itself when a link comes up and exactly one fingerprint matches. The first automatic switch asks once; *Undo last auto-switch* is in the tray menu. Nothing happens on ambiguous matches, while another change runs, or if the profile is already active. Static networks without DHCP are recognised by briefly borrowing the profile's own address for one ARP.

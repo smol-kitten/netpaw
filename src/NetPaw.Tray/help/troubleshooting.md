@@ -20,3 +20,9 @@ Its signature or an entry hash did not match the pinned key. NetPaw keeps the la
 
 ## "Link up, no IPv4 address" on a Hyper-V host
 The physical NIC bound to an external virtual switch carries the switch and has no host address by design; the host's address lives on the matching **vEthernet (…)** adapter. NetPaw detects this (summary *Hyper-V switch uplink*), auto-detect prefers the vEthernet adapter, and the info card explains it. If you pinned the physical NIC as work adapter, pick the vEthernet one in *tray menu → Work adapter*.
+
+## "Applied, but Windows still shows DHCP / two gateways"
+A known Windows quirk after switching static over a DHCP lease. NetPaw verifies every apply 2 s later and warns with the differences; *Reset adapter* (disable → enable, in the tray menu and on the info card) clears it. The card also flags **Address held by another adapter** (dock: the unplugged NIC still owns the lease — *Release* it) and **Two default gateways** (*Prefer* pins the metrics).
+
+## Captive portal
+With checks on, NetPaw fetches the Microsoft connect-test page after DNS works; a login page instead of the expected body shows as *Captive portal — open a browser to sign in*.

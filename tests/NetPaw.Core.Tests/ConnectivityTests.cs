@@ -3,7 +3,7 @@ using Xunit;
 
 namespace NetPaw.Tests;
 
-sealed class FakeProbe : IProbe
+class FakeProbe : IProbe
 {
     public HashSet<string> Reachable { get; } = [];
     public HashSet<string> Resolvable { get; } = [];

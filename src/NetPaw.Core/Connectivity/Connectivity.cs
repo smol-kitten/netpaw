@@ -12,10 +12,28 @@ public interface IProbe
 {
     Task<ProbeResult> Ping(string host, int timeoutMs, CancellationToken ct);
     Task<ProbeResult> Resolve(string host, int timeoutMs, CancellationToken ct);
+    /// <summary>GET a URL and report whether the body equals <paramref name="expectedBody"/> — a captive portal answers with its login page instead.</summary>
+    Task<ProbeResult> Http(string url, string expectedBody, int timeoutMs, CancellationToken ct) => Task.FromResult(new ProbeResult(url, true, 0, "not implemented"));
 }
 
 public sealed class NetworkProbe : IProbe
 {
+    static readonly HttpClient Http1 = new(new SocketsHttpHandler { AllowAutoRedirect = false, UseProxy = false }) { Timeout = TimeSpan.FromSeconds(5) };
+
+    public async Task<ProbeResult> Http(string url, string expectedBody, int timeoutMs, CancellationToken ct)
+    {
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        try
+        {
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct); cts.CancelAfter(timeoutMs);
+            using var res = await Http1.GetAsync(url, cts.Token);
+            var body = res.IsSuccessStatusCode ? (await res.Content.ReadAsStringAsync(cts.Token)).Trim() : "";
+            var ok = res.IsSuccessStatusCode && body == expectedBody;
+            return new ProbeResult(url, ok, (int)sw.ElapsedMilliseconds, ok ? null : (int)res.StatusCode is 301 or 302 or 303 or 307 ? "redirected: " + res.Headers.Location : $"HTTP {(int)res.StatusCode}, body differs");
+        }
+        catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException) { return new ProbeResult(url, false, (int)sw.ElapsedMilliseconds, ex.GetBaseException().Message); }
+    }
+
     public async Task<ProbeResult> Ping(string host, int timeoutMs, CancellationToken ct)
     {
         var sw = System.Diagnostics.Stopwatch.StartNew();
@@ -49,7 +67,7 @@ public sealed class NetworkProbe : IProbe
 }
 
 /// <summary>Coarse verdicts an admin acts on. Ordered from worst to best.</summary>
-public enum NetState { Unknown, LinkDown, NoAddress, NoGateway, IntranetOnly, DnsBroken, Online, ChecksOff, VSwitchUplink }
+public enum NetState { Unknown, LinkDown, NoAddress, NoGateway, IntranetOnly, DnsBroken, Online, ChecksOff, VSwitchUplink, CaptivePortal }
 
 /// <summary>Everything the info toast shows and the monitor compares.</summary>
 public sealed record Snapshot(
@@ -61,7 +79,8 @@ public sealed record Snapshot(
     IReadOnlyList<ProbeResult> Intranet,
     IReadOnlyList<ProbeResult> Internet,
     ProbeResult? DnsCheck,
-    bool ChecksEnabled)
+    bool ChecksEnabled,
+    ProbeResult? Captive = null)
 {
     public bool GatewayOk => Intranet.Any(p => p.Ok);
     public bool InternetOk => Internet.Any(p => p.Ok);
@@ -80,6 +99,7 @@ public sealed record Snapshot(
             if (!GatewayOk && !InternetOk) return NetState.NoGateway;
             if (!InternetOk) return NetState.IntranetOnly;
             if (DnsCheck is not null && !DnsOk) return NetState.DnsBroken;
+            if (Captive is { Ok: false }) return NetState.CaptivePortal;
             return NetState.Online;
         }
     }
@@ -94,11 +114,12 @@ public sealed record Snapshot(
         NetState.Online => "Online",
         NetState.ChecksOff => "Configured (checks off)",
         NetState.VSwitchUplink => "Hyper-V switch uplink — host address is on the vEthernet adapter",
+        NetState.CaptivePortal => "Captive portal — a login page intercepts web traffic",
         _ => "Unknown",
     };
 
     /// <summary>true = something an admin wants to hear about.</summary>
-    public static bool IsProblem(NetState s) => s is NetState.LinkDown or NetState.NoAddress or NetState.NoGateway or NetState.IntranetOnly or NetState.DnsBroken;
+    public static bool IsProblem(NetState s) => s is NetState.LinkDown or NetState.NoAddress or NetState.NoGateway or NetState.IntranetOnly or NetState.DnsBroken or NetState.CaptivePortal;
 }
 
 public sealed class CheckSettings
@@ -111,6 +132,9 @@ public sealed class CheckSettings
     /// <summary>Host resolved to prove DNS works; empty = skip the DNS check.</summary>
     public string DnsCheckHost { get; set; } = "www.msftconnecttest.com";
     public int IntervalSeconds { get; set; } = 30;
+    /// <summary>NCSI-style probe: this URL must return exactly the expected body; a portal returns its login page. Empty = skip.</summary>
+    public string CaptiveProbeUrl { get; set; } = "http://www.msftconnecttest.com/connecttest.txt";
+    public string CaptiveProbeBody { get; set; } = "Microsoft Connect Test";
     public int TimeoutMs { get; set; } = 1000;
     /// <summary>Notify on state changes (lost internet, lost link, back online).</summary>
     public bool MonitorMode { get; set; }
@@ -132,9 +156,10 @@ public sealed class ConnectivityChecker(IProbe probe)
         var intranetTargets = adapter.Gateways.Take(1).Concat(s.IntranetTargets).Where(t => !string.IsNullOrWhiteSpace(t)).Distinct().ToList();
         var intranet = await Task.WhenAll(intranetTargets.Select(t => probe.Ping(t, s.TimeoutMs, ct)));
         var internet = await Task.WhenAll(s.InternetTargets.Where(t => !string.IsNullOrWhiteSpace(t)).Select(t => probe.Ping(t, s.TimeoutMs, ct)));
-        ProbeResult? dns = null;
+        ProbeResult? dns = null, captive = null;
         if (!string.IsNullOrWhiteSpace(s.DnsCheckHost) && internet.Any(p => p.Ok)) dns = await probe.Resolve(s.DnsCheckHost, s.TimeoutMs * 2, ct);
-        return new Snapshot(now, adapter, link, hasAddr, hasGw, intranet, internet, dns, true);
+        if (!string.IsNullOrWhiteSpace(s.CaptiveProbeUrl) && internet.Any(p => p.Ok) && (dns is null || dns.Ok)) captive = await probe.Http(s.CaptiveProbeUrl, s.CaptiveProbeBody, s.TimeoutMs * 3, ct);
+        return new Snapshot(now, adapter, link, hasAddr, hasGw, intranet, internet, dns, true, captive);
     }
 }
 
@@ -156,6 +181,7 @@ public static class Transitions
             NetState.NoGateway => ("Gateway unreachable", $"{name}: no reachable gateway — check the switch/router."),
             NetState.IntranetOnly => ("Internet lost", $"{name}: intranet still reachable, internet is not."),
             NetState.DnsBroken => ("DNS failing", $"{name}: internet pings work but names do not resolve."),
+            NetState.CaptivePortal => ("Captive portal", $"{name}: a login page intercepts web traffic — open a browser to sign in."),
             NetState.Online => ("Back online", $"{name}: {Snapshot.Describe(from).ToLowerInvariant()} → online."),
             NetState.ChecksOff => ("Configured", $"{name}: address and gateway present."),
             _ => ("Network changed", Snapshot.Describe(to)),

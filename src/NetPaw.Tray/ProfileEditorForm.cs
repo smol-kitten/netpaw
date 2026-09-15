@@ -24,10 +24,14 @@ sealed class ProfileEditorForm : Form
     readonly NumericUpDown _vlan = new() { Minimum = 0, Maximum = 4094, Width = 64 };
     readonly Label _vlanInfo = new() { AutoSize = true, ForeColor = Theme.Muted, Font = Theme.Small };
     readonly Label _macInfo = new() { AutoSize = true, ForeColor = Theme.Muted, Font = Theme.Small };
+    readonly CheckBox _autoSwitch = new() { Text = "auto-switch when this network is recognised", AutoSize = true };
+    readonly Button _learn = new() { Text = "Learn from current network", Width = 190, Height = 26 };
+    readonly Label _fpInfo = new() { AutoSize = true, ForeColor = Theme.Muted, Font = Theme.Small, MaximumSize = new Size(520, 0) };
     readonly Label _managedNote = new() { AutoSize = true, ForeColor = Theme.Temp, Font = Theme.Small, Visible = false, Dock = DockStyle.Top, Padding = new Padding(0, Theme.Spacing.S, 0, 0) };
     readonly Button _save, _apply, _preview, _delete;
     readonly IReadOnlyList<AdapterInfo> _adapters;
     Profile? _current;
+    NetworkFingerprint? _learnedFp;
     bool _loading;
 
     public ProfileEditorForm(TrayApp app)
@@ -184,7 +188,8 @@ sealed class ProfileEditorForm : Form
         _setVlan.Checked = p.VlanId is not null; _vlan.Value = p.VlanId ?? 0; _vlan.Enabled = _setVlan.Checked;
         _routes.Text = string.Join(Environment.NewLine, p.Routes.Select(r => r.ToString()));
         _hotkey.Text = p.Hotkey ?? ""; _note.Text = p.Note ?? "";
-        _advanced.Collapsed = p.InterfaceMetric is null && p.VlanId is null && p.Routes.Count == 0 && p.Note is null;
+        _learnedFp = p.Fingerprint; _autoSwitch.Checked = p.AutoSwitch; _fpInfo.Text = p.Fingerprint is null ? "no fingerprint yet" : "fingerprint: " + p.Fingerprint + (p.AutoSwitchConfirmed ? "  (confirmed)" : "");
+        _advanced.Collapsed = p.InterfaceMetric is null && p.VlanId is null && p.Routes.Count == 0 && p.Note is null && !p.AutoSwitch;
         foreach (var s in new[] { _identity, _ipv4, _advanced }) s.ClearErrors();
         _loading = false;
         SetReadOnly(p.Managed, p.Source);
@@ -198,7 +203,7 @@ sealed class ProfileEditorForm : Form
         _managedNote.Text = managed ? $"Managed profile (deployed by your organisation{(source is null ? "" : ", " + source)}). You can apply or copy it, not change it."
                           : locked ? "Your organisation allows only managed profiles on this machine." : "";
         managed = managed || locked;
-        foreach (var c in new Control[] { _name, _adapter, _dhcp, _static, _addresses, _gateway, _gwMetric, _dns, _suffix, _ifMetric, _setVlan, _vlan, _routes, _hotkey, _note })
+        foreach (var c in new Control[] { _name, _adapter, _dhcp, _static, _addresses, _gateway, _gwMetric, _dns, _suffix, _ifMetric, _setVlan, _vlan, _routes, _hotkey, _note, _autoSwitch, _learn })
             c.Enabled = !managed;
         _save.Enabled = !managed; _delete.Enabled = !managed;
         _apply.Text = managed ? "Apply  (Ctrl+Enter)" : "Save && apply  (Ctrl+Enter)";
@@ -265,6 +270,9 @@ sealed class ProfileEditorForm : Form
         else if (p.Hotkey is not null && _app.Service.Profiles.Any(o => o.Id != p.Id && string.Equals(o.Hotkey, p.Hotkey, StringComparison.OrdinalIgnoreCase)))
             Err(_identity, "hotkey", $"{p.Hotkey} is already used by another profile.");
         p.Note = string.IsNullOrWhiteSpace(_note.Text) ? null : _note.Text.Trim();
+        p.Fingerprint = _learnedFp; p.AutoSwitch = _autoSwitch.Checked && _learnedFp is not null;
+        if (_autoSwitch.Checked && _learnedFp is null) Err(_advanced, "autoswitch", "Learn a fingerprint first (apply the profile on its network, then click Learn).");
+        if (!ReferenceEquals(_learnedFp, _current?.Fingerprint)) p.AutoSwitchConfirmed = false;
         return ok ? p : null;
     }
 

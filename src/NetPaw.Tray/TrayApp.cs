@@ -6,6 +6,7 @@ using NetPaw.Hotkeys;
 using NetPaw.Model;
 using NetPaw.Planning;
 using NetPaw.Reach;
+using NetPaw.Scan;
 
 namespace NetPaw.Tray;
 
@@ -27,6 +28,9 @@ sealed class TrayApp : ApplicationContext
     readonly RenewScheduler _renew = new();
     IReadOnlyList<Advisory> _advisories = [];
     IReadOnlyList<VpnInfo> _vpns = [];
+    readonly Arp.WindowsArpProvider _arp = new();
+    bool _autoSwitchArmed = true, _autoSwitching;
+    Profile? _autoSwitchUndo;
     public IReadOnlyList<VpnInfo> Vpns => _vpns;
     IReadOnlyList<string> _loggedAdvisories = [];
     DateTime? _advisoriesSince;
@@ -108,6 +112,14 @@ sealed class TrayApp : ApplicationContext
             var snap = await Task.Run(() => _checker.Check(work, _svc.Settings.Checks));
             _previous = _snapshot; _snapshot = snap;
             _advisories = _svc.Settings.Repair.DhcpAdvisory ? Advisor.Analyze(snap, _adapters) : [];
+            // Auto-switch: one decision per link-up (armed again when the link drops), never while busy.
+            var linkUp = snap.Link && snap.Adapter is not null && (_previous is null || !_previous.Link || _previous.Adapter?.Name != snap.Adapter.Name);
+            if (!snap.Link) _autoSwitchArmed = true;
+            if (linkUp && _autoSwitchArmed && !_busy && !_autoSwitching && _svc.Profiles.Any(p => p.AutoSwitch && p.Fingerprint is not null))
+            {
+                _autoSwitchArmed = false;
+                _ = AutoSwitch(snap.Adapter!);
+            }
             var vpns = VpnDetector.Detect(_adapters);
             foreach (var msg in VpnDetector.Changes(_vpns, vpns))
             {
@@ -191,6 +203,53 @@ sealed class TrayApp : ApplicationContext
         using var f = new ScanForm(this, w);
         f.ShowDialog();
         RefreshState(); _ = RunCheck();
+    }
+
+    AutoSwitcher MakeSwitcher(string adapterName) => new(_arp,
+        async (addr, ct) => { var live = _svc.GetAdapters().First(a => a.Name == adapterName); var plan = ApplyPlanner.PlanAddSecondary(live, addr, "auto-switch"); if (plan.IsEmpty) return false; var o = await Task.Run(() => _svc.Apply(plan), ct); await Task.Delay(300, ct); return o.Success; },
+        async (addr, _) => { await Task.Run(() => _svc.Apply(ApplyPlanner.PlanRemoveAddresses(adapterName, [addr], "auto-switch"))); });
+
+    async Task AutoSwitch(AdapterInfo adapter)
+    {
+        _autoSwitching = true;
+        try
+        {
+            // Give DHCP a moment; a lease makes identification a single ARP.
+            await Task.Delay(4000);
+            var live = _svc.GetAdapters().FirstOrDefault(a => a.Name == adapter.Name); if (live is null || !live.Up) return;
+            var d = await MakeSwitcher(live.Name).Decide(live, _svc.Profiles);
+            _svc.Store.Log($"auto-switch on {live.Name}: {d.Reason}");
+            if (d.Profile is null) return;
+            var p = d.Profile;
+            if (!p.AutoSwitchConfirmed)
+            {
+                var ok = MessageBox.Show($"NetPaw recognised this network ({d.Observed}) as profile '{p.Name}'.\n\nApply it automatically now and every time this network is detected on {live.Name}?\n\n(You can turn auto-switch off per profile in the editor.)",
+                    "NetPaw — auto-switch", MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes;
+                if (!ok) { p.AutoSwitch = false; _svc.SaveProfiles(); Notify("Auto-switch off", $"'{p.Name}' will not switch automatically.", ToolTipIcon.Info); return; }
+                p.AutoSwitchConfirmed = true; _svc.SaveProfiles();
+            }
+            _autoSwitchUndo = _svc.Capture("before auto-switch", live);
+            if (_svc.Settings.Repair.IncidentLog) (_incidents ??= new IncidentLog(_svc.Store.IncidentsFile)).Append(new Incident(DateTimeOffset.Now, live.Name, "auto-switch", "", p.Name, d.Reason, []));
+            TelemetryHost.Event("apply", "auto-switch", p.Dhcp ? "dhcp" : "static");
+            ApplyProfileVerified(p, live);
+            Status?.Invoke($"Auto-switched to '{p.Name}' ({d.Reason}). Undo: tray menu.", "ok");
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or OperationCanceledException) { _svc.Store.Log("auto-switch failed: " + ex.Message); }
+        finally { _autoSwitching = false; }
+    }
+
+    public void UndoAutoSwitch()
+    {
+        if (_autoSwitchUndo is null) return;
+        var p = _autoSwitchUndo; _autoSwitchUndo = null; _autoSwitchArmed = false;
+        Execute(_svc.PlanProfile(p, _svc.ResolveAdapter(p, _adapters)), subtitle: "Undo the last automatic switch.");
+    }
+
+    /// <summary>Editor helper: learn the fingerprint of whatever the adapter runs now.</summary>
+    public async Task<NetworkFingerprint?> LearnFingerprint(AdapterInfo adapter)
+    {
+        var live = _svc.GetAdapters().FirstOrDefault(a => a.Name == adapter.Name) ?? adapter;
+        return await MakeSwitcher(live.Name).Learn(live);
     }
 
     public void ShowMap()
@@ -281,6 +340,8 @@ sealed class TrayApp : ApplicationContext
             _menu.Items.Add(new ToolStripMenuItem("Renew DHCP lease", null, (_, _) => Renew(manual: true)));
         if (w is not null)
             _menu.Items.Add(new ToolStripMenuItem("Reset adapter (disable → enable)", null, (_, _) => ResetAdapter()));
+        if (_autoSwitchUndo is not null)
+            _menu.Items.Add(new ToolStripMenuItem("Undo last auto-switch", Icons.Dot(Theme.Temp), (_, _) => UndoAutoSwitch()));
         if (_svc.Allowed(Capability.Reach))
             _menu.Items.Add(new ToolStripMenuItem("Reach IP…", null, (_, _) => ShowPanel()) { ShortcutKeyDisplayString = _svc.Settings.PanelHotkey });
 
