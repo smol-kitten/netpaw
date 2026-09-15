@@ -150,6 +150,8 @@ sealed class QuickPanel : Form
                 _items.Add(new Item("Manage profiles…", "Create, edit, hotkeys, routes, VLAN", Theme.Muted, () => _app.ShowEditor(), OpensWindow: true));
             if (w is { Dhcp: true } && (q.Length == 0 || Fuzzy("renew", q)))
                 _items.Add(new Item("Renew DHCP lease", $"ipconfig /renew on {w.Name}" + (_app.Advisories.FirstOrDefault(a => a.CanRenew) is { } adv ? "   ·   " + adv.Title : ""), Theme.Dhcp, () => _app.Renew(manual: true)));
+            if (q.Length > 0 && (Fuzzy("arp", q) || Fuzzy("map", q) || Fuzzy("find router", q) || Fuzzy("neighbours", q)))
+                _items.Add(new Item("Network map…", "ARP neighbours per network, active re-check/sweep, find routers on this cable", Theme.Accent, _app.ShowMap, OpensWindow: true));
             if (q.Length > 0 && (Fuzzy("scan", q) || Fuzzy("find working", q)))
                 _items.Add(new Item("Scan for a working profile…", "Try DHCP and your profiles on this port, keep the one that works", Theme.Accent, _app.ShowScan, OpensWindow: true));
             if (q.Length == 0 || Fuzzy("network info", q) || Fuzzy("status", q))

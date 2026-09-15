@@ -1,16 +1,19 @@
 using System.Diagnostics;
 using System.Net.Http;
 using NetPaw.Hotkeys;
+using NetPaw.Telemetry;
 
 namespace NetPaw.Tray;
 
 sealed class SettingsForm : Form
 {
+    Func<string?>? _saveExport;
+
     public SettingsForm(TrayApp app)
     {
         var s = app.Service.Settings; var pol = app.Service.Policy;
         Text = "NetPaw — settings"; StartPosition = FormStartPosition.CenterScreen; FormBorderStyle = FormBorderStyle.FixedDialog;
-        MinimizeBox = false; MaximizeBox = false; ShowInTaskbar = false; ClientSize = new Size(700, 790);
+        MinimizeBox = false; MaximizeBox = false; ShowInTaskbar = false; ClientSize = new Size(700, 830);
 
         var grid = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, Padding = new Padding(14), AutoSize = true, AutoScroll = true };
         grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 150)); grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
@@ -68,8 +71,10 @@ sealed class SettingsForm : Form
         autoRenew.CheckedChanged += (_, _) => { renewInterval.Enabled = renewMax.Enabled = autoRenew.Checked; };
         renewInterval.Enabled = renewMax.Enabled = autoRenew.Checked;
         var incidents = new CheckBox { Text = "incident log: timestamps of state changes and configuration findings (incidents.jsonl)", Checked = rp.IncidentLog, AutoSize = true, MaximumSize = new Size(520, 0) };
+        var vpnNotify = new CheckBox { Text = "VPN notifications (up / down / full ↔ split tunnel)", Checked = rp.VpnNotifications, AutoSize = true };
         Row("Advisory", advisory);
         Row("Incident log", incidents);
+        Row("VPN", vpnNotify);
         Row("Auto-repair", autoRenew);
         Row("", renewRow);
 
@@ -82,6 +87,21 @@ sealed class SettingsForm : Form
             var box = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.TopDown, WrapContents = false, Margin = Padding.Empty };
             box.Controls.Add(telemetry); box.Controls.Add(what);
             Row("Telemetry", box);
+            var le = s.LogExport;
+            var otlp = new TextBox { Text = le.OtlpEndpoint, PlaceholderText = "http://collector:4318/v1/logs   (OTLP/HTTP logs, empty = off)" };
+            var otlpHeaders = new TextBox { Text = string.Join("; ", le.OtlpHeaders), PlaceholderText = "Authorization: Bearer …; X-Scope-OrgID: team   (optional)" };
+            var syslog = new TextBox { Text = le.SyslogServer, PlaceholderText = "syslog.corp:514   (RFC 5424 over UDP, empty = off)" };
+            var expInc = new CheckBox { Text = "export incidents (state changes, findings)", Checked = le.ExportIncidents, AutoSize = true };
+            var expAct = new CheckBox { Text = "export actions (apply / reach / scan results)", Checked = le.ExportActions, AutoSize = true };
+            Row("OTLP endpoint", otlp); Row("OTLP headers", otlpHeaders); Row("Syslog server", syslog); Row("Export", expInc); Row("", expAct);
+            _saveExport = () =>
+            {
+                le.OtlpEndpoint = otlp.Text.Trim(); le.OtlpHeaders = otlpHeaders.Text.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+                le.SyslogServer = syslog.Text.Trim(); le.ExportIncidents = expInc.Checked; le.ExportActions = expAct.Checked;
+                if (le.OtlpEndpoint.Length > 0 && !le.OtlpEndpoint.StartsWith("http", StringComparison.OrdinalIgnoreCase)) return "OTLP endpoint must be an http(s):// URL";
+                if (le.SyslogServer.Length > 0 && LogExporter.ParseEndpoint(le.SyslogServer, 514) is null) return "syslog server does not resolve";
+                return null;
+            };
         }
 
         var folder = new Button { Text = "Open config folder", Width = 150, Height = 28 };
@@ -141,8 +161,10 @@ sealed class SettingsForm : Form
             s.InfoHotkey = ik.ToString();
             ck.Enabled = checksOn.Checked; ck.IntervalSeconds = (int)interval.Value; ck.IntranetTargets = Hosts(intranet.Text); ck.InternetTargets = Hosts(internet.Text);
             ck.DnsCheckHost = dnsHost.Text.Trim(); ck.MonitorMode = monitor.Checked; ck.StickyAlerts = sticky.Checked;
-            rp.DhcpAdvisory = advisory.Checked; rp.IncidentLog = incidents.Checked; rp.AutoRenew = autoRenew.Checked; rp.AutoRenewIntervalSeconds = (int)renewInterval.Value; rp.AutoRenewMaxAttempts = (int)renewMax.Value;
-            if (telemetry is not null) { s.TelemetryEnabled = telemetry.Checked; TelemetryHost.Refresh(app.Service); }
+            rp.DhcpAdvisory = advisory.Checked; rp.IncidentLog = incidents.Checked; rp.VpnNotifications = vpnNotify.Checked; rp.AutoRenew = autoRenew.Checked; rp.AutoRenewIntervalSeconds = (int)renewInterval.Value; rp.AutoRenewMaxAttempts = (int)renewMax.Value;
+            if (_saveExport?.Invoke() is { } exportErr) { err.Text = exportErr; return; }
+            if (telemetry is not null) { s.TelemetryEnabled = telemetry.Checked; }
+            TelemetryHost.Refresh(app.Service);
             if (!pol.IsSet("WorkAdapter")) s.WorkAdapter = adapter.SelectedIndex <= 0 ? null : (string)adapter.SelectedItem!;
             if (!pol.IsSet("PanelHotkey")) s.PanelHotkey = hk.ToString();
             if (!pol.IsSet("ConfirmBeforeApply")) s.ConfirmBeforeApply = confirm.Checked;

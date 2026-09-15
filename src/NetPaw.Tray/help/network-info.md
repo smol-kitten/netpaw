@@ -35,3 +35,12 @@ When an advisory says a fresh lease could help, NetPaw can run `ipconfig /renew`
 
 ## Scan for a working profile
 *Scan for a working profile…* (tray menu, or type `scan` in the panel) tries **DHCP first, then your profiles** on the work adapter, measures each (address, gateway, internet, DNS) and either stops at the first fully working one or tries all and **ranks by usability**. Your current configuration is captured first and restored unless you click *Keep selected*. Cancel restores too. `netpaw-cli scan [--all] [--keep]` does the same from a prompt.
+
+## Network map (ARP)
+*Network map…* (tray menu, or `arp`/`map` in the panel) shows the neighbours Windows already knows (the ARP cache), bundled per subnet of your adapters — passive, no packets. *Re-check* ARPs each of them; *Sweep subnet* asks every address of the adapter's subnet (a /24 takes ~10 s). Vendor defaults and your gateway are annotated. CLI: `netpaw-cli arp [--check|--sweep]`.
+
+## Find routers
+Unknown port? *Find routers* borrows a temporary address in each common subnet (192.168.0/1/2/178/88…, 10.0.0, 172.16.x and every vendor default from the presets), ARPs the usual gateway addresses (.1, .254, the vendor default) and removes the address again — ARP only, ~1-2 s per subnet. Responders are listed with MAC and the vendors whose default that address is; type one in the panel to reach it. CLI: `netpaw-cli find-routers`. Needs temporary addresses to be allowed by policy.
+
+## VPN status
+The info card lists VPN adapters NetPaw recognises (WireGuard/wintun, OpenVPN TAP/DCO, Windows native IKEv2/L2TP/SSTP, Tailscale, ZeroTier, common enterprise clients) with *full tunnel* (the VPN owns the default route) or *split tunnel*. Up/down and full↔split changes are announced (*Settings → VPN*) and logged to the incident log. Detection is passive — no vendor APIs, nothing sent.

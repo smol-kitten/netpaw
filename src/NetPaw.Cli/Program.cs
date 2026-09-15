@@ -18,6 +18,8 @@ const string Usage = """
       netpaw-cli renew [-a X] [-n]                ipconfig /renew on the adapter (DHCP only)
       netpaw-cli advise [-a X]                    DHCP/static configuration advisory (what is missing, what a renew would fix)
       netpaw-cli scan [--all] [--repos] [--no-dhcp] [-a X]  try DHCP + your profiles (--repos: community/repo profiles too) until one works; --all ranks; restores unless --keep
+      netpaw-cli arp [--check|--sweep] [-a X]     ARP neighbours bundled per network (passive); --check re-ARPs them; --sweep asks the whole subnet
+      netpaw-cli find-routers [-a X]              borrow an address in each common subnet, ARP the usual gateways, report who answers
       netpaw-cli incidents [-n 30]                show the incident log (enable it in settings: repair.incidentLog)
       netpaw-cli reach <ip[/prefix]> [--replace] [-a X] [-n]
                                               make <ip> reachable: pick a covering profile, else a preset,
@@ -302,6 +304,45 @@ try
             if (keep && best is not null) { svc.Apply(svc.PlanProfile(best.Candidate, live)); Console.WriteLine($"kept '{best.Candidate.Name}'"); }
             else { svc.Apply(svc.PlanProfile(original, live)); Console.WriteLine(best is null ? "nothing worked; previous configuration restored" : $"best: '{best.Candidate.Name}' — previous configuration restored (use --keep to apply the winner)"); }
             return best is null ? 1 : 0;
+        }
+        case "arp":
+        {
+            var check = Flag("--check"); var sweep = Flag("--sweep");
+            var adapter = svc.ResolveAdapter(adapterName);
+            var arp = new NetPaw.Arp.WindowsArpProvider();
+            var adapters = svc.GetAdapters();
+            var bundles = NetPaw.Arp.ArpTable.Bundle(arp.ReadCache(), adapters);
+            if (check || sweep)
+            {
+                var own = adapter.Addresses.FirstOrDefault(a => !a.Address.StartsWith("169.254.")) ?? throw new InvalidOperationException("adapter has no usable address");
+                var targets = sweep ? NetPaw.Arp.ArpTable.SweepTargets(own).ToList() : bundles.SelectMany(b => b.Hosts.Select(h => h.Ip)).Distinct().ToList();
+                Console.Error.WriteLine($"{(sweep ? "sweeping" : "re-checking")} {targets.Count} address(es) on {own.Network}/{own.PrefixLength}…");
+                var alive = NetPaw.Arp.ArpReachability.Check(arp, targets, own.Address).GetAwaiter().GetResult();
+                bundles = NetPaw.Arp.ArpTable.Bundle(alive, [adapter]);
+            }
+            foreach (var b in bundles)
+            {
+                Console.WriteLine($"{b.Cidr}  ({b.Adapter ?? "-"}{(b.OwnAddress is null ? "" : ", you are " + b.OwnAddress)})");
+                foreach (var h in b.Hosts) Console.WriteLine($"  {h.Ip,-16} {h.Mac,-18} {h.Kind,-8} {(h.Alive is null ? "" : h.Alive == true ? $"alive {h.Ms} ms" : "silent")}");
+            }
+            return 0;
+        }
+        case "find-routers":
+        {
+            var adapter = svc.ResolveAdapter(adapterName);
+            svc.Require(Capability.TempAddresses);
+            if (!IsElevated()) return Fail("find-routers adds temporary addresses; run from an elevated prompt");
+            var arp = new NetPaw.Arp.WindowsArpProvider();
+            var finder = new NetPaw.Arp.RouterFinder(
+                async (addr, ct) => { var live = svc.GetAdapters().First(a => a.Name == adapter.Name); var plan = ApplyPlanner.PlanAddSecondary(live, addr, "find routers"); if (plan.IsEmpty) return false; var o = svc.Apply(plan); await Task.Delay(300, ct); return o.Success; },
+                (addr, _) => { svc.Apply(ApplyPlanner.PlanRemoveAddresses(adapter.Name, [addr], "find routers")); return Task.CompletedTask; },
+                arp);
+            var cands = NetPaw.Arp.RouterFinder.Candidates(svc.Presets);
+            Console.Error.WriteLine($"probing {cands.Count} common subnets on {adapter.Name}…");
+            var prog = new Progress<(int Index, int Total, NetPaw.Arp.RouterCandidate Candidate, NetPaw.Arp.RouterHit? Hit)>(p => { if (p.Hit is { } h) Console.WriteLine($"  {h.Candidate.Cidr,-18} {h.Ip,-16} {h.Mac,-18} {h.Ms,4} ms  {string.Join(", ", h.Vendors)}"); });
+            var hits = finder.Find(cands, svc.GetAdapters(), adapter.Name, prog).GetAwaiter().GetResult();
+            Console.WriteLine(hits.Count == 0 ? "no router answered in the common subnets" : $"{hits.Count} responder(s)");
+            return hits.Count == 0 ? 1 : 0;
         }
         case "incidents":
         {

@@ -196,3 +196,36 @@ public class HyperVTests
         Assert.Equal("Ethernet", NetPaw.Adapters.AdapterSelector.Pick(plain, null)!.Name);
     }
 }
+
+public class VpnTests
+{
+    static NetPaw.Adapters.AdapterInfo A(string name, string desc, bool up, string[]? addrs, string? gw) =>
+        new(name, desc, "{" + name + "}", 1, up, false, false, (addrs ?? []).Select(NetPaw.Model.IpAddr.Parse).ToList(), gw is null ? [] : [gw], [], "AA");
+
+    [Fact]
+    public void ClassifiesCommonClients()
+    {
+        Assert.Equal(VpnKind.WireGuard, VpnDetector.Classify("wg0", "WireGuard Tunnel"));
+        Assert.Equal(VpnKind.OpenVpn, VpnDetector.Classify("OpenVPN TAP-Windows6", "TAP-Windows Adapter V9"));
+        Assert.Equal(VpnKind.OpenVpn, VpnDetector.Classify("OpenVPN Data Channel Offload", "OpenVPN Data Channel Offload"));
+        Assert.Equal(VpnKind.WindowsNative, VpnDetector.Classify("Office VPN", "WAN Miniport (IKEv2)"));
+        Assert.Equal(VpnKind.Tailscale, VpnDetector.Classify("Tailscale", "Tailscale Tunnel"));
+        Assert.Null(VpnDetector.Classify("Ethernet", "Intel(R) I219-LM"));
+    }
+
+    [Fact]
+    public void DetectsModeAndChanges()
+    {
+        var before = VpnDetector.Detect([A("wg0", "WireGuard Tunnel", false, null, null), A("Office VPN", "WAN Miniport (IKEv2)", false, null, null)]);
+        Assert.Single(before); Assert.False(before[0].Up);                                 // idle WAN miniport hidden, configured WireGuard shown as down
+        var after = VpnDetector.Detect([A("wg0", "WireGuard Tunnel", true, ["10.66.0.2/32"], "0.0.0.0"), A("Office VPN", "WAN Miniport (IKEv2)", true, ["172.30.5.9/32"], null)]);
+        Assert.Equal(2, after.Count);
+        Assert.Equal("full tunnel (default route)", after.First(v => v.Adapter == "wg0").Mode);
+        Assert.Equal("split tunnel", after.First(v => v.Adapter == "Office VPN").Mode);
+        var ch = VpnDetector.Changes(before, after);
+        Assert.Equal(2, ch.Count); Assert.Contains(ch, m => m.StartsWith("VPN up: WireGuard 'wg0' — full tunnel"));
+        Assert.Empty(VpnDetector.Changes(after, after));
+        var gone = VpnDetector.Changes(after, VpnDetector.Detect([A("wg0", "WireGuard Tunnel", false, null, null)]));
+        Assert.Equal(2, gone.Count); Assert.Contains(gone, m => m.Contains("adapter gone"));
+    }
+}

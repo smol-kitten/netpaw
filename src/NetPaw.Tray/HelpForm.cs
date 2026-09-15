@@ -49,6 +49,7 @@ sealed class HelpForm : Form
 
     public void Open(string topic)
     {
+        if (topic == "network-map") topic = "network-info";
         var i = Array.FindIndex(Topics, t => t.Id == topic);
         if (i < 0) i = 0;
         _search.Text = "";
