@@ -20,8 +20,9 @@ public static class ApplyPlanner
 
         if (p.Dhcp)
         {
-            if (!adapter.Dhcp) plan.Steps.Add(Step.Netsh("Switch to DHCP", $"interface ipv4 set address name={n} source=dhcp"));
-            else plan.Warnings.Add("Adapter is already on DHCP; renewing DNS settings only.");
+            // Always issued, even if the snapshot says "already DHCP": snapshots go stale (a scan may have
+            // applied a static profile in between) and the command is idempotent.
+            plan.Steps.Add(Step.Netsh("Switch to DHCP", $"interface ipv4 set address name={n} source=dhcp"));
             plan.Steps.Add(Step.Netsh("DNS from DHCP", $"interface ipv4 set dnsservers name={n} source=dhcp"));
         }
         else
@@ -54,6 +55,9 @@ public static class ApplyPlanner
         {
             var hop = r.Gateway is null ? "" : $" nexthop={r.Gateway}";
             var metric = r.Metric is null ? "" : $" metric={r.Metric}";
+            // netsh refuses to add an existing route ("object already exists"), so re-applying a profile
+            // would report a failed step. Delete first (best effort), then add.
+            plan.Steps.Add(Step.Netsh($"Route {r} (clear old)", $"interface ipv4 delete route prefix={r.Prefix} interface={n}{hop}", critical: false, expectFailure: true));
             plan.Steps.Add(Step.Netsh($"Route {r}", $"interface ipv4 add route prefix={r.Prefix} interface={n}{hop}{metric} store=persistent", critical: false));
         }
 

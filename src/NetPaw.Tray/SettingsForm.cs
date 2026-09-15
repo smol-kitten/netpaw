@@ -10,7 +10,7 @@ sealed class SettingsForm : Form
     {
         var s = app.Service.Settings; var pol = app.Service.Policy;
         Text = "NetPaw — settings"; StartPosition = FormStartPosition.CenterScreen; FormBorderStyle = FormBorderStyle.FixedDialog;
-        MinimizeBox = false; MaximizeBox = false; ShowInTaskbar = false; ClientSize = new Size(700, 760);
+        MinimizeBox = false; MaximizeBox = false; ShowInTaskbar = false; ClientSize = new Size(700, 790);
 
         var grid = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, Padding = new Padding(14), AutoSize = true, AutoScroll = true };
         grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 150)); grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
@@ -67,7 +67,9 @@ sealed class SettingsForm : Form
         renewRow.Controls.Add(renewMax); renewRow.Controls.Add(new Label { Text = "attempts per incident", AutoSize = true, ForeColor = Theme.Muted, Font = Theme.Small, Margin = new Padding(6, 6, 0, 0) });
         autoRenew.CheckedChanged += (_, _) => { renewInterval.Enabled = renewMax.Enabled = autoRenew.Checked; };
         renewInterval.Enabled = renewMax.Enabled = autoRenew.Checked;
+        var incidents = new CheckBox { Text = "incident log: timestamps of state changes and configuration findings (incidents.jsonl)", Checked = rp.IncidentLog, AutoSize = true, MaximumSize = new Size(520, 0) };
         Row("Advisory", advisory);
+        Row("Incident log", incidents);
         Row("Auto-repair", autoRenew);
         Row("", renewRow);
 
@@ -139,7 +141,7 @@ sealed class SettingsForm : Form
             s.InfoHotkey = ik.ToString();
             ck.Enabled = checksOn.Checked; ck.IntervalSeconds = (int)interval.Value; ck.IntranetTargets = Hosts(intranet.Text); ck.InternetTargets = Hosts(internet.Text);
             ck.DnsCheckHost = dnsHost.Text.Trim(); ck.MonitorMode = monitor.Checked; ck.StickyAlerts = sticky.Checked;
-            rp.DhcpAdvisory = advisory.Checked; rp.AutoRenew = autoRenew.Checked; rp.AutoRenewIntervalSeconds = (int)renewInterval.Value; rp.AutoRenewMaxAttempts = (int)renewMax.Value;
+            rp.DhcpAdvisory = advisory.Checked; rp.IncidentLog = incidents.Checked; rp.AutoRenew = autoRenew.Checked; rp.AutoRenewIntervalSeconds = (int)renewInterval.Value; rp.AutoRenewMaxAttempts = (int)renewMax.Value;
             if (telemetry is not null) { s.TelemetryEnabled = telemetry.Checked; TelemetryHost.Refresh(app.Service); }
             if (!pol.IsSet("WorkAdapter")) s.WorkAdapter = adapter.SelectedIndex <= 0 ? null : (string)adapter.SelectedItem!;
             if (!pol.IsSet("PanelHotkey")) s.PanelHotkey = hk.ToString();

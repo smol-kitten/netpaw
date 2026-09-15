@@ -17,6 +17,8 @@ const string Usage = """
       netpaw-cli dhcp [-a X] [-n]                 switch the adapter to DHCP
       netpaw-cli renew [-a X] [-n]                ipconfig /renew on the adapter (DHCP only)
       netpaw-cli advise [-a X]                    DHCP/static configuration advisory (what is missing, what a renew would fix)
+      netpaw-cli scan [--all] [--no-dhcp] [-a X]  try DHCP + your profiles until one works (--all: try all, rank); restores unless --keep
+      netpaw-cli incidents [-n 30]                show the incident log (enable it in settings: repair.incidentLog)
       netpaw-cli reach <ip[/prefix]> [--replace] [-a X] [-n]
                                               make <ip> reachable: pick a covering profile, else a preset,
                                               else add a temporary secondary in the assumed /24
@@ -271,6 +273,43 @@ try
             if (token is null) return Fail("not confirmed (rejected or expired) — run again");
             Console.WriteLine(token);
             Console.WriteLine("Store it as the GitHub secret NETPAW_TELEMETRY_TOKEN; the next tag build then ships NetPaw-<ver>-telemetry.msi.");
+            return 0;
+        }
+        case "scan":
+        {
+            var all = Flag("--all"); var keep = Flag("--keep"); var noDhcp = Flag("--no-dhcp");
+            var adapter = svc.ResolveAdapter(adapterName);
+            if (!IsElevated()) return Fail("scan applies profiles; run from an elevated prompt");
+            var original = svc.Capture("scan-original", adapter);
+            var checks = new NetPaw.Connectivity.CheckSettings { Enabled = true, InternetTargets = svc.Settings.Checks.InternetTargets, DnsCheckHost = svc.Settings.Checks.DnsCheckHost };
+            var checker = new NetPaw.Connectivity.ConnectivityChecker(new NetPaw.Connectivity.NetworkProbe());
+            var scanner = new NetPaw.Scan.NetworkScanner(async (p, ct) =>
+            {
+                svc.Apply(svc.PlanProfile(p, adapter));
+                var deadline = DateTime.UtcNow.AddSeconds(p.Dhcp ? 12 : 2); NetPaw.Adapters.AdapterInfo live;
+                do { await Task.Delay(1000, ct); live = svc.GetAdapters().First(a => a.Name == adapter.Name); }
+                while (DateTime.UtcNow < deadline && (!live.Up || live.Addresses.All(a => a.Address.StartsWith("169.254."))));
+                return await checker.Check(live, checks, ct);
+            });
+            var cands = NetPaw.Scan.NetworkScanner.Candidates(svc.Profiles.Concat(svc.RepoProfiles), adapter, !noDhcp && svc.Allowed(Capability.Dhcp));
+            Console.WriteLine($"{cands.Count} candidate(s) on {adapter.Name}");
+            var progress = new Progress<NetPaw.Scan.ScanProgress>(pr => { if (pr.Result is { } r) Console.WriteLine($"  {r.Candidate.Name,-28} {r.Verdict,-22} score {r.Score,2}"); else Console.Write($"  trying {pr.Candidate.Name}…\r"); });
+            var results = scanner.Run(cands, all ? NetPaw.Scan.ScanMode.RankAll : NetPaw.Scan.ScanMode.FirstWorking, progress).GetAwaiter().GetResult();
+            Console.WriteLine("\nranking:");
+            foreach (var r in results) Console.WriteLine($"  {r.Score,2}  {r.Candidate.Name,-28} {r.Verdict}");
+            var best = results.FirstOrDefault(r => r.Working);
+            var live = svc.GetAdapters().First(a => a.Name == adapter.Name);
+            if (keep && best is not null) { svc.Apply(svc.PlanProfile(best.Candidate, live)); Console.WriteLine($"kept '{best.Candidate.Name}'"); }
+            else { svc.Apply(svc.PlanProfile(original, live)); Console.WriteLine(best is null ? "nothing worked; previous configuration restored" : $"best: '{best.Candidate.Name}' — previous configuration restored (use --keep to apply the winner)"); }
+            return best is null ? 1 : 0;
+        }
+        case "incidents":
+        {
+            var n = int.TryParse(Opt("-n"), out var k) ? k : 30;
+            var log = new NetPaw.Connectivity.IncidentLog(svc.Store.IncidentsFile);
+            var items = log.Read(n);
+            if (items.Count == 0) { Console.WriteLine(svc.Settings.Repair.IncidentLog ? "no incidents recorded" : "incident log is off (Settings → Incident log)"); return 0; }
+            foreach (var i in items) Console.WriteLine(i);
             return 0;
         }
         case "where":

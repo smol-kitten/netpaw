@@ -29,3 +29,9 @@ Purely local analysis; probes only when checks are enabled. *Settings → Adviso
 
 ## Auto-repair (off by default)
 When an advisory says a fresh lease could help, NetPaw can run `ipconfig /renew` on the adapter by itself: at most *N attempts per incident*, spaced by the interval, and only while the adapter is on DHCP. The counter resets once the state is healthy. Every attempt is in the log. *Renew DHCP lease* is also in the tray menu, the panel, and on the info card.
+
+## Incident log (off by default)
+*Settings → Incident log* writes every state change and every configuration finding with a timestamp to `%APPDATA%\NetPaw\incidents.jsonl` (one JSON object per line). Use it to answer "when exactly did the WAN drop?" or to attach to a ticket. `netpaw-cli incidents -n 50` prints the last entries; *Open incident log* is in the tray menu.
+
+## Scan for a working profile
+*Scan for a working profile…* (tray menu, or type `scan` in the panel) tries **DHCP first, then your profiles** on the work adapter, measures each (address, gateway, internet, DNS) and either stops at the first fully working one or tries all and **ranks by usability**. Your current configuration is captured first and restored unless you click *Keep selected*. Cancel restores too. `netpaw-cli scan [--all] [--keep]` does the same from a prompt.
