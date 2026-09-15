@@ -8,25 +8,25 @@
  ],
  "type_confident": false,
  "type_override": null,
- "scanned_ts": 1789464186,
+ "scanned_ts": 1789507989,
  "sections": [
   {
    "title": "Install",
    "anchor": "install",
-   "hash": "b31f8b5761c4",
-   "chars": 465
+   "hash": "ee73e6c865d5",
+   "chars": 864
   },
   {
    "title": "Use",
    "anchor": "use",
-   "hash": "29cf091b4087",
-   "chars": 3170
+   "hash": "27c7b21469e3",
+   "chars": 4953
   },
   {
    "title": "Files",
    "anchor": "files",
-   "hash": "1688e41c4259",
-   "chars": 867
+   "hash": "a722296583e1",
+   "chars": 1113
   },
   {
    "title": "What it runs",
@@ -37,8 +37,8 @@
   {
    "title": "Build",
    "anchor": "build",
-   "hash": "a049953cddb3",
-   "chars": 446
+   "hash": "1128ea3f7dde",
+   "chars": 634
   },
   {
    "title": "Not (yet) in scope",
@@ -48,9 +48,37 @@
   }
  ],
  "changed_since_last": [
-  "use"
+  "install",
+  "use",
+  "files",
+  "build"
  ],
  "findings": [
+  {
+   "check": "commands",
+   "sev": "info",
+   "msg": "`netpaw-cli` \u2014 not on PATH here (fine if users install it)"
+  },
+  {
+   "check": "commands",
+   "sev": "info",
+   "msg": "`netpaw-cli` \u2014 not on PATH here (fine if users install it)"
+  },
+  {
+   "check": "commands",
+   "sev": "info",
+   "msg": "`netpaw-cli` \u2014 not on PATH here (fine if users install it)"
+  },
+  {
+   "check": "commands",
+   "sev": "info",
+   "msg": "`netpaw-cli` \u2014 not on PATH here (fine if users install it)"
+  },
+  {
+   "check": "commands",
+   "sev": "info",
+   "msg": "`netpaw-cli` \u2014 not on PATH here (fine if users install it)"
+  },
   {
    "check": "commands",
    "sev": "info",
@@ -132,5 +160,5 @@
    "msg": "`powershell` \u2014 not on PATH here (fine if users install it)"
   }
  ],
- "verified_ts": 1789464186
+ "verified_ts": 1789507989
 }

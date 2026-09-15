@@ -173,6 +173,22 @@ public class HyperVTests
     }
 
     [Fact]
+    public void InternalSwitchesDoNotTagOrWin()
+    {
+        // WSL2 laptop: physical NIC waiting for DHCP (APIPA), vEthernet (WSL) with a NAT address and no gateway.
+        var all = NetPaw.Adapters.AdapterSelector.TagVSwitchUplinks(
+        [
+            Nic("Ethernet", "Intel I219", true, false, ["169.254.10.10/16"], null),
+            Nic("vEthernet (WSL)", "Hyper-V Virtual Ethernet Adapter", false, true, ["172.29.0.1/20"], null),
+        ]);
+        Assert.False(all[0].VSwitchUplink);
+        Assert.Equal("Ethernet", NetPaw.Adapters.AdapterSelector.Pick(all, null)!.Name);
+        var noAddr = NetPaw.Adapters.AdapterSelector.TagVSwitchUplinks([Nic("Ethernet", "Intel I219", true, false, null, null), all[1]]);
+        Assert.False(noAddr[0].VSwitchUplink);                       // between link-up and lease: still not an uplink
+        Assert.Equal("Ethernet", NetPaw.Adapters.AdapterSelector.Pick(noAddr, null)!.Name);
+    }
+
+    [Fact]
     public void NoHyperVMeansNoTagging()
     {
         var plain = NetPaw.Adapters.AdapterSelector.TagVSwitchUplinks([Nic("Ethernet", "Intel", true, false, null, null)]);
