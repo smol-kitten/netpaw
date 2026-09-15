@@ -24,6 +24,25 @@ static class Theme
     public static readonly Font Small = new("Segoe UI", 8.5f);
     public static readonly Font Big = new("Segoe UI", 13f);
     public static readonly Font Mono = new("Cascadia Mono", 9f, FontStyle.Regular, GraphicsUnit.Point);
+    public static readonly Font Section = new("Segoe UI Semibold", 9f);
+
+    /// <summary>The only spacing values the UI uses, so everything lines up.</summary>
+    public static class Spacing { public const int Xs = 4, S = 8, M = 12, L = 16; }
+
+    /// <summary>Small pill drawn behind a word: "managed", "repo", "temp", "✓ current".</summary>
+    public static void DrawBadge(Graphics g, string text, Color color, ref int rightEdge, int y, int height)
+    {
+        var size = TextRenderer.MeasureText(g, text, Small, Size.Empty, TextFormatFlags.NoPadding);
+        var w = size.Width + 12; var h = Math.Min(height, size.Height + 4);
+        var r = new Rectangle(rightEdge - w, y + (height - h) / 2, w, h);
+        using var path = RoundRect(r, h / 2);
+        using var fill = new SolidBrush(Color.FromArgb(48, color));
+        using var pen = new Pen(Color.FromArgb(140, color));
+        g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+        g.FillPath(fill, path); g.DrawPath(pen, path);
+        TextRenderer.DrawText(g, text, Small, r, color, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
+        rightEdge = r.Left - 6;
+    }
 
     public static void Apply(Control root)
     {
@@ -46,6 +65,7 @@ static class Theme
             case ComboBox cb: cb.BackColor = Field; cb.ForeColor = Text; cb.FlatStyle = FlatStyle.Flat; break;
             case ListBox lb: lb.BackColor = Panel; lb.ForeColor = Text; lb.BorderStyle = BorderStyle.None; break;
             case CheckBox or RadioButton: c.ForeColor = Text; c.BackColor = Color.Transparent; break;
+            case LinkLabel ll: ll.LinkColor = Accent; ll.ActiveLinkColor = Text; ll.VisitedLinkColor = Accent; ll.LinkBehavior = LinkBehavior.HoverUnderline; ll.BackColor = Color.Transparent; break;
             case Label l: if (l.ForeColor == SystemColors.ControlText) l.ForeColor = Text; l.BackColor = Color.Transparent; break;
             case GroupBox g: g.ForeColor = Muted; break;
             case System.Windows.Forms.Panel or TableLayoutPanel or FlowLayoutPanel or SplitContainer: if (c.BackColor == SystemColors.Control) c.BackColor = Bg; break;

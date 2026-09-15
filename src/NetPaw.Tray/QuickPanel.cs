@@ -12,14 +12,18 @@ namespace NetPaw.Tray;
 /// </summary>
 sealed class QuickPanel : Form
 {
-    sealed record Item(string Title, string Subtitle, Color Color, Action Run, string? Hint = null, Profile? Profile = null);
+    sealed record Item(string Title, string Subtitle, Color Color, Action Run, string? Hint = null, Profile? Profile = null, bool OpensWindow = false, string? Badge = null, Color? BadgeColor = null);
 
     readonly TrayApp _app;
     readonly Label _header = new() { Dock = DockStyle.Top, Height = 30, Padding = new Padding(14, 8, 14, 0), ForeColor = Theme.Muted, Font = Theme.Small };
     readonly TextBox _input = new() { Dock = DockStyle.Top, Font = Theme.Big, BorderStyle = BorderStyle.None, Margin = Padding.Empty, PlaceholderText = "profile, device, or IP…" };
     readonly ListBox _list = new() { Dock = DockStyle.Fill, DrawMode = DrawMode.OwnerDrawFixed, ItemHeight = 44, IntegralHeight = false, BorderStyle = BorderStyle.None };
     readonly Label _footer = new() { Dock = DockStyle.Bottom, Height = 26, Padding = new Padding(14, 6, 14, 0), ForeColor = Theme.Muted, Font = Theme.Small, Text = "Enter apply    Ctrl+D DHCP    Ctrl+E edit    Ctrl+R replace primary    Esc close" };
+    readonly Label _status = new() { Dock = DockStyle.Bottom, Height = 0, Padding = new Padding(14, 5, 14, 0), Font = Theme.Small, AutoEllipsis = true, BackColor = Theme.Panel };
+    readonly System.Windows.Forms.Timer _autoHide = new() { Interval = 1400 };
+    readonly ToolTip _tip = new();
     readonly List<Item> _items = [];
+    string? _linkText;
 
     public QuickPanel(TrayApp app)
     {
@@ -30,7 +34,10 @@ sealed class QuickPanel : Form
         _input.BackColor = Theme.Panel; _input.ForeColor = Theme.Text;
         inputHost.Controls.Add(_input);
         _list.BackColor = Theme.Bg; _list.ForeColor = Theme.Text;
-        Controls.Add(_list); Controls.Add(_footer); Controls.Add(inputHost); Controls.Add(_header);
+        Controls.Add(_list); Controls.Add(_status); Controls.Add(_footer); Controls.Add(inputHost); Controls.Add(_header);
+        _app.Status += (text, kind) => { if (IsHandleCreated) BeginInvoke(() => ShowStatus(text, kind)); };
+        _autoHide.Tick += (_, _) => { _autoHide.Stop(); if (Visible) Hide(); };
+        _header.MouseEnter += (_, _) => { if (_linkText is not null) _tip.SetToolTip(_header, _linkText); };
         _input.TextChanged += (_, _) => Rebuild();
         _input.KeyDown += OnKey;
         _list.DrawItem += DrawItem;
@@ -62,6 +69,7 @@ sealed class QuickPanel : Form
         var area = Screen.FromPoint(Cursor.Position).WorkingArea;
         Location = new Point(area.Left + (area.Width - Width) / 2, area.Top + area.Height / 5);
         _input.Text = "";
+        ClearStatus();
         Rebuild();
         Show(); Activate(); Native.ForceForeground(Handle);
         _input.Focus();
@@ -71,8 +79,23 @@ sealed class QuickPanel : Form
     {
         var w = _app.Work;
         var temps = _app.Service.TempAddresses.Count;
-        _header.Text = w is null ? "no adapter" : $"{w.Name}  ·  {w.Summary()}{(temps > 0 ? $"  ·  {temps} temp" : "")}";
+        var link = w is null ? "" : w.Up ? "●" : "○";
+        _header.ForeColor = w is null || !w.Up ? Theme.Down : Theme.Muted;
+        _header.Text = w is null ? "no adapter" : $"{link}  {w.Name}  ·  {w.Summary()}{(w.SpeedText.Length > 0 ? "  ·  " + w.SpeedText : "")}{(temps > 0 ? $"  ·  {temps} temp" : "")}";
+        _linkText = w is null ? null : $"{w.Description}\nMAC {w.Mac}\nDNS {(w.Dns.Count == 0 ? "—" : string.Join(", ", w.Dns))}\n{(w.Up ? "link up" : "link down")}";
     }
+
+    void ShowStatus(string text, string kind)
+    {
+        _autoHide.Stop();
+        _status.Text = text;
+        _status.ForeColor = kind switch { "ok" => Theme.Static, "warn" => Theme.Temp, "error" => Theme.Error, _ => Theme.Accent };
+        _status.Height = 26;
+        FitHeight();
+        if (kind == "ok" && Visible) _autoHide.Start();
+    }
+
+    void ClearStatus() { _autoHide.Stop(); _status.Text = ""; _status.Height = 0; }
 
     void Rebuild()
     {
@@ -106,10 +129,12 @@ sealed class QuickPanel : Form
             foreach (var p in profiles)
             {
                 var current = w is not null && ApplyPlanner.Matches(p, w);
-                _items.Add(new Item(p.Name + (current ? "   ✓" : ""), p.Summary() + (p.Hotkey is null ? "" : "   " + p.Hotkey), p.Dhcp ? Theme.Dhcp : Theme.Static, () => _app.ApplyProfile(p), null, p));
+                var badge = current ? "current" : p.Managed ? "managed" : p.Source;
+                var badgeColor = current ? Theme.Static : p.Managed ? Theme.Temp : Theme.Accent;
+                _items.Add(new Item(p.Name, p.Summary() + (p.Hotkey is null ? "" : "   " + p.Hotkey), p.Dhcp ? Theme.Dhcp : Theme.Static, () => _app.ApplyProfile(p), null, p, Badge: badge, BadgeColor: badgeColor));
             }
             if (q.Length == 0 || Fuzzy("dhcp", q))
-                _items.Add(new Item("DHCP now" + (w?.Dhcp == true ? "   ✓" : ""), $"Let {w?.Name ?? "the adapter"} take a lease", Theme.Dhcp, _app.ApplyDhcp));
+                _items.Add(new Item("DHCP now", $"Let {w?.Name ?? "the adapter"} take a lease", Theme.Dhcp, _app.ApplyDhcp, Badge: w?.Dhcp == true ? "current" : null, BadgeColor: Theme.Static));
             if (q.Length > 0)
                 foreach (var pr in PresetLibrary.Search(svc.Presets, q).Take(8))
                     _items.Add(new Item($"{pr.Vendor} {pr.Model}", $"{pr.Ip}/{pr.Prefix}{(pr.Note is null ? "" : "   " + pr.Note)}", Theme.Temp, () => _app.ApplyPreset(pr)));
@@ -117,18 +142,23 @@ sealed class QuickPanel : Form
             if (temps.Count > 0 && (q.Length == 0 || Fuzzy("temporary", q) || Fuzzy("clear", q)))
                 _items.Add(new Item($"Remove {temps.Count} temporary address{(temps.Count == 1 ? "" : "es")}", string.Join(", ", temps.Select(t => t.Address.ToString())), Theme.Temp, _app.ClearTemp));
             if (q.Length == 0 || Fuzzy("manage profiles", q) || Fuzzy("edit", q))
-                _items.Add(new Item("Manage profiles…", "Create, edit, hotkeys, routes, VLAN", Theme.Muted, () => _app.ShowEditor()));
+                _items.Add(new Item("Manage profiles…", "Create, edit, hotkeys, routes, VLAN", Theme.Muted, () => _app.ShowEditor(), OpensWindow: true));
             if (q.Length > 0 && Fuzzy("settings", q))
-                _items.Add(new Item("Settings…", "Work adapter, hotkey, confirm, startup", Theme.Muted, _app.ShowSettings));
+                _items.Add(new Item("Settings…", "Work adapter, hotkey, confirm, startup", Theme.Muted, _app.ShowSettings, OpensWindow: true));
         }
         _list.BeginUpdate();
         _list.Items.Clear();
         foreach (var i in _items) _list.Items.Add(i);
         if (_list.Items.Count > 0) _list.SelectedIndex = 0;
         _list.EndUpdate();
-        // Grow with content (3..8 rows) instead of leaving a dark void under two items.
+        FitHeight();
+    }
+
+    /// <summary>Grow with content (3..8 rows) instead of leaving a dark void under two items.</summary>
+    void FitHeight()
+    {
         var rows = Math.Clamp(_items.Count, 3, 8);
-        var wanted = _header.Height + 48 + _footer.Height + rows * _list.ItemHeight + 8;
+        var wanted = _header.Height + 48 + _footer.Height + _status.Height + rows * _list.ItemHeight + 8;
         if (ClientSize.Height != wanted) { ClientSize = new Size(ClientSize.Width, wanted); ApplyRegion(); }
     }
 
@@ -148,9 +178,9 @@ sealed class QuickPanel : Form
             case Keys.Enter: RunSelected(); break;
             case Keys.Down: if (_list.SelectedIndex < _list.Items.Count - 1) _list.SelectedIndex++; break;
             case Keys.Up: if (_list.SelectedIndex > 0) _list.SelectedIndex--; break;
-            case Keys.Control | Keys.D: Hide(); _app.ApplyDhcp(); break;
+            case Keys.Control | Keys.D: _app.ApplyDhcp(); break;
             case Keys.Control | Keys.E: Hide(); _app.ShowEditor((_list.SelectedItem as Item)?.Profile); break;
-            case Keys.Control | Keys.R: if (_items.FirstOrDefault(i => i.Hint == "reach-replace") is { } r) { Hide(); r.Run(); } break;
+            case Keys.Control | Keys.R: if (_items.FirstOrDefault(i => i.Hint == "reach-replace") is { } r) r.Run(); break;
             default: return;
         }
         e.Handled = true; e.SuppressKeyPress = true;
@@ -159,8 +189,8 @@ sealed class QuickPanel : Form
     void RunSelected()
     {
         if (_list.SelectedItem is not Item it) return;
-        Hide();
-        it.Run();
+        if (it.OpensWindow) { Hide(); it.Run(); return; }
+        it.Run(); // the panel stays; TrayApp.Status shows progress and auto-hides on success
     }
 
     void DrawItem(object? s, DrawItemEventArgs e)
@@ -170,7 +200,9 @@ sealed class QuickPanel : Form
         using (var bg = new SolidBrush(selected ? Theme.Selection : Theme.Bg)) e.Graphics.FillRectangle(bg, e.Bounds);
         e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
         using (var dot = new SolidBrush(it.Color)) e.Graphics.FillEllipse(dot, e.Bounds.X + 16, e.Bounds.Y + 17, 10, 10);
-        TextRenderer.DrawText(e.Graphics, it.Title, Theme.Base, new Rectangle(e.Bounds.X + 36, e.Bounds.Y + 5, e.Bounds.Width - 44, 20), Theme.Text, TextFormatFlags.Left | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
+        var right = e.Bounds.Right - 14;
+        if (it.Badge is not null) Theme.DrawBadge(e.Graphics, it.Badge, it.BadgeColor ?? Theme.Accent, ref right, e.Bounds.Y + 6, 20);
+        TextRenderer.DrawText(e.Graphics, it.Title, Theme.Base, new Rectangle(e.Bounds.X + 36, e.Bounds.Y + 5, right - e.Bounds.X - 40, 20), Theme.Text, TextFormatFlags.Left | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
         TextRenderer.DrawText(e.Graphics, it.Subtitle, Theme.Small, new Rectangle(e.Bounds.X + 36, e.Bounds.Y + 24, e.Bounds.Width - 44, 18), Theme.Muted, TextFormatFlags.Left | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
     }
 }

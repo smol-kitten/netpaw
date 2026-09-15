@@ -10,6 +10,8 @@ public sealed class NetworkInterfaceAdapterProvider : IAdapterProvider
     static readonly System.Text.RegularExpressions.Regex FilterSuffix = new(@"-\d{4}$");
     static readonly string[] VirtualHints = ["virtual", "hyper-v", "vmware", "vethernet", "loopback", "tap-", "tunnel", "wintun", "wireguard", "bluetooth", "npcap", "wan miniport", "isatap", "teredo"];
 
+    static long SafeSpeed(NetworkInterface nic) { try { return nic.Speed; } catch (PlatformNotSupportedException) { return 0; } catch (NetworkInformationException) { return 0; } }
+
     public IReadOnlyList<AdapterInfo> GetAdapters()
     {
         var list = new List<AdapterInfo>();
@@ -33,7 +35,7 @@ public sealed class NetworkInterfaceAdapterProvider : IAdapterProvider
             var isPhysical = nic.NetworkInterfaceType is NetworkInterfaceType.Ethernet or NetworkInterfaceType.Wireless80211 or NetworkInterfaceType.GigabitEthernet or NetworkInterfaceType.FastEthernetT or NetworkInterfaceType.FastEthernetFx
                              && !VirtualHints.Any(h => desc.Contains(h, StringComparison.OrdinalIgnoreCase) || nic.Name.Contains(h, StringComparison.OrdinalIgnoreCase));
             list.Add(new AdapterInfo(nic.Name, desc, nic.Id, index, nic.OperationalStatus == OperationalStatus.Up, isPhysical, dhcp, addrs, gws, dns,
-                string.Join(":", nic.GetPhysicalAddress().GetAddressBytes().Select(b => b.ToString("X2")))));
+                string.Join(":", nic.GetPhysicalAddress().GetAddressBytes().Select(b => b.ToString("X2"))), SafeSpeed(nic)));
         }
         return list.OrderByDescending(a => a.IsPhysical).ThenByDescending(a => a.Up).ThenBy(a => a.Name).ToList();
     }

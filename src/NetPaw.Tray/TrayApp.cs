@@ -21,6 +21,9 @@ sealed class TrayApp : ApplicationContext
     IReadOnlyList<AdapterInfo> _adapters = [];
 
     public NetPawService Service => _svc;
+    /// <summary>(text, kind) kind: "busy" | "ok" | "warn" | "error". The quick panel shows it inline instead of a balloon.</summary>
+    public event Action<string, string>? Status;
+    bool PanelShowing => _panel is { Visible: true };
     public AdapterInfo? Work => _svc.WorkAdapter(_adapters);
 
     public TrayApp(NetPawService svc, bool showPanelAtStart)
@@ -154,7 +157,7 @@ sealed class TrayApp : ApplicationContext
     {
         var w = Work; if (w is null) { Notify("No adapter", "Pick a work adapter first.", ToolTipIcon.Warning); return; }
         var d = _svc.ResolvePreset(preset, w);
-        if (d.Kind == ReachKind.AlreadyReachable) { Notify("Already reachable", d.Explanation, ToolTipIcon.Info); return; }
+        if (d.Kind == ReachKind.AlreadyReachable) { Status?.Invoke(d.Explanation, "ok"); Notify("Already reachable", d.Explanation, ToolTipIcon.Info); return; }
         var (plan, _) = _svc.Reach(d, w, dryRun: true);
         Execute(plan, () => _svc.Reach(d, w).Outcome!, d.Explanation);
     }
@@ -165,8 +168,8 @@ sealed class TrayApp : ApplicationContext
         var d = _svc.ResolveReach(target, w);
         switch (d.Kind)
         {
-            case ReachKind.Invalid: Notify("Reach", d.Explanation, ToolTipIcon.Warning); return;
-            case ReachKind.AlreadyReachable: Notify("Already reachable", d.Explanation, ToolTipIcon.Info); return;
+            case ReachKind.Invalid: Status?.Invoke(d.Explanation, "error"); Notify("Reach", d.Explanation, ToolTipIcon.Warning); return;
+            case ReachKind.AlreadyReachable: Status?.Invoke(d.Explanation, "ok"); Notify("Already reachable", d.Explanation, ToolTipIcon.Info); return;
         }
         var (plan, _) = _svc.Reach(d, w, dryRun: true, replace);
         Execute(plan, () =>
@@ -198,28 +201,42 @@ sealed class TrayApp : ApplicationContext
         if (_busy) { Notify("Busy", "Another change is still running.", ToolTipIcon.Warning); return; }
         if (plan.IsEmpty)
         {
-            Notify(plan.Title, plan.Warnings.Count > 0 ? string.Join("\n", plan.Warnings) : "Nothing to do.", ToolTipIcon.Info);
+            var text = plan.Warnings.Count > 0 ? string.Join(" ", plan.Warnings) : "Nothing to do.";
+            Status?.Invoke(text, "warn"); Notify(plan.Title, text, ToolTipIcon.Info);
             return;
         }
         if (_svc.Settings.ConfirmBeforeApply || plan.Warnings.Count > 0)
-            if (!PlanPreviewForm.Confirm(plan, subtitle)) return;
+            if (!PlanPreviewForm.Confirm(plan, subtitle)) { Status?.Invoke("Cancelled.", "warn"); return; }
         RunInBackground($"Applying {plan.Title}", custom ?? (() => _svc.Apply(plan)), $"{plan.Title} → {plan.Adapter}");
     }
 
     void RunInBackground(string title, Func<ApplyOutcome> work, string doneText)
     {
         _busy = true; RefreshState();
+        Status?.Invoke(title + "…", "busy");
         Task.Run(work).ContinueWith(t =>
         {
             _busy = false;
             var outcome = t.IsFaulted ? null : t.Result;
-            if (outcome is null) { _svc.Store.Log("apply crashed: " + t.Exception); Notify("NetPaw error", t.Exception?.GetBaseException().Message ?? "unknown", ToolTipIcon.Error); }
+            if (outcome is null)
+            {
+                _svc.Store.Log("apply crashed: " + t.Exception);
+                var msg = t.Exception?.GetBaseException().Message ?? "unknown";
+                Status?.Invoke(msg, "error"); Notify("NetPaw error", msg, ToolTipIcon.Error);
+            }
             else if (outcome.Success)
             {
                 var soft = outcome.Failures.ToList();
-                Notify(doneText, soft.Count == 0 ? "Done." : "Done, with warnings:\n" + string.Join("\n", soft.Select(f => f.Step.Description + ": " + f.Output)), soft.Count == 0 ? ToolTipIcon.Info : ToolTipIcon.Warning);
+                var text = soft.Count == 0 ? "Done." : "Done, with warnings: " + string.Join("; ", soft.Select(f => f.Step.Description + ": " + f.Output));
+                Status?.Invoke(doneText + " — " + text, soft.Count == 0 ? "ok" : "warn");
+                Notify(doneText, text, soft.Count == 0 ? ToolTipIcon.Info : ToolTipIcon.Warning);
             }
-            else Notify(title + " failed", string.Join("\n", outcome.Failures.Select(f => f.Step.Description + ": " + f.Output)), ToolTipIcon.Error);
+            else
+            {
+                var text = string.Join("; ", outcome.Failures.Select(f => f.Step.Description + ": " + f.Output));
+                Status?.Invoke(title + " failed — " + text, "error");
+                Notify(title + " failed", text, ToolTipIcon.Error);
+            }
             RefreshState();
         }, TaskScheduler.FromCurrentSynchronizationContext());
     }
@@ -227,7 +244,7 @@ sealed class TrayApp : ApplicationContext
     public void Notify(string title, string text, ToolTipIcon icon)
     {
         _svc.Store.Log($"notify [{icon}] {title}: {text.ReplaceLineEndings(" | ")}");
-        if (!_svc.Settings.ShowNotifications && icon == ToolTipIcon.Info) return;
+        if (icon == ToolTipIcon.Info && (!_svc.Settings.ShowNotifications || PanelShowing)) return; // the panel shows it inline
         _tray.ShowBalloonTip(icon == ToolTipIcon.Error ? 8000 : 3000, title, text.Length > 250 ? text[..247] + "…" : text, icon);
     }
 
