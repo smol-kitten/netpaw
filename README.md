@@ -29,9 +29,9 @@ MIT licensed. Windows 10/11, .NET 10.
 
 ![quick panel — type a vendor, a profile, or an IP](docs/panel.png)
 
-| profile editor | plan preview | settings |
+| profile editor (managed profile, read-only) | settings with repositories | apply feedback |
 |---|---|---|
-| ![editor](docs/editor.png) | ![preview](docs/preview.png) | ![settings](docs/settings.png) |
+| ![editor](docs/editor.png) | ![settings](docs/settings.png) | ![apply](docs/apply.png) |
 
 *Screenshots from the Windows 11 test VM; every `netsh` path in this README was verified there.*
 
