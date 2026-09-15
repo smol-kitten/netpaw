@@ -22,14 +22,16 @@ keystroke instead of a trip through *Control Panel → Network → Adapter → P
   in WMI calls; the log shows exactly what ran.
 - **Tiny and fast** — two executables, ~1.5 MB together, no installer, no service, no telemetry.
 - **CLI twin** (`netpaw-cli.exe`) for scripts and remote sessions. Same profiles, same logic.
+- **Enterprise-ready** — MSI for Intune/GPO, read-only managed profiles from `%ProgramData%`, registry policy with ADMX (pin the adapter/hotkey, deny reach/DHCP/user profiles). See [docs/ENTERPRISE.md](docs/ENTERPRISE.md).
+- **Online profile packs** — subscribe to signed `index.json` repositories (the community pack in this repo, or your company's). Fetched only when you click *Sync*, cached, never auto-applied. See [docs/PACK-FORMAT.md](docs/PACK-FORMAT.md).
 
 MIT licensed. Windows 10/11, .NET 10.
 
 ![quick panel — type a vendor, a profile, or an IP](docs/panel.png)
 
-| profile editor | plan preview | settings |
+| profile editor (managed profile, read-only) | settings with repositories | apply feedback |
 |---|---|---|
-| ![editor](docs/editor.png) | ![preview](docs/preview.png) | ![settings](docs/settings.png) |
+| ![editor](docs/editor.png) | ![settings](docs/settings.png) | ![apply](docs/apply.png) |
 
 *Screenshots from the Windows 11 test VM; every `netsh` path in this README was verified there.*
 
@@ -41,6 +43,7 @@ Grab a zip from [Releases](../../releases):
 |---|---|---|
 | `netpaw-win-x64.zip` | [.NET 10 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/10.0) | ~1.5 MB |
 | `netpaw-win-x64-standalone.zip` | nothing | ~110 MB |
+| `NetPaw-<version>.msi` | [.NET 10 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/10.0) | ~1 MB, per-machine, for Intune/GPO |
 
 Unzip anywhere, run `NetPaw.exe`. It asks for elevation once (adapter changes need it) and lives in the
 tray. *Settings → start with Windows* creates an elevated scheduled task so there is no UAC prompt at
@@ -102,7 +105,15 @@ netpaw-cli vlan <adapter> [id]              query / set the driver VLAN id (0 = 
 netpaw-cli where                            print the config directory
 ```
 
-Read-only commands work from any prompt; changes need an elevated one.
+```
+netpaw-cli export <file> [--managed]    write profiles as JSON (--managed = deployment file for profiles.d)
+netpaw-cli import <file>                add profiles from JSON
+netpaw-cli policy                       show the effective machine policy
+netpaw-cli repo [add|remove|sync|search] online profile repositories
+netpaw-cli pack keygen|build|sign|verify author and sign a pack
+```
+
+Read-only commands work from any prompt; changes need an elevated one. Exit codes: 0 ok, 1 a step failed, 2 usage, 3 not VLAN-capable, 4 denied by policy.
 
 ## Files
 
@@ -110,7 +121,9 @@ Everything is JSON in `%APPDATA%\NetPaw\` (override with `NETPAW_HOME`):
 
 - `profiles.json` — your profiles. Hand-editable, git-able, copy to the next laptop.
 - `presets.json` — your own device presets; same schema as the bundled list, same Vendor/Model overrides.
-- `settings.json`, `state.json` (temporary addresses), `netpaw.log`.
+- `settings.json`, `state.json` (temporary addresses), `netpaw.log`, `cache\` (synced packs).
+- `%ProgramData%\NetPaw\profiles.d\*.json` — managed profiles deployed by your organisation (read-only, *managed* badge).
+- `HKLM\SOFTWARE\Policies\NetPaw` — machine policy (see [docs/ENTERPRISE.md](docs/ENTERPRISE.md)).
 
 A profile:
 
@@ -155,9 +168,10 @@ dotnet publish src/NetPaw.Tray -c Release -r win-x64 --self-contained false -o o
 dotnet publish src/NetPaw.Cli  -c Release -r win-x64 --self-contained false -o out
 ```
 
-Layout: `src/NetPaw.Core` (models, IP math, planner, reach resolver, presets — no Windows
-dependencies, fully unit-tested), `src/NetPaw.Tray` (WinForms, dark, no designer files),
-`src/NetPaw.Cli`.
+Layout: `src/NetPaw.Core` (models, IP math, planner, reach resolver, presets, policy, repos — no
+Windows dependencies, fully unit-tested), `src/NetPaw.Tray` (WinForms, dark, no designer files),
+`src/NetPaw.Cli`, `deploy/` (MSI, ADMX, Intune scripts), `packs/` (online packs, not built in).
+The MSI is built and install-tested on a hosted Windows runner; everything else runs on Linux.
 
 ## Not (yet) in scope
 

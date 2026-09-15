@@ -3,6 +3,7 @@ using NetPaw.Model;
 using NetPaw.Planning;
 using NetPaw.Presets;
 using NetPaw.Reach;
+using NetPaw.Repos;
 using NetPaw.Store;
 
 namespace NetPaw;
@@ -16,15 +17,31 @@ public sealed class NetPawService
     readonly Func<Policy> _policyReader;
     public IAdapterProvider Adapters { get; }
     public IVlanProvider Vlan { get; }
+    readonly Dictionary<string, (VlanInfo Info, DateTime At)> _vlanCache = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>WMI takes ~1 s per adapter; the editor asks repeatedly, so answers are kept for 30 s.</summary>
+    public VlanInfo QueryVlan(string adapterName)
+    {
+        if (_vlanCache.TryGetValue(adapterName, out var c) && DateTime.UtcNow - c.At < TimeSpan.FromSeconds(30)) return c.Info;
+        var v = Vlan.Query(adapterName);
+        _vlanCache[adapterName] = (v, DateTime.UtcNow);
+        return v;
+    }
     public IStepRunner Runner { get; }
     public Settings Settings { get; private set; }
     public List<Profile> Profiles { get; private set; }
+    /// <summary>Bundled + user presets + entries of usable repositories.</summary>
     public IReadOnlyList<Preset> Presets { get; private set; }
+    public RepoClient Repos { get; }
+    public IReadOnlyList<RepoState> RepoStates { get; private set; } = [];
+    /// <summary>Full profiles offered by repositories (kind "profile"); applied like presets, never saved unless copied.</summary>
+    public IReadOnlyList<Profile> RepoProfiles { get; private set; } = [];
 
-    public NetPawService(JsonStore store, IAdapterProvider adapters, IVlanProvider vlan, IStepRunner runner, MachineStore? machine = null, Func<Policy>? policy = null)
+    public NetPawService(JsonStore store, IAdapterProvider adapters, IVlanProvider vlan, IStepRunner runner, MachineStore? machine = null, Func<Policy>? policy = null, RepoClient? repos = null)
     {
         Store = store; Adapters = adapters; Vlan = vlan; Runner = runner;
         Machine = machine ?? new MachineStore();
+        Repos = repos ?? new RepoClient(Path.Combine(store.Directory, "cache"));
         _policyReader = policy ?? PolicyReader.ReadMachine;
         Settings = new Settings(); Profiles = []; Presets = [];
         Reload();
@@ -47,7 +64,71 @@ public sealed class NetPawService
         var managed = Machine.Load();
         foreach (var e in Machine.Errors) Store.Log("managed profile skipped: " + e);
         Profiles = MachineStore.Merge(managed, Policy.AllowUserProfiles ? Store.LoadProfiles() : []);
-        Presets = PresetLibrary.Load(Store.PresetsFile);
+        RebuildRepos(RepoRefs().Select(Repos.LoadCached).ToList());
+    }
+
+    /// <summary>Policy repos first (not removable), then the user's, de-duplicated by URL.</summary>
+    public List<RepoRef> RepoRefs()
+    {
+        var list = Policy.RepoUrls.Select(u => RepoRef.Parse(u, fromPolicy: true)).ToList();
+        if (Policy.AllowUserRepos)
+            foreach (var u in Settings.RepoUrls)
+            {
+                var r = RepoRef.Parse(u);
+                if (!list.Any(x => string.Equals(x.Url, r.Url, StringComparison.OrdinalIgnoreCase))) list.Add(r);
+            }
+        return list;
+    }
+
+    void RebuildRepos(List<RepoState> states)
+    {
+        RepoStates = states;
+        var presets = PresetLibrary.Load(Store.PresetsFile).ToList();
+        var profiles = new List<Profile>();
+        foreach (var st in states.Where(s => s.Usable(Policy.AllowUnsignedRepos)))
+            foreach (var e in st.Pack!.Entries)
+            {
+                if (e.ToPreset() is { } pr) { pr.Source = st.Name; presets.Add(pr); }
+                else if (e.Kind == "profile" && e.Profile is not null)
+                {
+                    var p = e.Profile.Clone();
+                    p.Id = "r-" + st.Name + "-" + e.Id; p.Source = st.Name; p.Hotkey = null;
+                    if (string.IsNullOrWhiteSpace(p.Name)) p.Name = e.Title;
+                    p.Note ??= e.Note;
+                    if (p.Validate().Count == 0) profiles.Add(p);
+                }
+            }
+        Presets = presets;
+        RepoProfiles = profiles;
+    }
+
+    /// <summary>Fetches every configured repository (the only place NetPaw touches the network).</summary>
+    public async Task<IReadOnlyList<RepoState>> SyncRepos(CancellationToken ct = default)
+    {
+        var states = new List<RepoState>();
+        foreach (var r in RepoRefs()) states.Add(await Repos.Sync(r, ct));
+        RebuildRepos(states);
+        foreach (var s in states) Store.Log($"repo {s.Repo.Url}: {(s.Pack is null ? "unusable" : s.Count + " entries")} trust={s.Trust}{(s.Error is null ? "" : " — " + s.Error)}");
+        return states;
+    }
+
+    public void AddRepo(string spec)
+    {
+        Require(Capability.UserRepos);
+        var r = RepoRef.Parse(spec);
+        if (!r.Url.StartsWith("https://", StringComparison.OrdinalIgnoreCase) && !r.Url.StartsWith("file://", StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("repository URLs must start with https://");
+        if (RepoRefs().Any(x => string.Equals(x.Url, r.Url, StringComparison.OrdinalIgnoreCase))) throw new InvalidOperationException("that repository is already configured");
+        Settings.RepoUrls.Add(r.ToSpec()); SaveSettings();
+        RebuildRepos(RepoRefs().Select(Repos.LoadCached).ToList());
+    }
+
+    public void RemoveRepo(string url)
+    {
+        Require(Capability.UserRepos);
+        var n = Settings.RepoUrls.RemoveAll(u => string.Equals(RepoRef.Parse(u).Url, url, StringComparison.OrdinalIgnoreCase));
+        if (n == 0) throw new InvalidOperationException(RepoRefs().Any(x => x.FromPolicy && string.Equals(x.Url, url, StringComparison.OrdinalIgnoreCase)) ? "that repository is set by policy" : "no such repository");
+        SaveSettings(); Repos.Forget(url);
+        RebuildRepos(RepoRefs().Select(Repos.LoadCached).ToList());
     }
 
     public IEnumerable<Profile> UserProfiles => Profiles.Where(p => !p.Managed);
@@ -97,7 +178,7 @@ public sealed class NetPawService
     public ApplyPlan PlanProfile(Profile p, AdapterInfo? adapter = null)
     {
         adapter ??= ResolveAdapter(p.Adapter);
-        var vlan = p.VlanId is null ? null : Vlan.Query(adapter.Name);
+        var vlan = p.VlanId is null ? null : QueryVlan(adapter.Name);
         return ApplyPlanner.Plan(p, adapter, vlan);
     }
 
@@ -209,7 +290,7 @@ public sealed class NetPawService
             p.Gateway = adapter.Gateways.FirstOrDefault();
             p.Dns = [.. adapter.Dns];
         }
-        var v = Vlan.Query(adapter.Name);
+        var v = QueryVlan(adapter.Name);
         if (v.Capable && v.VlanId is > 0) p.VlanId = v.VlanId;
         return p;
     }

@@ -212,7 +212,7 @@ sealed class ProfileEditorForm : Form
     {
         var name = _adapter.SelectedIndex <= 0 ? _app.Work?.Name : (string)_adapter.SelectedItem!;
         if (name is null) { _vlanInfo.Text = ""; return; }
-        var v = _app.Service.Vlan.Query(name);
+        var v = _app.Service.QueryVlan(name);
         _vlanInfo.Text = v.Capable ? $"{name}: driver supports VlanID (now {v.VlanId?.ToString() ?? "?"})" : $"{name}: driver exposes no VlanID — tagging unavailable";
         _vlanInfo.ForeColor = v.Capable ? Theme.Static : Theme.Muted;
     }
