@@ -70,3 +70,17 @@ public class ConnectivityTests
         Assert.Equal(NetState.LinkDown, down.To); Assert.True(down.IsProblem);   // first snapshot but a problem: say it
     }
 }
+
+public class ApipaTests
+{
+    [Fact]
+    public async Task SelfAssignedAddressCountsAsNoAddress()
+    {
+        var probe = new FakeProbe();
+        var a = Fx.Adapter(addrs: ["169.254.167.202/16"]);
+        var snap = await new ConnectivityChecker(probe).Check(a, new CheckSettings { Enabled = true });
+        Assert.False(snap.HasAddress);
+        Assert.Equal(NetState.NoAddress, snap.State);
+        Assert.Empty(probe.Pinged);
+    }
+}

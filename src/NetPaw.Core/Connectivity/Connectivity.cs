@@ -123,7 +123,8 @@ public sealed class ConnectivityChecker(IProbe probe)
     {
         var now = DateTimeOffset.Now;
         if (adapter is null) return new Snapshot(now, null, false, false, false, [], [], null, s.Enabled);
-        var link = adapter.Up; var hasAddr = adapter.Addresses.Count > 0; var hasGw = adapter.HasGateway;
+        // A 169.254.x.x self-assigned address means "DHCP did not answer", not "configured".
+        var link = adapter.Up; var hasAddr = adapter.Addresses.Any(a => !a.Address.StartsWith("169.254.")); var hasGw = adapter.HasGateway;
         if (!s.Enabled || !link || !hasAddr) return new Snapshot(now, adapter, link, hasAddr, hasGw, [], [], null, s.Enabled);
 
         var intranetTargets = adapter.Gateways.Take(1).Concat(s.IntranetTargets).Where(t => !string.IsNullOrWhiteSpace(t)).Distinct().ToList();

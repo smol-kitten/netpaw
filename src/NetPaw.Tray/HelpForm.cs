@@ -43,8 +43,8 @@ sealed class HelpForm : Form
         Controls.Add(bodyHost); Controls.Add(left);
         KeyPreview = true;
         KeyDown += (_, e) => { if (e.KeyCode == Keys.Escape) Close(); if (e.KeyData == (Keys.Alt | Keys.Left) && _history.Count > 1) { _history.Pop(); Open(_history.Pop()); } };
-        Theme.Apply(this); _search.BackColor = Theme.Field;
-        Load += (_, _) => Native.Dress(this);
+        Theme.Apply(this);
+        Load += (_, _) => { Native.Dress(this); _search.BackColor = Theme.Field; _search.ForeColor = Theme.Text; };
     }
 
     public void Open(string topic)

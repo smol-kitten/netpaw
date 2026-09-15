@@ -30,6 +30,7 @@ sealed class InfoToast : Form
         _pin.Click += (_, _) => SetPinned(!_pinned, manual: true);
         _close.Click += (_, _) => { _autoPinned = false; SetPinned(false, manual: true); Hide(); };
         Controls.Add(_grid); Controls.Add(_state); Controls.Add(_title); Controls.Add(_pin); Controls.Add(_close);
+        _pin.BringToFront(); _close.BringToFront();
         _fade.Tick += (_, _) => { _fade.Stop(); if (!_pinned) Hide(); };
         MouseEnter += (_, _) => _fade.Stop();
         MouseLeave += (_, _) => { if (!_pinned && Visible) _fade.Start(); };
@@ -91,7 +92,7 @@ sealed class InfoToast : Form
         if (a is not null)
         {
             Row("Link", a.Up ? "up" : "down", a.Up);
-            Row("Address", a.Addresses.Count == 0 ? "none" : string.Join(", ", a.Addresses.Select(x => x.ToString())) + (a.Dhcp ? "  (DHCP)" : ""), a.Addresses.Count > 0);
+            Row("Address", a.Addresses.Count == 0 ? "none" : string.Join(", ", a.Addresses.Select(x => x.ToString())) + (a.Dhcp ? "  (DHCP)" : "") + (s.HasAddress ? "" : "  self-assigned"), s.HasAddress);
             Row("Gateway", a.HasGateway ? a.Gateways[0] + (s!.ChecksEnabled && s.Intranet.Count > 0 ? (s.GatewayOk ? $"  {s.Intranet[0].Ms} ms" : "  no reply") : "") : "not set", a.HasGateway && (!s!.ChecksEnabled || s.Intranet.Count == 0 || s.GatewayOk));
             Row("DNS", a.Dns.Count == 0 ? "none" : string.Join(", ", a.Dns), a.Dns.Count > 0 && (s!.DnsCheck is null || s.DnsOk));
             if (s!.ChecksEnabled)

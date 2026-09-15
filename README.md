@@ -21,6 +21,9 @@ keystroke instead of a trip through *Control Panel → Network → Adapter → P
 - **Transparent** — every change is a plain `netsh` command you can preview and copy. Nothing hidden
   in WMI calls; the log shows exactly what ran.
 - **Tiny and fast** — two executables, ~1.5 MB together, no installer, no service, no telemetry.
+- **Network info card** — `Ctrl+Alt+I`: link, address, gateway, DNS, intranet, internet as ✓/✗ with round-trips. Pin it with 📌.
+- **Monitor mode** (opt-in) — probes gateway/intranet/internet/DNS on an interval and tells you *what* changed: "Internet lost — intranet still reachable", "Link down", "Back online". A red dot on the paw while there is a problem; the card pins itself until things recover.
+- **F1 help** on every view.
 - **CLI twin** (`netpaw-cli.exe`) for scripts and remote sessions. Same profiles, same logic.
 - **Enterprise-ready** — MSI for Intune/GPO, read-only managed profiles from `%ProgramData%`, registry policy with ADMX (pin the adapter/hotkey, deny reach/DHCP/user profiles). See [docs/ENTERPRISE.md](docs/ENTERPRISE.md).
 - **Online profile packs** — subscribe to signed `index.json` repositories (the community pack in this repo, or your company's). Fetched only when you click *Sync*, cached, never auto-applied. See [docs/PACK-FORMAT.md](docs/PACK-FORMAT.md).
@@ -32,6 +35,10 @@ MIT licensed. Windows 10/11, .NET 10.
 | profile editor (managed profile, read-only) | settings with repositories | apply feedback |
 |---|---|---|
 | ![editor](docs/editor.png) | ![settings](docs/settings.png) | ![apply](docs/apply.png) |
+
+| network info card | sticky alert (cable pulled) | F1 help |
+|---|---|---|
+| ![info](docs/info.png) | ![alert](docs/alert.png) | ![help](docs/help.png) |
 
 *Screenshots from the Windows 11 test VM; every `netsh` path in this README was verified there.*
 
@@ -61,6 +68,9 @@ logon.
 | save what's configured right now | *Capture current as profile…* |
 | undo temporary addresses | *Remove N temporary addresses* (menu / panel) |
 | see what will run | *Settings → confirm before applying*, or *Preview plan* in the editor |
+| check the link | `Ctrl+Alt+I` — the info card; 📌 keeps it |
+| get told when the network changes | *Settings → Connectivity → check reachability* + *monitor mode* |
+| help | `F1` anywhere; opens on the current view |
 
 The tray paw is **blue** on DHCP, **green** on static, **orange** while temporary addresses are
 present, **grey** when the adapter is down.
@@ -80,6 +90,16 @@ Steps 3–4 add a **secondary** address by default, so your current primary, gat
 If the adapter is on DHCP a secondary is not possible (`netsh` limitation) and NetPaw switches to a
 temporary static profile instead; it tells you. `10.20.30.1/28` with an explicit prefix skips the
 guessing.
+
+### Monitor mode, precisely
+
+Off by default — nothing is probed until you enable checks. Then every interval NetPaw pings the
+default gateway, your extra intranet hosts, the internet targets (`1.1.1.1`, `9.9.9.9`) and resolves
+one name. The result is one of: *link down*, *no address* (link up, DHCP silent — a 169.254 address
+counts as none), *no reachable gateway*, *intranet only*, *DNS failing*, *online*. Monitor mode
+notifies on **transitions only**, after the new state held for 3 s (10 s for *no address*, DHCP
+territory) — no nagging. Link up/down is always announced; cable pulls are caught instantly through
+Windows' network-change events, not the interval.
 
 ### VLAN
 

@@ -23,7 +23,9 @@ sealed class TrayApp : ApplicationContext
     HelpForm? _help;
     readonly ConnectivityChecker _checker = new(new NetworkProbe());
     readonly System.Windows.Forms.Timer _checkTimer = new();
-    Snapshot? _snapshot, _previous;
+    Snapshot? _snapshot, _previous, _announced;
+    NetState? _pendingState; DateTime _pendingSince;
+    readonly System.Windows.Forms.Timer _confirm = new() { Interval = 3000 };
     bool _checking;
     bool _busy;
     IReadOnlyList<AdapterInfo> _adapters = [];
@@ -49,6 +51,7 @@ sealed class TrayApp : ApplicationContext
         RegisterHotkeys();
         RefreshState();
         _checkTimer.Tick += (_, _) => _ = RunCheck();
+        _confirm.Tick += (_, _) => { _confirm.Stop(); _ = RunCheck(); };
         ConfigureChecks();
         // Instant reaction to cable pulls / address changes, on top of the periodic probe.
         NetworkChange.NetworkAvailabilityChanged += (_, _) => OnNetworkEvent();
@@ -86,13 +89,27 @@ sealed class TrayApp : ApplicationContext
             _previous = _snapshot; _snapshot = snap;
             RefreshState();
             _toast?.Render(snap);
-            var change = Transitions.Detect(_previous, snap);
-            // Link-down/up is always announced (it needs no probes); the finer states only in monitor mode.
-            var linkEvent = change is not null && (change.To == NetState.LinkDown || change.From == NetState.LinkDown);
-            if (change is not null && (_svc.Settings.Checks.MonitorMode || linkEvent))
+            // Announce against the last *announced* state, and only once the new state has held for its
+            // grace period — a reconnect passes through "no address" while DHCP negotiates, which is noise.
+            var change = Transitions.Detect(_announced, snap);
+            if (change is null) { _pendingState = null; _announced ??= snap; }
+            else
             {
-                _svc.Store.Log($"monitor: {change.From} -> {change.To}: {change.Text}");
-                Notify(change.Title, change.Text, change.IsProblem ? ToolTipIcon.Warning : ToolTipIcon.Info, force: true);
+                var grace = snap.State == NetState.NoAddress ? TimeSpan.FromSeconds(10) : TimeSpan.FromSeconds(3);
+                if (_pendingState != snap.State) { _pendingState = snap.State; _pendingSince = DateTime.UtcNow; }
+                var held = DateTime.UtcNow - _pendingSince;
+                if (held < grace) { _confirm.Stop(); _confirm.Interval = (int)(grace - held).TotalMilliseconds + 100; _confirm.Start(); }
+                else
+                {
+                    _announced = snap; _pendingState = null;
+                    // Link-down/up is always announced (it needs no probes); the finer states only in monitor mode.
+                    var linkEvent = change.To == NetState.LinkDown || change.From == NetState.LinkDown;
+                    if (_svc.Settings.Checks.MonitorMode || linkEvent)
+                    {
+                        _svc.Store.Log($"monitor: {change.From} -> {change.To}: {change.Text}");
+                        Notify(change.Title, change.Text, change.IsProblem ? ToolTipIcon.Warning : ToolTipIcon.Info, force: true);
+                    }
+                }
             }
             if (_svc.Settings.Checks.StickyAlerts)
             {
@@ -376,7 +393,7 @@ sealed class TrayApp : ApplicationContext
 
     protected override void Dispose(bool disposing)
     {
-        if (disposing) { _tray.Dispose(); _menu.Dispose(); _refresh.Dispose(); _checkTimer.Dispose(); _hotkeys.Dispose(); _toast?.Dispose(); _help?.Dispose(); }
+        if (disposing) { _tray.Dispose(); _menu.Dispose(); _refresh.Dispose(); _checkTimer.Dispose(); _confirm.Dispose(); _hotkeys.Dispose(); _toast?.Dispose(); _help?.Dispose(); }
         base.Dispose(disposing);
     }
 }
