@@ -21,12 +21,17 @@ keystroke instead of a trip through *Control Panel → Network → Adapter → P
 - **Transparent** — every change is a plain `netsh` command you can preview and copy. Nothing hidden
   in WMI calls; the log shows exactly what ran.
 - **Tiny and fast** — two executables, ~1.5 MB together, no installer, no service, no telemetry.
-- **CLI twin** (`netpaw.exe`) for scripts and remote sessions. Same profiles, same logic.
+- **CLI twin** (`netpaw-cli.exe`) for scripts and remote sessions. Same profiles, same logic.
 
 MIT licensed. Windows 10/11, .NET 10.
 
-<!-- screenshots: docs/panel.png docs/editor.png docs/menu.png -->
-![quick panel](docs/panel.png)
+![quick panel — type a vendor, a profile, or an IP](docs/panel.png)
+
+| profile editor | plan preview | settings |
+|---|---|---|
+| ![editor](docs/editor.png) | ![preview](docs/preview.png) | ![settings](docs/settings.png) |
+
+*Screenshots from the Windows 11 test VM; every `netsh` path in this README was verified there.*
 
 ## Install
 
@@ -84,17 +89,17 @@ trunking on one NIC needs Intel PROSet / Hyper-V switch, which is out of scope.
 ### CLI
 
 ```
-netpaw adapters                         list adapters, current config, VLAN capability
-netpaw list                             list profiles (* = matches the adapter right now)
-netpaw apply <profile> [-a X] [-n]      apply a profile (-n = dry run, print the plan)
-netpaw dhcp [-a X]                      switch the adapter to DHCP
-netpaw reach <ip[/prefix]> [--replace]  make <ip> reachable
-netpaw preset [query]                   list presets
-netpaw preset apply <vendor/model|query>
-netpaw capture <name> [-a X]            save the adapter's live config as a profile
-netpaw temp | clear-temp                list / remove temporary addresses
-netpaw vlan <adapter> [id]              query / set the driver VLAN id (0 = untagged)
-netpaw where                            print the config directory
+netpaw-cli adapters                         list adapters, current config, VLAN capability
+netpaw-cli list                             list profiles (* = matches the adapter right now)
+netpaw-cli apply <profile> [-a X] [-n]      apply a profile (-n = dry run, print the plan)
+netpaw-cli dhcp [-a X]                      switch the adapter to DHCP
+netpaw-cli reach <ip[/prefix]> [--replace]  make <ip> reachable
+netpaw-cli preset [query]                   list presets
+netpaw-cli preset apply <vendor/model|query>
+netpaw-cli capture <name> [-a X]            save the adapter's live config as a profile
+netpaw-cli temp | clear-temp                list / remove temporary addresses
+netpaw-cli vlan <adapter> [id]              query / set the driver VLAN id (0 = untagged)
+netpaw-cli where                            print the config directory
 ```
 
 Read-only commands work from any prompt; changes need an elevated one.

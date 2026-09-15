@@ -36,7 +36,7 @@ sealed class TrayApp : ApplicationContext
         _hotkeys.ShowRequested += () => ShowPanel();
         RegisterHotkeys();
         RefreshState();
-        if (showPanelAtStart) ShowPanel();
+        if (showPanelAtStart) { var once = new System.Windows.Forms.Timer { Interval = 200 }; once.Tick += (_, _) => { once.Dispose(); ShowPanel(); }; once.Start(); }
     }
 
     // ---- state -----------------------------------------------------------------------------
@@ -130,7 +130,7 @@ sealed class TrayApp : ApplicationContext
         _menu.Items.Add(adapters);
         _menu.Items.Add(new ToolStripMenuItem("Capture current as profile…", null, (_, _) => CaptureCurrent()));
         _menu.Items.Add(new ToolStripMenuItem("Manage profiles…", null, (_, _) => ShowEditor()));
-        _menu.Items.Add(new ToolStripMenuItem("Settings…", null, (_, _) => new SettingsForm(this).ShowDialog()));
+        _menu.Items.Add(new ToolStripMenuItem("Settings…", null, (_, _) => ShowSettings()));
         _menu.Items.Add(new ToolStripMenuItem("Open log", null, (_, _) => OpenLog()));
         _menu.Items.Add(new ToolStripSeparator());
         _menu.Items.Add(new ToolStripMenuItem("Exit", null, (_, _) => Quit()));
@@ -150,7 +150,14 @@ sealed class TrayApp : ApplicationContext
         Execute(ApplyPlanner.PlanDhcp(w));
     }
 
-    public void ApplyPreset(Presets.Preset preset) => Reach(preset.Ip);
+    public void ApplyPreset(Presets.Preset preset)
+    {
+        var w = Work; if (w is null) { Notify("No adapter", "Pick a work adapter first.", ToolTipIcon.Warning); return; }
+        var d = _svc.ResolvePreset(preset, w);
+        if (d.Kind == ReachKind.AlreadyReachable) { Notify("Already reachable", d.Explanation, ToolTipIcon.Info); return; }
+        var (plan, _) = _svc.Reach(d, w, dryRun: true);
+        Execute(plan, () => _svc.Reach(d, w).Outcome!, d.Explanation);
+    }
 
     public void Reach(string target, bool? replace = null)
     {
@@ -237,9 +244,12 @@ sealed class TrayApp : ApplicationContext
     public void ShowEditor(Profile? select = null)
     {
         if (_editor is null || _editor.IsDisposed) { _editor = new ProfileEditorForm(this); _editor.FormClosed += (_, _) => { _editor = null; RegisterHotkeys(); RefreshState(); }; }
-        _editor.Show(); _editor.Activate();
+        if (_editor.WindowState == FormWindowState.Minimized) _editor.WindowState = FormWindowState.Normal;
+        _editor.Show(); _editor.Activate(); Native.ForceForeground(_editor.Handle);
         if (select is not null) _editor.Select(select);
     }
+
+    public void ShowSettings() { using var f = new SettingsForm(this); Native.ForceForeground(f.Handle); f.ShowDialog(); }
 
     void OpenLog()
     {

@@ -26,15 +26,15 @@ sealed class ProfileEditorForm : Form
     {
         _app = app;
         _adapters = app.Service.GetAdapters();
-        Text = "NetPaw — profiles"; StartPosition = FormStartPosition.CenterScreen; ClientSize = new Size(900, 560); MinimumSize = new Size(760, 480);
-        var split = new SplitContainer { Dock = DockStyle.Fill, SplitterDistance = 240, FixedPanel = FixedPanel.Panel1, SplitterWidth = 6 };
+        Text = "NetPaw — profiles"; StartPosition = FormStartPosition.CenterScreen; ClientSize = new Size(920, 620); MinimumSize = new Size(760, 480);
+        var split = new SplitContainer { Dock = DockStyle.Fill, FixedPanel = FixedPanel.Panel1, SplitterWidth = 6 };
 
         // left: list + buttons
         _list.DrawItem += DrawProfile;
         _list.SelectedIndexChanged += (_, _) => { if (!_loading) LoadCurrent(); };
-        var lbar = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 40, Padding = new Padding(4) };
-        Button B(string t, EventHandler h, int w = 54) { var b = new Button { Text = t, Width = w, Height = 28 }; b.Click += h; return b; }
-        lbar.Controls.AddRange([B("New", (_, _) => NewProfile()), B("Copy", (_, _) => Duplicate()), B("Delete", (_, _) => Delete()), B("Capture", (_, _) => CaptureLive(), 64)]);
+        var lbar = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 38, Padding = new Padding(3, 4, 0, 0), WrapContents = false };
+        Button B(string t, EventHandler h, int w = 50) { var b = new Button { Text = t, Width = w, Height = 26, Margin = new Padding(2, 0, 2, 0) }; b.Click += h; return b; }
+        lbar.Controls.AddRange([B("New", (_, _) => NewProfile()), B("Copy", (_, _) => Duplicate()), B("Delete", (_, _) => Delete(), 56), B("Capture", (_, _) => CaptureLive(), 62)]);
         split.Panel1.Controls.Add(_list); split.Panel1.Controls.Add(lbar);
 
         // right: fields
@@ -46,7 +46,7 @@ sealed class ProfileEditorForm : Form
             if (hint is null) { c.Anchor = AnchorStyles.Left | AnchorStyles.Right; c.Margin = new Padding(0, 4, 0, 4); grid.Controls.Add(c); return; }
             var host = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.TopDown, Anchor = AnchorStyles.Left | AnchorStyles.Right, Margin = Padding.Empty, WrapContents = false };
             c.Margin = new Padding(0, 4, 0, 0); c.Width = 520;
-            host.Controls.Add(c); host.Controls.Add(new Label { Text = hint, AutoSize = true, ForeColor = Theme.Muted, Font = Theme.Small, Margin = new Padding(0, 0, 0, 4) });
+            host.Controls.Add(c); host.Controls.Add(new Label { Text = hint, AutoSize = true, MaximumSize = new Size(520, 0), ForeColor = Theme.Muted, Font = Theme.Small, Margin = new Padding(0, 0, 0, 4) });
             grid.Controls.Add(host);
         }
         Control Inline(params Control[] cs) { var f = new FlowLayoutPanel { AutoSize = true, Margin = new Padding(0, 4, 0, 4), WrapContents = false }; foreach (var c in cs) { c.Margin = new Padding(0, 2, 10, 0); f.Controls.Add(c); } return f; }
@@ -72,16 +72,29 @@ sealed class ProfileEditorForm : Form
         grid.Controls.Add(new Label()); grid.Controls.Add(_errors);
 
         var rbar = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 48, FlowDirection = FlowDirection.RightToLeft, Padding = new Padding(8) };
-        var save = new Button { Text = "Save", Width = 100, Height = 30 }; save.Click += (_, _) => Save();
-        var apply = new Button { Text = "Save && apply", Width = 120, Height = 30 }; apply.Click += (_, _) => { if (Save()) { _app.ApplyProfile(_current!); } };
-        var preview = new Button { Text = "Preview plan", Width = 120, Height = 30 }; preview.Click += (_, _) => Preview();
+        var save = new Button { Text = "Save  (Ctrl+S)", Width = 110, Height = 30 }; save.Click += (_, _) => Save();
+        var apply = new Button { Text = "Save && apply  (Ctrl+Enter)", Width = 200, Height = 30 }; apply.Click += (_, _) => SaveAndApply();
+        var preview = new Button { Text = "Preview plan  (Ctrl+P)", Width = 150, Height = 30 }; preview.Click += (_, _) => Preview();
+        KeyPreview = true;
+        KeyDown += (_, e) =>
+        {
+            switch (e.KeyData)
+            {
+                case Keys.Control | Keys.S: Save(); break;
+                case Keys.Control | Keys.P: Preview(); break;
+                case Keys.Control | Keys.Enter: SaveAndApply(); break;
+                case Keys.Escape: Close(); break;
+                default: return;
+            }
+            e.Handled = true; e.SuppressKeyPress = true;
+        };
         rbar.Controls.AddRange([apply, save, preview]);
         split.Panel2.Controls.Add(grid); split.Panel2.Controls.Add(rbar);
 
         Controls.Add(split);
         Theme.Apply(this); Theme.Primary(apply);
         _list.BackColor = Theme.Panel; split.Panel1.BackColor = Theme.Panel;
-        Load += (_, _) => { Native.Dress(this); Reload(); };
+        Load += (_, _) => { Native.Dress(this); split.SplitterDistance = 250; Reload(); };
     }
 
     // ---- list ------------------------------------------------------------------------------
@@ -207,6 +220,8 @@ sealed class ProfileEditorForm : Form
 
     static IEnumerable<string> Lines(string text) => text.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
+    void SaveAndApply() { if (Save()) _app.ApplyProfile(_current!); }
+
     bool Save()
     {
         var p = ReadFields(); if (p is null) return false;
@@ -223,7 +238,7 @@ sealed class ProfileEditorForm : Form
     void Preview()
     {
         var p = ReadFields(); if (p is null) return;
-        try { PlanPreviewForm.Confirm(_app.Service.PlanProfile(p, _app.Service.ResolveAdapter(p.Adapter, _adapters)), "Preview only — nothing is applied from here."); }
+        try { PlanPreviewForm.ShowReadOnly(_app.Service.PlanProfile(p, _app.Service.ResolveAdapter(p.Adapter, _adapters)), "Preview only — nothing is applied from here."); }
         catch (InvalidOperationException ex) { _errors.Text = ex.Message; }
     }
 }

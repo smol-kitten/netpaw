@@ -25,6 +25,14 @@ static class Program
             return;
         }
         Application.ThreadException += (_, e) => { svc.Store.Log("unhandled: " + e.Exception); MessageBox.Show(e.Exception.Message, "NetPaw", MessageBoxButtons.OK, MessageBoxIcon.Error); };
-        Application.Run(new TrayApp(svc, showPanelAtStart: args.Contains("--panel")));
+        TrayApp app;
+        try { app = new TrayApp(svc, showPanelAtStart: args.Contains("--panel")); }
+        catch (Exception ex)
+        {
+            svc.Store.Log("startup failed: " + ex);
+            MessageBox.Show(ex.ToString(), "NetPaw failed to start", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            return;
+        }
+        Application.Run(app);
     }
 }

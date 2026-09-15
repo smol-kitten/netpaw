@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <assembly manifestVersion="1.0" xmlns="urn:schemas-microsoft-com:asm.v1">
-  <assemblyIdentity version="1.0.0.0" name="netpaw"/>
+  <assemblyIdentity version="1.0.0.0" name="netpaw-cli"/>
   <!-- netsh changes need an elevated token. asInvoker keeps read-only commands usable from a plain
        prompt; write commands print a clear error when not elevated instead of a UAC prompt mid-script. -->
   <trustInfo xmlns="urn:schemas-microsoft-com:asm.v2">

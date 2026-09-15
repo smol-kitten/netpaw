@@ -1,0 +1,146 @@
+{
+ "ok": true,
+ "readme": "README.md",
+ "type": "generic",
+ "type_detected": "generic",
+ "type_evidence": [
+  "no strong signals"
+ ],
+ "type_confident": false,
+ "type_override": null,
+ "scanned_ts": 1789462278,
+ "sections": [
+  {
+   "title": "Install",
+   "anchor": "install",
+   "hash": "b31f8b5761c4",
+   "chars": 465
+  },
+  {
+   "title": "Use",
+   "anchor": "use",
+   "hash": "40e78e139e69",
+   "chars": 3126
+  },
+  {
+   "title": "Files",
+   "anchor": "files",
+   "hash": "1688e41c4259",
+   "chars": 867
+  },
+  {
+   "title": "What it runs",
+   "anchor": "what-it-runs",
+   "hash": "1a6fac3824f1",
+   "chars": 897
+  },
+  {
+   "title": "Build",
+   "anchor": "build",
+   "hash": "a049953cddb3",
+   "chars": 446
+  },
+  {
+   "title": "Not (yet) in scope",
+   "anchor": "not-yet-in-scope",
+   "hash": "5636698e254a",
+   "chars": 186
+  }
+ ],
+ "changed_since_last": [
+  "install",
+  "use",
+  "files",
+  "what-it-runs",
+  "build",
+  "not-yet-in-scope"
+ ],
+ "findings": [
+  {
+   "check": "commands",
+   "sev": "info",
+   "msg": "`netpaw` \u2014 not on PATH here (fine if users install it)"
+  },
+  {
+   "check": "commands",
+   "sev": "info",
+   "msg": "`netpaw` \u2014 not on PATH here (fine if users install it)"
+  },
+  {
+   "check": "commands",
+   "sev": "info",
+   "msg": "`netpaw` \u2014 not on PATH here (fine if users install it)"
+  },
+  {
+   "check": "commands",
+   "sev": "info",
+   "msg": "`netpaw` \u2014 not on PATH here (fine if users install it)"
+  },
+  {
+   "check": "commands",
+   "sev": "info",
+   "msg": "`netpaw` \u2014 not on PATH here (fine if users install it)"
+  },
+  {
+   "check": "commands",
+   "sev": "info",
+   "msg": "`netpaw` \u2014 not on PATH here (fine if users install it)"
+  },
+  {
+   "check": "commands",
+   "sev": "info",
+   "msg": "`netpaw` \u2014 not on PATH here (fine if users install it)"
+  },
+  {
+   "check": "commands",
+   "sev": "info",
+   "msg": "`netpaw` \u2014 not on PATH here (fine if users install it)"
+  },
+  {
+   "check": "commands",
+   "sev": "info",
+   "msg": "`netpaw` \u2014 not on PATH here (fine if users install it)"
+  },
+  {
+   "check": "commands",
+   "sev": "info",
+   "msg": "`netpaw` \u2014 not on PATH here (fine if users install it)"
+  },
+  {
+   "check": "commands",
+   "sev": "info",
+   "msg": "`netpaw` \u2014 not on PATH here (fine if users install it)"
+  },
+  {
+   "check": "commands",
+   "sev": "info",
+   "msg": "`netsh` \u2014 not on PATH here (fine if users install it)"
+  },
+  {
+   "check": "commands",
+   "sev": "info",
+   "msg": "`netsh` \u2014 not on PATH here (fine if users install it)"
+  },
+  {
+   "check": "commands",
+   "sev": "info",
+   "msg": "`netsh` \u2014 not on PATH here (fine if users install it)"
+  },
+  {
+   "check": "commands",
+   "sev": "info",
+   "msg": "`netsh` \u2014 not on PATH here (fine if users install it)"
+  },
+  {
+   "check": "commands",
+   "sev": "info",
+   "msg": "`powershell` \u2014 not on PATH here (fine if users install it)"
+  },
+  {
+   "check": "links",
+   "sev": "warn",
+   "msg": "relative link `docs/panel.png` \u2014 file/dir not found"
+  }
+ ],
+ "verified_ts": 1789462278
+}

@@ -6,23 +6,23 @@ using NetPaw.Presets;
 using NetPaw.Reach;
 
 const string Usage = """
-    netpaw — static-IP profiles for Windows admins (CLI twin of the NetPaw tray)
+    netpaw-cli — static-IP profiles for Windows admins (CLI twin of the NetPaw tray)
 
-      netpaw adapters                         list adapters, current config, VLAN capability
-      netpaw list                             list profiles (* = matches the adapter right now)
-      netpaw show <profile>                   profile details
-      netpaw apply <profile> [-a X] [-n]      apply a profile (-n = dry run, print the plan)
-      netpaw dhcp [-a X] [-n]                 switch the adapter to DHCP
-      netpaw reach <ip[/prefix]> [--replace] [-a X] [-n]
+      netpaw-cli adapters                         list adapters, current config, VLAN capability
+      netpaw-cli list                             list profiles (* = matches the adapter right now)
+      netpaw-cli show <profile>                   profile details
+      netpaw-cli apply <profile> [-a X] [-n]      apply a profile (-n = dry run, print the plan)
+      netpaw-cli dhcp [-a X] [-n]                 switch the adapter to DHCP
+      netpaw-cli reach <ip[/prefix]> [--replace] [-a X] [-n]
                                               make <ip> reachable: pick a covering profile, else a preset,
                                               else add a temporary secondary in the assumed /24
-      netpaw preset [query]                   list presets (factory default addresses of gear)
-      netpaw preset apply <vendor/model|query> [--replace] [-a X] [-n]
-      netpaw capture <name> [-a X]            save the adapter's live config as a profile
-      netpaw temp                             list temporary addresses NetPaw added
-      netpaw clear-temp                       remove them again
-      netpaw vlan <adapter> [id]              query / set the driver VLAN id (0 = untagged)
-      netpaw where                            print the config directory (profiles.json etc.)
+      netpaw-cli preset [query]                   list presets (factory default addresses of gear)
+      netpaw-cli preset apply <vendor/model|query> [--replace] [-a X] [-n]
+      netpaw-cli capture <name> [-a X]            save the adapter's live config as a profile
+      netpaw-cli temp                             list temporary addresses NetPaw added
+      netpaw-cli clear-temp                       remove them again
+      netpaw-cli vlan <adapter> [id]              query / set the driver VLAN id (0 = untagged)
+      netpaw-cli where                            print the config directory (profiles.json etc.)
 
     Profiles live in %APPDATA%\NetPaw\profiles.json (override with NETPAW_HOME).
     """;
@@ -102,10 +102,10 @@ try
                 };
                 if (hit is null) return Fail($"no preset matches '{q}'");
                 var adapter = svc.ResolveAdapter(adapterName);
-                var d = svc.ResolveReach(hit.Ip, adapter);
-                Console.WriteLine($"{hit}  →  {d.Explanation}");
+                var d = svc.ResolvePreset(hit, adapter);
+                Console.WriteLine(d.Explanation);
                 if (d.Kind is ReachKind.AlreadyReachable) return 0;
-                var (plan, outcome) = svc.Reach(d, adapter, dryRun, replace ? true : null);
+                var (plan, outcome) = svc.ApplyPreset(hit, adapter, dryRun, replace ? true : null);
                 return Report(plan, outcome, dryRun);
             }
             foreach (var p in PresetLibrary.Search(svc.Presets, argv.Count > 1 ? argv[1] : ""))

@@ -185,3 +185,29 @@ public class ServiceTests
         Assert.Contains("Ethernet", ex.Message);
     }
 }
+
+public class PresetPrecedenceTests
+{
+    [Fact]
+    public void ExplicitPresetBeatsRoutedProfile()
+    {
+        var dir = Directory.CreateTempSubdirectory().FullName;
+        var routed = Fx.Static("routed"); routed.Routes = [new StaticRoute("172.16.0.0", 12, "192.168.1.1", null)];
+        var svc = new NetPawService(new JsonStore(dir), new FakeAdapters(Fx.Adapter()), new FakeVlan(false), new FakeRunner());
+        svc.Profiles.Add(routed);
+        var sophos = svc.Presets.First(p => p.Ip == "172.16.16.16");
+        Assert.Equal(ReachKind.UseProfile, svc.ResolveReach(sophos.Ip).Kind);       // generic reach: the route is fine
+        var (plan, outcome) = svc.ApplyPreset(sophos);                                // explicit preset: go on-link
+        Assert.Equal(ReachKind.UsePreset, svc.ResolvePreset(sophos, svc.WorkAdapter()!).Kind);
+        Assert.Contains("172.16.16.254", plan.Steps.Single().Arguments);
+        Assert.True(outcome!.Success);
+        Assert.Single(svc.TempAddresses);
+    }
+
+    [Fact]
+    public void FilterDriverPseudoInterfacesAreSkipped()
+    {
+        Assert.Matches(@"-\d{4}$", "Ethernet 2-QoS Packet Scheduler-0000");
+        Assert.DoesNotMatch(@"-\d{4}$", "Ethernet 2");
+    }
+}

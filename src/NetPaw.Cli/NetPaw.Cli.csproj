@@ -4,7 +4,7 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <AssemblyName>netpaw</AssemblyName>
+    <AssemblyName>netpaw-cli</AssemblyName>
     <RootNamespace>NetPaw.Cli</RootNamespace>
     <InvariantGlobalization>true</InvariantGlobalization>
     <NoWarn>$(NoWarn);CA1416</NoWarn>

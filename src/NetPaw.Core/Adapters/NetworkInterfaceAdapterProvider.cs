@@ -7,6 +7,7 @@ namespace NetPaw.Adapters;
 /// <summary>Adapter enumeration through System.Net.NetworkInformation (works on every OS, no WMI needed).</summary>
 public sealed class NetworkInterfaceAdapterProvider : IAdapterProvider
 {
+    static readonly System.Text.RegularExpressions.Regex FilterSuffix = new(@"-\d{4}$");
     static readonly string[] VirtualHints = ["virtual", "hyper-v", "vmware", "vethernet", "loopback", "tap-", "tunnel", "wintun", "wireguard", "bluetooth", "npcap", "wan miniport", "isatap", "teredo"];
 
     public IReadOnlyList<AdapterInfo> GetAdapters()
@@ -15,6 +16,8 @@ public sealed class NetworkInterfaceAdapterProvider : IAdapterProvider
         foreach (var nic in NetworkInterface.GetAllNetworkInterfaces())
         {
             if (nic.NetworkInterfaceType is NetworkInterfaceType.Loopback or NetworkInterfaceType.Tunnel) continue;
+            // NDIS filter drivers (QoS Packet Scheduler, WFP LightWeight Filter, ...) show up as "<nic>-<filter>-0000" pseudo-interfaces.
+            if (FilterSuffix.IsMatch(nic.Name)) continue;
             var props = nic.GetIPProperties();
             int index = -1; bool dhcp = false;
             try { var v4 = props.GetIPv4Properties(); index = v4.Index; dhcp = v4.IsDhcpEnabled; }

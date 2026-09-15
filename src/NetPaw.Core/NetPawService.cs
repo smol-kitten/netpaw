@@ -128,13 +128,22 @@ public sealed class NetPawService
         return (plan, outcome);
     }
 
-    public (ApplyPlan Plan, ApplyOutcome Outcome) ApplyPreset(Preset preset, AdapterInfo? adapter = null, bool replacePrimary = false)
+    /// <summary>An explicitly chosen preset always wins over profile/route knowledge — the user said which device they want.</summary>
+    public ReachDecision ResolvePreset(Preset preset, AdapterInfo adapter)
+    {
+        if (adapter.Covers(preset.Ip))
+            return new ReachDecision(ReachKind.AlreadyReachable, preset.Ip, null, preset, adapter.Addresses.First(a => a.Contains(preset.Ip)), $"{adapter.Name} already covers {preset.Ip}.");
+        var host = preset.HostIp ?? Net.IpMath.HostCandidates(preset.Ip, preset.Prefix, adapter.Addresses.Select(a => a.Address)).First();
+        var addr = new IpAddr(host, preset.Prefix);
+        return new ReachDecision(ReachKind.UsePreset, preset.Ip, null, preset, addr, $"{preset.Vendor} {preset.Model} at {preset.Ip}; using {addr}.");
+    }
+
+    public (ApplyPlan Plan, ApplyOutcome? Outcome) ApplyPreset(Preset preset, AdapterInfo? adapter = null, bool dryRun = false, bool? replacePrimary = null)
     {
         adapter ??= ResolveAdapter(null);
-        var d = new ReachDecision(ReachKind.UsePreset, preset.Ip, null, preset,
-            new IpAddr(preset.HostIp ?? Net.IpMath.HostCandidates(preset.Ip, preset.Prefix, adapter.Addresses.Select(a => a.Address)).First(), preset.Prefix), preset.ToString());
-        var (plan, outcome) = Reach(d, adapter, replacePrimary: replacePrimary);
-        return (plan, outcome!);
+        var d = ResolvePreset(preset, adapter);
+        if (d.Kind == ReachKind.AlreadyReachable) return (new ApplyPlan { Title = preset.ToString(), Adapter = adapter.Name }, null);
+        return Reach(d, adapter, dryRun, replacePrimary);
     }
 
     public IReadOnlyList<TempAddress> TempAddresses => Store.LoadTemp();

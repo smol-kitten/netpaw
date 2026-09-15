@@ -9,10 +9,10 @@ sealed class SettingsForm : Form
     {
         var s = app.Service.Settings;
         Text = "NetPaw — settings"; StartPosition = FormStartPosition.CenterScreen; FormBorderStyle = FormBorderStyle.FixedDialog;
-        MinimizeBox = false; MaximizeBox = false; ShowInTaskbar = false; ClientSize = new Size(460, 372);
+        MinimizeBox = false; MaximizeBox = false; ShowInTaskbar = false; ClientSize = new Size(560, 372);
 
         var grid = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, Padding = new Padding(14), AutoSize = true };
-        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 170)); grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 150)); grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         void Row(string label, Control c) { grid.Controls.Add(new Label { Text = label, Anchor = AnchorStyles.Left, AutoSize = true, Margin = new Padding(0, 8, 0, 8) }); c.Anchor = AnchorStyles.Left | AnchorStyles.Right; c.Margin = new Padding(0, 5, 0, 5); grid.Controls.Add(c); }
 
         var adapter = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList };
@@ -22,9 +22,9 @@ sealed class SettingsForm : Form
         var hotkey = new TextBox { Text = s.PanelHotkey };
         var confirm = new CheckBox { Text = "show the command plan before applying", Checked = s.ConfirmBeforeApply, AutoSize = true };
         var notify = new CheckBox { Text = "balloon notifications", Checked = s.ShowNotifications, AutoSize = true };
-        var secondary = new CheckBox { Text = "reach mode adds a secondary address (keeps current config)", Checked = s.ReachAsSecondary, AutoSize = true };
+        var secondary = new CheckBox { Text = "add a secondary address (keeps current config)", Checked = s.ReachAsSecondary, AutoSize = true };
         var prefix = new NumericUpDown { Minimum = 8, Maximum = 30, Value = s.ReachDefaultPrefix, Width = 70 };
-        var startup = new CheckBox { Text = "start with Windows (elevated scheduled task)", Checked = Startup.IsEnabled(), AutoSize = true };
+        var startup = new CheckBox { Text = "start with Windows (elevated task, no UAC prompt)", Checked = Startup.IsEnabled(), AutoSize = true };
 
         Row("Work adapter", adapter);
         Row("Panel hotkey", hotkey);
@@ -72,7 +72,7 @@ static class Startup
     {
         var exe = Environment.ProcessPath ?? Application.ExecutablePath;
         var code = enable
-            ? Run($"/create /f /tn {TaskName} /sc onlogon /rl highest /tr \"\\\"{exe}\\\"\" /ru \"{Environment.UserDomainName}\\{Environment.UserName}\"")
+            ? Run($"/create /f /tn {TaskName} /sc onlogon /rl highest /tr \"\\\"{exe}\\\"\"")   // no /ru: defaults to the current user, verified on Win11
             : IsEnabled() ? Run($"/delete /f /tn {TaskName}") : 0;
         return code == 0 ? null : $"schtasks failed (exit {code})";
     }

@@ -12,14 +12,38 @@ static partial class Native
     public static partial bool RegisterHotKey(IntPtr hWnd, int id, uint fsModifiers, uint vk);
     [LibraryImport("user32.dll", SetLastError = true)] [return: MarshalAs(UnmanagedType.Bool)]
     public static partial bool UnregisterHotKey(IntPtr hWnd, int id);
-    [LibraryImport("user32.dll", StringMarshalling = StringMarshalling.Utf16)]
+    [LibraryImport("user32.dll", EntryPoint = "RegisterWindowMessageW", StringMarshalling = StringMarshalling.Utf16)]
     public static partial int RegisterWindowMessage(string lpString);
-    [LibraryImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)]
+    [LibraryImport("user32.dll", EntryPoint = "PostMessageW")] [return: MarshalAs(UnmanagedType.Bool)]
     public static partial bool PostMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
     [LibraryImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)]
     public static partial bool SetForegroundWindow(IntPtr hWnd);
     [LibraryImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)]
     public static partial bool DestroyIcon(IntPtr handle);
+    [LibraryImport("user32.dll")]
+    public static partial IntPtr GetForegroundWindow();
+    [LibraryImport("user32.dll")]
+    public static partial uint GetWindowThreadProcessId(IntPtr hWnd, IntPtr lpdwProcessId);
+    [LibraryImport("kernel32.dll")]
+    public static partial uint GetCurrentThreadId();
+    [LibraryImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool AttachThreadInput(uint idAttach, uint idAttachTo, [MarshalAs(UnmanagedType.Bool)] bool fAttach);
+    [LibraryImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool BringWindowToTop(IntPtr hWnd);
+
+    /// <summary>
+    /// Windows only lets the foreground process (or a hotkey handler) steal focus. A tray click or a
+    /// second "NetPaw.exe" launch is neither, so briefly attach to the foreground thread's input queue.
+    /// </summary>
+    public static void ForceForeground(IntPtr hwnd)
+    {
+        var fg = GetForegroundWindow();
+        var fgThread = fg == IntPtr.Zero ? 0 : GetWindowThreadProcessId(fg, IntPtr.Zero);
+        var me = GetCurrentThreadId();
+        var attached = fgThread != 0 && fgThread != me && AttachThreadInput(fgThread, me, true);
+        try { BringWindowToTop(hwnd); SetForegroundWindow(hwnd); }
+        finally { if (attached) AttachThreadInput(fgThread, me, false); }
+    }
     [LibraryImport("dwmapi.dll")]
     public static partial int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int value, int size);
     [LibraryImport("gdi32.dll")]
