@@ -44,3 +44,6 @@ Unknown port? *Find routers* borrows a temporary address in each common subnet (
 
 ## VPN status
 The info card lists VPN adapters NetPaw recognises (WireGuard/wintun, OpenVPN TAP/DCO, Windows native IKEv2/L2TP/SSTP, Tailscale, ZeroTier, common enterprise clients) with *full tunnel* (the VPN owns the default route) or *split tunnel*. Up/down and full↔split changes are announced (*Settings → VPN*) and logged to the incident log. Detection is passive — no vendor APIs, nothing sent.
+
+## Which switch port am I on? (LLDP/CDP)
+*Network map → Switch (LLDP/CDP)* listens for the switch's own announcements with Windows' built-in `pktmon` — no driver, nothing sent. LLDP comes every 30 s, Cisco CDP every 60 s, so listen 35 or 65 s. You get the switch name, port (e.g. Gi1/0/24), port description, VLAN, management address and platform. *Settings → Switch* can run it after every link-up so the info card shows "Connected to sw-core-01 port Gi1/0/24 VLAN 20". CLI: `netpaw-cli switch`. Needs Windows 10 2004+ / 11; access ports on some switches do not announce.

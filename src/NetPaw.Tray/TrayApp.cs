@@ -28,6 +28,10 @@ sealed class TrayApp : ApplicationContext
     readonly RenewScheduler _renew = new();
     IReadOnlyList<Advisory> _advisories = [];
     IReadOnlyList<VpnInfo> _vpns = [];
+    readonly Dictionary<string, IReadOnlyList<Discovery.SwitchNeighbor>> _switches = new(StringComparer.OrdinalIgnoreCase);
+    bool _discovering;
+    public IReadOnlyList<Discovery.SwitchNeighbor> SwitchNeighbors(string adapter) => _switches.TryGetValue(adapter, out var l) ? l : [];
+    public void SetSwitchNeighbors(string adapter, IReadOnlyList<Discovery.SwitchNeighbor> list) { _switches[adapter] = list; _toast?.Render(_snapshot); }
     readonly Arp.WindowsArpProvider _arp = new();
     bool _autoSwitchArmed = true, _autoSwitching;
     Profile? _autoSwitchUndo;
@@ -114,7 +118,9 @@ sealed class TrayApp : ApplicationContext
             _advisories = _svc.Settings.Repair.DhcpAdvisory ? Advisor.Analyze(snap, _adapters) : [];
             // Auto-switch: one decision per link-up (armed again when the link drops), never while busy.
             var linkUp = snap.Link && snap.Adapter is not null && (_previous is null || !_previous.Link || _previous.Adapter?.Name != snap.Adapter.Name);
-            if (!snap.Link) _autoSwitchArmed = true;
+            if (!snap.Link) { _autoSwitchArmed = true; if (snap.Adapter is not null) _switches.Remove(snap.Adapter.Name); }
+            if (linkUp && _svc.Settings.Repair.DiscoverSwitchOnLinkUp && !_discovering && Discovery.PktmonCapture.Available && snap.Adapter is not null)
+                _ = DiscoverSwitch(snap.Adapter.Name);
             if (linkUp && _autoSwitchArmed && !_busy && !_autoSwitching && _svc.Profiles.Any(p => p.AutoSwitch && p.Fingerprint is not null))
             {
                 _autoSwitchArmed = false;
@@ -237,6 +243,23 @@ sealed class TrayApp : ApplicationContext
         }
         catch (Exception ex) when (ex is InvalidOperationException or OperationCanceledException) { _svc.Store.Log("auto-switch failed: " + ex.Message); }
         finally { _autoSwitching = false; }
+    }
+
+    async Task DiscoverSwitch(string adapter)
+    {
+        _discovering = true;
+        try
+        {
+            var (found, err) = await new Discovery.PktmonCapture().Listen(adapter, Math.Clamp(_svc.Settings.Repair.DiscoverSeconds, 10, 120), null, _svc.Store.Log);
+            if (err is not null) { _svc.Store.Log("switch discovery: " + err); return; }
+            SetSwitchNeighbors(adapter, found);
+            if (found.Count > 0)
+            {
+                Status?.Invoke($"Connected to {found[0].Headline}", "ok");
+                if (_svc.Settings.Repair.IncidentLog) (_incidents ??= new IncidentLog(_svc.Store.IncidentsFile)).Append(new Incident(DateTimeOffset.Now, adapter, "switch", "", found[0].Protocol, found[0].Headline, []));
+            }
+        }
+        finally { _discovering = false; }
     }
 
     public void UndoAutoSwitch()

@@ -13,7 +13,7 @@ sealed class SettingsForm : Form
     {
         var s = app.Service.Settings; var pol = app.Service.Policy;
         Text = "NetPaw — settings"; StartPosition = FormStartPosition.CenterScreen; FormBorderStyle = FormBorderStyle.FixedDialog;
-        MinimizeBox = false; MaximizeBox = false; ShowInTaskbar = false; ClientSize = new Size(700, 860);
+        MinimizeBox = false; MaximizeBox = false; ShowInTaskbar = false; ClientSize = new Size(700, 890);
 
         var grid = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, Padding = new Padding(14), AutoSize = true, AutoScroll = true };
         grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 150)); grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
@@ -77,6 +77,8 @@ sealed class SettingsForm : Form
         Row("Advisory", advisory);
         Row("Incident log", incidents);
         Row("VPN", vpnNotify);
+        var discover = new CheckBox { Text = "discover the switch port after link-up (LLDP/CDP via pktmon, passive, ~35 s)", Checked = rp.DiscoverSwitchOnLinkUp, AutoSize = true, Enabled = NetPaw.Discovery.PktmonCapture.Available };
+        Row("Switch", discover);
         Row("Auto-repair", autoRenew);
         Row("", renewRow);
 
@@ -163,7 +165,7 @@ sealed class SettingsForm : Form
             s.InfoHotkey = ik.ToString();
             ck.Enabled = checksOn.Checked; ck.IntervalSeconds = (int)interval.Value; ck.IntranetTargets = Hosts(intranet.Text); ck.InternetTargets = Hosts(internet.Text);
             ck.DnsCheckHost = dnsHost.Text.Trim(); ck.MonitorMode = monitor.Checked; ck.StickyAlerts = sticky.Checked;
-            rp.DhcpAdvisory = advisory.Checked; rp.IncidentLog = incidents.Checked; rp.VpnNotifications = vpnNotify.Checked; rp.AutoRenew = autoRenew.Checked; rp.AutoRenewIntervalSeconds = (int)renewInterval.Value; rp.AutoRenewMaxAttempts = (int)renewMax.Value;
+            rp.DhcpAdvisory = advisory.Checked; rp.IncidentLog = incidents.Checked; rp.VpnNotifications = vpnNotify.Checked; rp.DiscoverSwitchOnLinkUp = discover.Checked; rp.AutoRenew = autoRenew.Checked; rp.AutoRenewIntervalSeconds = (int)renewInterval.Value; rp.AutoRenewMaxAttempts = (int)renewMax.Value;
             if (_saveExport?.Invoke() is { } exportErr) { err.Text = exportErr; return; }
             if (telemetry is not null) { s.TelemetryEnabled = telemetry.Checked; }
             TelemetryHost.Refresh(app.Service);

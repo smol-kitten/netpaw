@@ -104,6 +104,7 @@ sealed class InfoToast : Form
             var temps = _app.Service.TempAddresses.Count;
             if (temps > 0) Row("Temporary", $"{temps} address{(temps == 1 ? "" : "es")} added by NetPaw");
             foreach (var v in _app.Vpns) Row("VPN", $"{v.Kind} '{v.Adapter}' — {v.Mode}", v.Up ? true : null);
+            foreach (var sw in _app.SwitchNeighbors(a.Name)) Row("Switch", sw.Headline + (sw.PortDescription is null ? "" : "  ·  " + sw.PortDescription) + (sw.ManagementAddress is null ? "" : "  ·  " + sw.ManagementAddress), true);
             if (_app.LastVerifyDiffs.Count > 0)
             {
                 _grid.Controls.Add(new Label { Text = "Verify", AutoSize = true, ForeColor = Theme.Temp, Font = Theme.Small, Margin = new Padding(0, 3, 0, 3) });

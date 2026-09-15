@@ -31,6 +31,7 @@ keystroke instead of a trip through *Control Panel → Network → Adapter → P
 - **Auto-switch** (opt-in per profile) — learn a network's fingerprint (gateway MAC + subnet + DHCP server); on link-up NetPaw applies the one matching profile. Asks once, undo in the menu, never on ambiguity.
 - **Verify after apply** — re-reads the adapter 2 s later; the Windows "static applied but still shows DHCP / two gateways" state is caught and *Reset adapter* clears it. Dock problems ("old NIC still holds the lease") and "two default gateways" get one-click fixes (Release / Prefer).
 - **VPN status** — WireGuard, OpenVPN, Windows native, Tailscale, ZeroTier: up/down, full vs split tunnel, change notifications.
+- **Which switch port am I on?** — LLDP/CDP via Windows' built-in `pktmon` (no driver, nothing sent): switch name, port, VLAN, management address. Optional after every link-up.
 - **Captive-portal detection** with checks on.
 - **Telemetry build extras** — OTLP/HTTP logs and RFC 5424 syslog to your own collector (incidents / actions).
 - **F1 help** on every view.
@@ -152,7 +153,7 @@ netpaw-cli export <file> [--managed]    write profiles as JSON (--managed = depl
 netpaw-cli import <file>                add profiles from JSON
 netpaw-cli policy                       show the effective machine policy
 netpaw-cli repo [add|remove|sync|search] online profile repositories
-netpaw-cli arp [--check|--sweep] / find-routers   network map
+netpaw-cli arp [--check|--sweep] / find-routers / switch [--seconds N]   network map + LLDP/CDP
 netpaw-cli advise / renew / release / reset / prefer / verify <profile>   diagnosis + repairs
 netpaw-cli scan [--all] [--repos] [--keep] / incidents [-n N]
 netpaw-cli pack keygen|build|sign|verify author and sign a pack

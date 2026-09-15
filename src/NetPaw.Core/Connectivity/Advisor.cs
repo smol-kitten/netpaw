@@ -137,6 +137,9 @@ public sealed class RepairSettings
     public bool ScanIncludeDhcp { get; set; } = true;
     /// <summary>Notify when a VPN comes up/down or switches between full and split tunnel.</summary>
     public bool VpnNotifications { get; set; } = true;
+    /// <summary>Listen for LLDP/CDP (pktmon, passive) after every link-up so the card can say which switch port you are on. Off by default: it is a ~35 s capture.</summary>
+    public bool DiscoverSwitchOnLinkUp { get; set; }
+    public int DiscoverSeconds { get; set; } = 35;
 }
 
 /// <summary>Decides when an automatic renew is due: bounded per incident, spaced by the interval, never while healthy.</summary>

@@ -23,6 +23,7 @@ const string Usage = """
       netpaw-cli advise [-a X]                    DHCP/static configuration advisory (what is missing, what a renew would fix)
       netpaw-cli scan [--all] [--repos] [--no-dhcp] [-a X]  try DHCP + your profiles (--repos: community/repo profiles too) until one works; --all ranks; restores unless --keep
       netpaw-cli arp [--check|--sweep] [-a X]     ARP neighbours bundled per network (passive); --check re-ARPs them; --sweep asks the whole subnet
+      netpaw-cli switch [--seconds N] [-a X]      which switch/port am I on? LLDP/CDP via pktmon (passive, default 35 s)
       netpaw-cli find-routers [-a X]              borrow an address in each common subnet, ARP the usual gateways, report who answers
       netpaw-cli incidents [-n 30]                show the incident log (enable it in settings: repair.incidentLog)
       netpaw-cli reach <ip[/prefix]> [--replace] [-a X] [-n]
@@ -339,6 +340,24 @@ try
             {
                 Console.WriteLine($"{b.Cidr}  ({b.Adapter ?? "-"}{(b.OwnAddress is null ? "" : ", you are " + b.OwnAddress)})");
                 foreach (var h in b.Hosts) Console.WriteLine($"  {h.Ip,-16} {h.Mac,-18} {h.Kind,-8} {(h.Alive is null ? "" : h.Alive == true ? $"alive {h.Ms} ms" : "silent")}");
+            }
+            return 0;
+        }
+        case "switch":
+        {
+            var secs = int.TryParse(Opt("--seconds"), out var sec) ? sec : 35;
+            var adapter = svc.ResolveAdapter(adapterName);
+            if (!NetPaw.Discovery.PktmonCapture.Available) return Fail("pktmon is not available on this Windows version");
+            if (!IsElevated()) return Fail("pktmon needs an elevated prompt");
+            Console.Error.WriteLine($"listening for LLDP/CDP on {adapter.Name} for {secs} s…");
+            var (found, err) = new NetPaw.Discovery.PktmonCapture().Listen(adapter.Name, secs, null, svc.Store.Log).GetAwaiter().GetResult();
+            if (err is not null) return Fail(err);
+            if (found.Count == 0) { Console.WriteLine("no LLDP/CDP announcement seen"); return 1; }
+            foreach (var n in found)
+            {
+                Console.WriteLine($"{n.Protocol}: {n.Headline}");
+                foreach (var (k, v) in new[] { ("port description", n.PortDescription), ("management", n.ManagementAddress), ("system", n.SystemDescription), ("capabilities", string.Join(", ", n.Capabilities)), ("chassis", n.ChassisId) })
+                    if (!string.IsNullOrEmpty(v)) Console.WriteLine($"  {k,-18} {v}");
             }
             return 0;
         }

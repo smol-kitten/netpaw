@@ -17,6 +17,8 @@ sealed class NetworkMapForm : Form
     readonly TabControl _tabs = new() { Dock = DockStyle.Fill };
     readonly ListView _hosts = new() { Dock = DockStyle.Fill, View = View.Details, FullRowSelect = true, BorderStyle = BorderStyle.None, ShowGroups = true };
     readonly ListView _routers = new() { Dock = DockStyle.Fill, View = View.Details, FullRowSelect = true, BorderStyle = BorderStyle.None };
+    readonly ListView _switch = new() { Dock = DockStyle.Fill, View = View.Details, FullRowSelect = true, BorderStyle = BorderStyle.None };
+    readonly Button _listen = new() { Text = "Listen 35 s", Width = 110, Height = 28 }, _listen65 = new() { Text = "Listen 65 s (CDP)", Width = 130, Height = 28 };
     readonly Label _status = new() { Dock = DockStyle.Bottom, Height = 24, Padding = new Padding(12, 4, 0, 0), ForeColor = Theme.Muted, Font = Theme.Small };
     readonly Button _refresh = new() { Text = "Refresh cache", Width = 120, Height = 28 }, _check = new() { Text = "Re-check (ARP)", Width = 130, Height = 28 }, _sweep = new() { Text = "Sweep subnet", Width = 120, Height = 28 };
     readonly Button _find = new() { Text = "Find routers", Width = 130, Height = 28 }, _copy = new() { Text = "Copy", Width = 70, Height = 28 };
@@ -29,13 +31,22 @@ sealed class NetworkMapForm : Form
         foreach (var (h, w) in new[] { ("Address", 140), ("MAC", 150), ("Kind", 80), ("Alive", 90), ("Note", 300) }) _hosts.Columns.Add(h, w);
         foreach (var (h, w) in new[] { ("Network", 140), ("Responder", 130), ("MAC", 150), ("Round-trip", 80), ("Likely vendor(s)", 280) }) _routers.Columns.Add(h, w);
         foreach (var lv in new[] { _hosts, _routers }) { lv.BackColor = Theme.Panel; lv.ForeColor = Theme.Text; lv.Font = Theme.Base; }
-        var t1 = new TabPage("Neighbours (ARP)") { BackColor = Theme.Bg }; var t2 = new TabPage("Find routers") { BackColor = Theme.Bg };
+        var t1 = new TabPage("Neighbours (ARP)") { BackColor = Theme.Bg }; var t2 = new TabPage("Find routers") { BackColor = Theme.Bg }; var t3 = new TabPage("Switch (LLDP/CDP)") { BackColor = Theme.Bg };
+        foreach (var (h, w) in new[] { ("Field", 160), ("Value", 560) }) _switch.Columns.Add(h, w);
+        _switch.BackColor = Theme.Panel; _switch.ForeColor = Theme.Text; _switch.Font = Theme.Base;
+        var bar3 = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 40, Padding = new Padding(8, 6, 8, 0) };
+        var hint3 = new Label { Text = NetPaw.Discovery.PktmonCapture.Available ? "Passive: Windows' pktmon captures the switch's LLDP (every 30 s) / CDP (every 60 s) announcements. Nothing is sent." : "pktmon is not available on this Windows version (needs 10 2004+ / 11).", AutoSize = true, ForeColor = Theme.Muted, Font = Theme.Small, Margin = new Padding(8, 8, 0, 0) };
+        bar3.Controls.AddRange([_listen, _listen65, hint3]);
+        _listen.Enabled = _listen65.Enabled = NetPaw.Discovery.PktmonCapture.Available;
+        t3.Controls.Add(_switch); t3.Controls.Add(bar3);
+        _listen.Click += async (_, _) => await ListenSwitch(35);
+        _listen65.Click += async (_, _) => await ListenSwitch(65);
         var bar1 = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 40, Padding = new Padding(8, 6, 8, 0) }; bar1.Controls.AddRange([_refresh, _check, _sweep, _copy]);
         var bar2 = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 40, Padding = new Padding(8, 6, 8, 0) };
         var hint = new Label { Text = "Borrows a temporary address in each common subnet, ARPs .1/.254 and vendor defaults, then removes it. ~1-2 s per subnet.", AutoSize = true, ForeColor = Theme.Muted, Font = Theme.Small, Margin = new Padding(8, 8, 0, 0) };
         bar2.Controls.AddRange([_find, hint]);
         t1.Controls.Add(_hosts); t1.Controls.Add(bar1); t2.Controls.Add(_routers); t2.Controls.Add(bar2);
-        _tabs.TabPages.Add(t1); _tabs.TabPages.Add(t2);
+        _tabs.TabPages.Add(t1); _tabs.TabPages.Add(t2); _tabs.TabPages.Add(t3);
         Controls.Add(_tabs); Controls.Add(_status);
         _refresh.Click += (_, _) => { if (_cts is not null) _cts.Cancel(); else LoadCache(); };
         _check.Click += async (_, _) => await Recheck(sweep: false);
@@ -95,6 +106,31 @@ sealed class NetworkMapForm : Form
         }
         catch (OperationCanceledException) { _status.Text = "Cancelled."; }
         finally { _cts = null; _check.Enabled = _sweep.Enabled = true; _refresh.Text = "Refresh cache"; }
+    }
+
+    async Task ListenSwitch(int seconds)
+    {
+        if (_cts is not null) { _cts.Cancel(); return; }
+        _cts = new CancellationTokenSource(); _listen.Text = "Cancel"; _listen65.Enabled = false;
+        _switch.Items.Clear();
+        try
+        {
+            var prog = new Progress<int>(n => _status.Text = $"Listening for LLDP/CDP on {_adapter.Name}: {n}/{seconds} s…");
+            var (found, err) = await new NetPaw.Discovery.PktmonCapture().Listen(_adapter.Name, seconds, prog, _app.Service.Store.Log, _cts.Token);
+            if (err is not null) { _status.Text = err; return; }
+            _app.SetSwitchNeighbors(_adapter.Name, found);
+            foreach (var n in found)
+            {
+                void Row(string k, string? v) { if (!string.IsNullOrEmpty(v)) _switch.Items.Add(new ListViewItem([k, v]) { ForeColor = k == "Switch" ? Theme.Static : Theme.Text }); }
+                Row("Switch", $"{n.SystemName ?? n.ChassisId}  ({n.Protocol})"); Row("Port", n.PortId); Row("Port description", n.PortDescription); Row("VLAN", n.PortVlan?.ToString());
+                Row("Management", n.ManagementAddress); Row("System", n.SystemDescription); Row("Capabilities", string.Join(", ", n.Capabilities)); Row("Chassis", n.ChassisId); Row("Seen", n.SeenAt.ToString("HH:mm:ss"));
+                _switch.Items.Add(new ListViewItem(["", ""]));
+            }
+            _status.Text = found.Count == 0 ? $"No LLDP/CDP announcement in {seconds} s — the switch may not send them on access ports, or the port is a dumb switch." : $"{found.Count} announcement(s) — {found[0].Headline}";
+            TelemetryHost.Event("map", "lldp", found.FirstOrDefault()?.Protocol, found.Count);
+        }
+        catch (OperationCanceledException) { _status.Text = "Cancelled."; }
+        finally { _cts = null; _listen.Text = "Listen 35 s"; _listen65.Enabled = NetPaw.Discovery.PktmonCapture.Available; }
     }
 
     async Task FindRouters()
