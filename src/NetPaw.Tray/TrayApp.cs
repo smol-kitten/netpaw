@@ -33,6 +33,9 @@ sealed class TrayApp : ApplicationContext
     readonly System.Windows.Forms.Timer _confirm = new() { Interval = 3000 };
     bool _checking;
     bool _busy;
+    bool _menuOpen;
+    readonly Queue<(string Title, string Text, ToolTipIcon Icon)> _deferred = new();
+    string? _lastStatus;
     IReadOnlyList<AdapterInfo> _adapters = [];
 
     public NetPawService Service => _svc;
@@ -50,7 +53,8 @@ sealed class TrayApp : ApplicationContext
     {
         _svc = svc;
         _menu = new ContextMenuStrip { Renderer = new DarkMenuRenderer(), Font = Theme.Base, ShowImageMargin = true, ShowCheckMargin = false };
-        _menu.Opening += (_, _) => BuildMenu();
+        _menu.Opening += (_, _) => { _menuOpen = true; BuildMenu(); };
+        _menu.Closed += (_, _) => { _menuOpen = false; FlushDeferred(); };
         _tray = new NotifyIcon { Icon = Icons.Paw(Theme.Down), Text = "NetPaw", Visible = true, ContextMenuStrip = _menu };
         _tray.MouseClick += (_, e) => { if (e.Button == MouseButtons.Left) TogglePanel(); };
         _tray.BalloonTipClicked += (_, _) => OpenLog();
@@ -148,7 +152,7 @@ sealed class TrayApp : ApplicationContext
                     }
                 }
             }
-            if (_svc.Settings.Checks.StickyAlerts)
+            if (_svc.Settings.Checks.StickyAlerts && !_menuOpen)
             {
                 var problem = Snapshot.IsProblem(snap.State);
                 if (problem || _toast is { Visible: true }) { _toast ??= new InfoToast(this); _toast.AutoPin(problem); }
@@ -180,6 +184,7 @@ sealed class TrayApp : ApplicationContext
 
     public void ShowInfo()
     {
+        if (_menuOpen) return;
         _toast ??= new InfoToast(this);
         _toast.Present();
         _ = RunCheck();
@@ -233,6 +238,11 @@ sealed class TrayApp : ApplicationContext
         var w = Work;
         var header = new ToolStripMenuItem(w is null ? "No adapter" : $"{w.Name}  ·  {w.Summary()}") { Enabled = false, Tag = Theme.Muted, Font = Theme.Small };
         _menu.Items.Add(header);
+        if (_snapshot is { ChecksEnabled: true } || _lastStatus is not null)
+        {
+            var line = _snapshot is { ChecksEnabled: true } ? Snapshot.Describe(_snapshot.State) + (_lastStatus is null ? "" : "  ·  " + _lastStatus) : _lastStatus!;
+            _menu.Items.Add(new ToolStripMenuItem(line.Length > 90 ? line[..87] + "…" : line) { Enabled = false, Tag = _snapshot is not null && Snapshot.IsProblem(_snapshot.State) ? Theme.Error : Theme.Muted, Font = Theme.Small, ToolTipText = _lastStatus });
+        }
         _menu.Items.Add(new ToolStripSeparator());
 
         var profiles = _svc.Profiles.Where(p => !p.Temporary).ToList();
@@ -414,7 +424,18 @@ sealed class TrayApp : ApplicationContext
     public void Notify(string title, string text, ToolTipIcon icon, bool force = false)
     {
         _svc.Store.Log($"notify [{icon}] {title}: {text.ReplaceLineEndings(" | ")}");
+        _lastStatus = $"{title}: {text.ReplaceLineEndings(" ")}";
         if (!force && icon == ToolTipIcon.Info && (!_svc.Settings.ShowNotifications || PanelShowing)) return; // the panel shows it inline
+        // A balloon popping while the context menu is open steals the click and closes the menu: defer it.
+        if (_menuOpen) { _deferred.Enqueue((title, text, icon)); if (_deferred.Count > 3) _deferred.Dequeue(); return; }
+        _tray.ShowBalloonTip(icon == ToolTipIcon.Error ? 8000 : 3000, title, text.Length > 250 ? text[..247] + "…" : text, icon);
+    }
+
+    void FlushDeferred()
+    {
+        // Only the newest deferred message is worth showing after the menu closes.
+        if (_deferred.Count == 0) return;
+        var (title, text, icon) = _deferred.Last(); _deferred.Clear();
         _tray.ShowBalloonTip(icon == ToolTipIcon.Error ? 8000 : 3000, title, text.Length > 250 ? text[..247] + "…" : text, icon);
     }
 

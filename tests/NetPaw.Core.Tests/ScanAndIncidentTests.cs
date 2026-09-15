@@ -55,6 +55,10 @@ public class NetworkScannerTests
         Assert.Equal(["DHCP", "any", "mine"], c.Select(x => x.Name));
         Assert.True(c[0].Dhcp); Assert.True(c[0].Temporary);
         Assert.Equal(["any", "mine"], NetworkScanner.Candidates([p1, p2, p3], a, false).Select(x => x.Name));
+        // repo profiles come last and are de-duplicated by subnet against the user's own
+        var repoSame = Fx.Static("community-dup", "192.168.1.1", "192.168.1.77/24"); repoSame.Source = "community";
+        var repoNew = Fx.Static("MikroTik first boot", "192.168.88.1", "192.168.88.250/24"); repoNew.Source = "community";
+        Assert.Equal(["DHCP", "any", "mine", "MikroTik first boot"], NetworkScanner.Candidates([p1, p2, p3], a, true, [repoSame, repoNew]).Select(x => x.Name));
     }
 
     [Fact]

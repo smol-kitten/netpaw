@@ -17,7 +17,7 @@ const string Usage = """
       netpaw-cli dhcp [-a X] [-n]                 switch the adapter to DHCP
       netpaw-cli renew [-a X] [-n]                ipconfig /renew on the adapter (DHCP only)
       netpaw-cli advise [-a X]                    DHCP/static configuration advisory (what is missing, what a renew would fix)
-      netpaw-cli scan [--all] [--no-dhcp] [-a X]  try DHCP + your profiles until one works (--all: try all, rank); restores unless --keep
+      netpaw-cli scan [--all] [--repos] [--no-dhcp] [-a X]  try DHCP + your profiles (--repos: community/repo profiles too) until one works; --all ranks; restores unless --keep
       netpaw-cli incidents [-n 30]                show the incident log (enable it in settings: repair.incidentLog)
       netpaw-cli reach <ip[/prefix]> [--replace] [-a X] [-n]
                                               make <ip> reachable: pick a covering profile, else a preset,
@@ -277,7 +277,7 @@ try
         }
         case "scan":
         {
-            var all = Flag("--all"); var keep = Flag("--keep"); var noDhcp = Flag("--no-dhcp");
+            var all = Flag("--all"); var keep = Flag("--keep"); var noDhcp = Flag("--no-dhcp"); var repos = Flag("--repos");
             var adapter = svc.ResolveAdapter(adapterName);
             if (!IsElevated()) return Fail("scan applies profiles; run from an elevated prompt");
             var original = svc.Capture("scan-original", adapter);
@@ -291,7 +291,7 @@ try
                 while (DateTime.UtcNow < deadline && (!live.Up || live.Addresses.All(a => a.Address.StartsWith("169.254."))));
                 return await checker.Check(live, checks, ct);
             });
-            var cands = NetPaw.Scan.NetworkScanner.Candidates(svc.Profiles.Concat(svc.RepoProfiles), adapter, !noDhcp && svc.Allowed(Capability.Dhcp));
+            var cands = NetPaw.Scan.NetworkScanner.Candidates(svc.Profiles, adapter, !noDhcp && svc.Allowed(Capability.Dhcp), repos ? svc.RepoProfiles : null);
             Console.WriteLine($"{cands.Count} candidate(s) on {adapter.Name}");
             var progress = new Progress<NetPaw.Scan.ScanProgress>(pr => { if (pr.Result is { } r) Console.WriteLine($"  {r.Candidate.Name,-28} {r.Verdict,-22} score {r.Score,2}"); else Console.Write($"  trying {pr.Candidate.Name}…\r"); });
             var results = scanner.Run(cands, all ? NetPaw.Scan.ScanMode.RankAll : NetPaw.Scan.ScanMode.FirstWorking, progress).GetAwaiter().GetResult();
