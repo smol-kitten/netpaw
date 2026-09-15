@@ -44,10 +44,18 @@ jobs:
           dotnet publish src/NetPaw.Tray -c Release -r win-x64 --self-contained true -p:IncludeNativeLibrariesForSelfExtract=true -o out/netpaw-win-x64-standalone
           dotnet publish src/NetPaw.Cli  -c Release -r win-x64 --self-contained true -o out/netpaw-win-x64-standalone
       - name: Zip
+        # Not every self-hosted runner ships `zip` (runner2 does not); python's zipfile is the fallback.
         run: |
           cd out && rm -f */*.pdb
-          zip -qr netpaw-win-x64.zip netpaw-win-x64
-          zip -qr netpaw-win-x64-standalone.zip netpaw-win-x64-standalone
+          mkzip() {
+            if command -v zip >/dev/null; then zip -qr "$1" "$2";
+            elif command -v python3 >/dev/null; then python3 -c "import shutil,sys; shutil.make_archive(sys.argv[1][:-4], 'zip', '.', sys.argv[2])" "$1" "$2";
+            elif command -v 7z >/dev/null; then 7z a -bso0 "$1" "$2";
+            else echo "no zip tool on this runner" >&2; exit 1; fi
+          }
+          mkzip netpaw-win-x64.zip netpaw-win-x64
+          mkzip netpaw-win-x64-standalone.zip netpaw-win-x64-standalone
+          ls -la *.zip
       - uses: actions/upload-artifact@v7
         continue-on-error: true   # artifact quota must not fail the job
         with:
