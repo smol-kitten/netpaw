@@ -16,6 +16,10 @@ const string Usage = """
       netpaw-cli apply <profile> [-a X] [-n]      apply a profile (-n = dry run, print the plan)
       netpaw-cli dhcp [-a X] [-n]                 switch the adapter to DHCP
       netpaw-cli renew [-a X] [-n]                ipconfig /renew on the adapter (DHCP only)
+      netpaw-cli release [-a X] [-n]              ipconfig /release on the adapter (the dock's old NIC still holding the address)
+      netpaw-cli reset [-a X] [-n]                disable → enable the adapter (cures 'static applied but still shows DHCP / two gateways')
+      netpaw-cli prefer [-a X] [-n]               pin interface metrics so this adapter carries the default route
+      netpaw-cli verify <profile> [-a X]          compare the live adapter against a profile (what did Windows not take?)
       netpaw-cli advise [-a X]                    DHCP/static configuration advisory (what is missing, what a renew would fix)
       netpaw-cli scan [--all] [--repos] [--no-dhcp] [-a X]  try DHCP + your profiles (--repos: community/repo profiles too) until one works; --all ranks; restores unless --keep
       netpaw-cli arp [--check|--sweep] [-a X]     ARP neighbours bundled per network (passive); --check re-ARPs them; --sweep asks the whole subnet
@@ -92,21 +96,32 @@ try
         case "apply":
         {
             var p = Need(svc, argv, 1);
-            var adapter = svc.ResolveAdapter(adapterName ?? p.Adapter);
+            var adapter = adapterName is not null ? svc.ResolveAdapter(adapterName) : svc.ResolveAdapter(p);
             return Run(svc, svc.PlanProfile(p, adapter), dryRun);
         }
         case "dhcp":
             return Run(svc, ApplyPlanner.PlanDhcp(svc.ResolveAdapter(adapterName)), dryRun);
         case "renew":
             return Run(svc, NetPaw.Connectivity.Advisor.PlanRenew(svc.ResolveAdapter(adapterName)), dryRun);
+        case "release": return Run(svc, NetPaw.Connectivity.Advisor.PlanRelease(svc.ResolveAdapter(adapterName)), dryRun);
+        case "reset": return Run(svc, ApplyPlanner.PlanResetAdapter(svc.ResolveAdapter(adapterName)), dryRun);
+        case "prefer": { var all = svc.GetAdapters(); return Run(svc, NetPaw.Connectivity.Advisor.PlanPrefer(svc.ResolveAdapter(adapterName, all), all), dryRun); }
+        case "verify":
+        {
+            var p = Need(svc, argv, 1);
+            var live = adapterName is not null ? svc.ResolveAdapter(adapterName) : svc.ResolveAdapter(p);
+            var diffs = ApplyVerifier.Compare(p, live);
+            Console.WriteLine(diffs.Count == 0 ? $"{live.Name} matches '{p.Name}'" : string.Join("\n", diffs.Select(d => "- " + d)));
+            return diffs.Count == 0 ? 0 : 1;
+        }
         case "advise":
         {
             var adapter = svc.ResolveAdapter(adapterName);
             var snap = new NetPaw.Connectivity.ConnectivityChecker(new NetPaw.Connectivity.NetworkProbe()).Check(adapter, svc.Settings.Checks).GetAwaiter().GetResult();
             Console.WriteLine($"{adapter.Name}: {NetPaw.Connectivity.Snapshot.Describe(snap.State)}");
-            var adv = NetPaw.Connectivity.Advisor.Analyze(snap);
+            var adv = NetPaw.Connectivity.Advisor.Analyze(snap, svc.GetAdapters());
             if (adv.Count == 0) { Console.WriteLine("no findings"); return 0; }
-            foreach (var x in adv) Console.WriteLine($"[{x.Severity}] {x.Title} — {x.Text}{(x.CanRenew ? "  (a DHCP renew may fix this: netpaw-cli renew)" : "")}");
+            foreach (var x in adv) Console.WriteLine($"[{x.Severity}] {x.Title} — {x.Text}{(x.CanRenew ? "  (a DHCP renew may fix this: netpaw-cli renew)" : "")}{(x.Repair != NetPaw.Connectivity.RepairKind.None ? $"  (fix: netpaw-cli {x.Repair.ToString().ToLowerInvariant()} -a \"{x.RepairAdapter}\")" : "")}");
             return adv.Any(x => x.Severity == NetPaw.Connectivity.AdvisorySeverity.Error) ? 1 : 0;
         }
         case "reach":

@@ -23,6 +23,7 @@ sealed class ProfileEditorForm : Form
     readonly CheckBox _setVlan = new() { Text = "set VLAN id", AutoSize = true };
     readonly NumericUpDown _vlan = new() { Minimum = 0, Maximum = 4094, Width = 64 };
     readonly Label _vlanInfo = new() { AutoSize = true, ForeColor = Theme.Muted, Font = Theme.Small };
+    readonly Label _macInfo = new() { AutoSize = true, ForeColor = Theme.Muted, Font = Theme.Small };
     readonly Label _managedNote = new() { AutoSize = true, ForeColor = Theme.Temp, Font = Theme.Small, Visible = false, Dock = DockStyle.Top, Padding = new Padding(0, Theme.Spacing.S, 0, 0) };
     readonly Button _save, _apply, _preview, _delete;
     readonly IReadOnlyList<AdapterInfo> _adapters;
@@ -47,12 +48,13 @@ sealed class ProfileEditorForm : Form
 
         // right: sections (docked Top in reverse order inside a scrolling panel)
         _adapter.Items.Add("(work adapter)"); foreach (var a in _adapters) _adapter.Items.Add(a.Name);
-        _adapter.SelectedIndexChanged += (_, _) => UpdateVlanInfo();
+        _adapter.SelectedIndexChanged += (_, _) => { UpdateVlanInfo(); UpdateMacInfo(); };
         _dhcp.CheckedChanged += (_, _) => ToggleStatic();
         _setVlan.CheckedChanged += (_, _) => _vlan.Enabled = _setVlan.Checked;
 
         _identity.Row("Name", _name, "name");
-        _identity.Row("Adapter", _adapter, "adapter", hint: "\"work adapter\" = the one selected in the tray menu");
+        _identity.Row("Adapter", Inline(_adapter, _macInfo), "adapter", hint: "\"work adapter\" = the one selected in the tray menu. A named adapter is remembered by MAC, so renames and dock ports do not break the profile.");
+        _adapter.Width = 300;
         _identity.Row("Hotkey", _hotkey, "hotkey", hint: "global, needs a modifier — e.g. Ctrl+Alt+1", width: 200);
 
         _ipv4.Row("Mode", Inline(_dhcp, _static), "mode");
@@ -186,7 +188,7 @@ sealed class ProfileEditorForm : Form
         foreach (var s in new[] { _identity, _ipv4, _advanced }) s.ClearErrors();
         _loading = false;
         SetReadOnly(p.Managed, p.Source);
-        ToggleStatic(); UpdateVlanInfo();
+        ToggleStatic(); UpdateVlanInfo(); UpdateMacInfo();
     }
 
     void SetReadOnly(bool managed, string? source)
@@ -209,6 +211,13 @@ sealed class ProfileEditorForm : Form
         foreach (var c in new Control[] { _addresses, _gateway, _gwMetric, _dns, _suffix }) c.Enabled = on;
     }
 
+    void UpdateMacInfo()
+    {
+        var name = _adapter.SelectedIndex <= 0 ? null : (string)_adapter.SelectedItem!;
+        var live = name is null ? null : _adapters.FirstOrDefault(a => a.Name == name);
+        _macInfo.Text = live is null ? (_current?.AdapterMac is { Length: > 0 } m ? $"bound to {m} (not present now)" : "") : $"bound to {live.Mac}";
+    }
+
     void UpdateVlanInfo()
     {
         var name = _adapter.SelectedIndex <= 0 ? _app.Work?.Name : (string)_adapter.SelectedItem!;
@@ -228,6 +237,7 @@ sealed class ProfileEditorForm : Form
         p.Name = _name.Text.Trim();
         if (p.Name.Length == 0) Err(_identity, "name", "Name is required.");
         p.Adapter = _adapter.SelectedIndex <= 0 ? null : (string)_adapter.SelectedItem!;
+        p.AdapterMac = p.Adapter is null ? null : _adapters.FirstOrDefault(a => a.Name == p.Adapter)?.Mac ?? p.AdapterMac;
         p.Dhcp = _dhcp.Checked;
         p.Addresses = [];
         var badAddr = new List<string>();
@@ -283,7 +293,7 @@ sealed class ProfileEditorForm : Form
     void Preview()
     {
         var p = _current?.Managed == true ? _current : ReadFields(); if (p is null) return;
-        try { PlanPreviewForm.ShowReadOnly(_app.Service.PlanProfile(p, _app.Service.ResolveAdapter(p.Adapter, _adapters)), "Preview only — nothing is applied from here."); }
+        try { PlanPreviewForm.ShowReadOnly(_app.Service.PlanProfile(p, _app.Service.ResolveAdapter(p, _adapters)), "Preview only — nothing is applied from here."); }
         catch (InvalidOperationException ex) { _identity.SetError("adapter", ex.Message); }
     }
 }

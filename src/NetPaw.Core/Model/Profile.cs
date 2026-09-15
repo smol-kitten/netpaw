@@ -10,6 +10,8 @@ public sealed class Profile
     public string Name { get; set; } = "";
     /// <summary>Adapter name (alias) or null = the configured work adapter.</summary>
     public string? Adapter { get; set; }
+    /// <summary>MAC of that adapter, so the binding survives "Ethernet" → "Ethernet 3" after a dock/driver change. Resolved before the name.</summary>
+    public string? AdapterMac { get; set; }
     public bool Dhcp { get; set; }
     public List<IpAddr> Addresses { get; set; } = [];
     public string? Gateway { get; set; }

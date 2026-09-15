@@ -128,3 +128,25 @@ public class PlannerTests
         Assert.Empty(new Profile { Name = "d", Dhcp = true }.Validate());
     }
 }
+
+public class V07PlannerTests
+{
+    [Fact]
+    public void FlushDnsIsOptionalNonCriticalAndLast()
+    {
+        var plan = ApplyPlanner.Plan(Fx.Static("x"), Fx.Adapter(), flushDns: true);
+        var last = plan.Steps.Last();
+        Assert.Equal("ipconfig /flushdns", last.CommandLine); Assert.False(last.Critical);
+        Assert.DoesNotContain(ApplyPlanner.Plan(Fx.Static("x"), Fx.Adapter()).Steps, s => s.FileName == "ipconfig");
+        Assert.Equal("ipconfig /flushdns", ApplyPlanner.Plan(new Profile { Name = "d", Dhcp = true }, Fx.Adapter(), flushDns: true).Steps.Last().CommandLine);
+    }
+
+    [Fact]
+    public void ResetAdapterIsTwoStepsAndWarnsOnDefaultRoute()
+    {
+        var plan = ApplyPlanner.PlanResetAdapter(Fx.Adapter("Wi-Fi", gw: "192.168.1.1"));
+        Assert.Equal(["netsh interface set interface \"Wi-Fi\" admin=disable", "netsh interface set interface \"Wi-Fi\" admin=enable"], plan.Steps.Select(s => s.CommandLine));
+        Assert.Single(plan.Warnings);
+        Assert.Empty(ApplyPlanner.PlanResetAdapter(Fx.Adapter("Ethernet 2")).Warnings);
+    }
+}

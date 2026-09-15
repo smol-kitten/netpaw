@@ -13,7 +13,7 @@ sealed class SettingsForm : Form
     {
         var s = app.Service.Settings; var pol = app.Service.Policy;
         Text = "NetPaw — settings"; StartPosition = FormStartPosition.CenterScreen; FormBorderStyle = FormBorderStyle.FixedDialog;
-        MinimizeBox = false; MaximizeBox = false; ShowInTaskbar = false; ClientSize = new Size(700, 830);
+        MinimizeBox = false; MaximizeBox = false; ShowInTaskbar = false; ClientSize = new Size(700, 860);
 
         var grid = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, Padding = new Padding(14), AutoSize = true, AutoScroll = true };
         grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 150)); grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
@@ -29,6 +29,7 @@ sealed class SettingsForm : Form
         var notify = new CheckBox { Text = "balloon notifications", Checked = s.ShowNotifications, AutoSize = true };
         var secondary = new CheckBox { Text = "add a secondary address (keeps current config)", Checked = s.ReachAsSecondary, AutoSize = true };
         var prefix = new NumericUpDown { Minimum = 8, Maximum = 30, Value = s.ReachDefaultPrefix, Width = 70 };
+        var flush = new CheckBox { Text = "flush the DNS cache after every apply (ipconfig /flushdns)", Checked = s.FlushDns, AutoSize = true };
         var startup = new CheckBox { Text = "start with Windows (elevated task, no UAC prompt)", Checked = Startup.IsEnabled(), AutoSize = true };
 
         Row("Work adapter", adapter); adapter.Enabled = !pol.IsSet("WorkAdapter");
@@ -39,6 +40,7 @@ sealed class SettingsForm : Form
         Row("Notifications", notify);
         Row("Reach mode", secondary);
         Row("Reach default prefix", prefix);
+        Row("After apply", flush);
         Row("Startup", startup);
         // ---- connectivity -------------------------------------------------------------------
         var ck = s.Checks;
@@ -169,7 +171,7 @@ sealed class SettingsForm : Form
             if (!pol.IsSet("PanelHotkey")) s.PanelHotkey = hk.ToString();
             if (!pol.IsSet("ConfirmBeforeApply")) s.ConfirmBeforeApply = confirm.Checked;
             s.ShowNotifications = notify.Checked;
-            s.ReachAsSecondary = secondary.Checked; s.ReachDefaultPrefix = (int)prefix.Value;
+            s.ReachAsSecondary = secondary.Checked; s.ReachDefaultPrefix = (int)prefix.Value; s.FlushDns = flush.Checked;
             app.Service.SaveSettings();
             var startupErr = Startup.Set(startup.Checked);
             if (startupErr is not null) { err.Text = startupErr; return; }

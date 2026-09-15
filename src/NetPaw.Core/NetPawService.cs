@@ -168,6 +168,17 @@ public sealed class NetPawService
     public AdapterInfo? WorkAdapter(IReadOnlyList<AdapterInfo>? adapters = null) =>
         AdapterSelector.Pick(adapters ?? GetAdapters(), Settings.WorkAdapter);
 
+    /// <summary>Profile → adapter: the remembered MAC wins (survives renames and dock port changes), then the name, then the work adapter.</summary>
+    public AdapterInfo ResolveAdapter(Profile p, IReadOnlyList<AdapterInfo>? adapters = null)
+    {
+        adapters ??= GetAdapters();
+        if (p.AdapterMac is { Length: > 0 } mac && adapters.FirstOrDefault(a => string.Equals(a.Mac, mac, StringComparison.OrdinalIgnoreCase)) is { } byMac) return byMac;
+        if (p.Adapter is not null && adapters.Any(a => string.Equals(a.Name, p.Adapter, StringComparison.OrdinalIgnoreCase))) return ResolveAdapter(p.Adapter, adapters);
+        if (p.AdapterMac is { Length: > 0 } || p.Adapter is not null)
+            Store.Log($"profile '{p.Name}': adapter {(p.Adapter ?? p.AdapterMac)} not present, using the work adapter");
+        return ResolveAdapter((string?)null, adapters);
+    }
+
     public AdapterInfo ResolveAdapter(string? name, IReadOnlyList<AdapterInfo>? adapters = null)
     {
         adapters ??= GetAdapters();
@@ -185,9 +196,9 @@ public sealed class NetPawService
 
     public ApplyPlan PlanProfile(Profile p, AdapterInfo? adapter = null)
     {
-        adapter ??= ResolveAdapter(p.Adapter);
+        adapter ??= ResolveAdapter(p);
         var vlan = p.VlanId is null ? null : QueryVlan(adapter.Name);
-        return ApplyPlanner.Plan(p, adapter, vlan);
+        return ApplyPlanner.Plan(p, adapter, vlan, Settings.FlushDns);
     }
 
     public ApplyOutcome Apply(ApplyPlan plan)
@@ -204,7 +215,7 @@ public sealed class NetPawService
     public ApplyOutcome ApplyDhcp(AdapterInfo? adapter = null)
     {
         Require(Capability.Dhcp);
-        return Apply(ApplyPlanner.PlanDhcp(adapter ?? ResolveAdapter(null)));
+        return Apply(ApplyPlanner.PlanDhcp(adapter ?? ResolveAdapter((string?)null)));
     }
 
     public ReachDecision ResolveReach(string target, AdapterInfo? adapter = null)
@@ -217,7 +228,7 @@ public sealed class NetPawService
     /// <summary>Executes a reach decision. Temp addresses go on as secondaries by default; "replace" builds a full temp profile instead.</summary>
     public (ApplyPlan Plan, ApplyOutcome? Outcome) Reach(ReachDecision d, AdapterInfo? adapter = null, bool dryRun = false, bool? replacePrimary = null)
     {
-        adapter ??= ResolveAdapter(null);
+        adapter ??= ResolveAdapter((string?)null);
         Require(Capability.Reach);
         if (d.Kind is ReachKind.TempAddress or ReachKind.UsePreset) Require(Capability.TempAddresses);
         var replace = replacePrimary ?? !Settings.ReachAsSecondary;
@@ -268,7 +279,7 @@ public sealed class NetPawService
 
     public (ApplyPlan Plan, ApplyOutcome? Outcome) ApplyPreset(Preset preset, AdapterInfo? adapter = null, bool dryRun = false, bool? replacePrimary = null)
     {
-        adapter ??= ResolveAdapter(null);
+        adapter ??= ResolveAdapter((string?)null);
         var d = ResolvePreset(preset, adapter);
         if (d.Kind == ReachKind.AlreadyReachable) return (new ApplyPlan { Title = preset.ToString(), Adapter = adapter.Name }, null);
         return Reach(d, adapter, dryRun, replacePrimary);
@@ -291,7 +302,7 @@ public sealed class NetPawService
     public Profile Capture(string name, AdapterInfo adapter)
     {
         Require(Capability.UserProfiles);
-        var p = new Profile { Name = name, Adapter = adapter.Name, Dhcp = adapter.Dhcp };
+        var p = new Profile { Name = name, Adapter = adapter.Name, AdapterMac = adapter.Mac, Dhcp = adapter.Dhcp };
         if (!adapter.Dhcp)
         {
             p.Addresses = [.. adapter.Addresses];

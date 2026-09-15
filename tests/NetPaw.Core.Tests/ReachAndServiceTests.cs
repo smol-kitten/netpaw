@@ -211,3 +211,29 @@ public class PresetPrecedenceTests
         Assert.DoesNotMatch(@"-\d{4}$", "Ethernet 2");
     }
 }
+
+public class MacBindingTests
+{
+    static NetPawService Make(params Adapters.AdapterInfo[] adapters)
+    {
+        var dir = Directory.CreateTempSubdirectory().FullName;
+        return new NetPawService(new JsonStore(dir), new FakeAdapters(adapters), new FakeVlan(false), new FakeRunner(), new MachineStore(Path.Combine(dir, "profiles.d")), () => Policy.None);
+    }
+
+    [Fact]
+    public void MacWinsOverNameThenNameThenWorkAdapter()
+    {
+        var eth = Fx.Adapter("Ethernet", gw: "192.168.1.1") with { Mac = "AA:BB:CC:00:00:01" };
+        var dock = Fx.Adapter("Ethernet 3", addrs: ["10.5.0.9/24"]) with { Mac = "AA:BB:CC:00:00:99" };
+        var svc = Make(eth, dock);
+        var p = Fx.Static("dock"); p.Adapter = "Ethernet"; p.AdapterMac = "aa:bb:cc:00:00:99";   // renamed dock NIC: MAC says Ethernet 3
+        Assert.Equal("Ethernet 3", svc.ResolveAdapter(p).Name);
+        p.AdapterMac = "AA:BB:CC:FF:FF:FF";                                                      // MAC gone, name still there
+        Assert.Equal("Ethernet", svc.ResolveAdapter(p).Name);
+        p.Adapter = "Ethernet 9";                                                                // neither: work adapter
+        Assert.Equal("Ethernet", svc.ResolveAdapter(p).Name);
+        var cap = svc.Capture("c", dock);
+        Assert.Equal("AA:BB:CC:00:00:99", cap.AdapterMac);
+        Assert.Equal("Ethernet 3", svc.PlanProfile(cap).Adapter);
+    }
+}

@@ -11,6 +11,8 @@ public sealed class Settings
     public int ReachDefaultPrefix { get; set; } = 24;
     /// <summary>Reach mode adds a secondary address (keeps connectivity) instead of replacing the primary.</summary>
     public bool ReachAsSecondary { get; set; } = true;
+    /// <summary>Run ipconfig /flushdns after every apply so the last network's cached names do not linger.</summary>
+    public bool FlushDns { get; set; } = true;
     /// <summary>User-added profile repositories, "url" or "url|keyId:base64PublicKey". Policy repos are added on top.</summary>
     public List<string> RepoUrls { get; set; } = [CommunityRepo];
 

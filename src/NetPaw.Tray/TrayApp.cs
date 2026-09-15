@@ -107,7 +107,7 @@ sealed class TrayApp : ApplicationContext
             var work = Work;
             var snap = await Task.Run(() => _checker.Check(work, _svc.Settings.Checks));
             _previous = _snapshot; _snapshot = snap;
-            _advisories = _svc.Settings.Repair.DhcpAdvisory ? Advisor.Analyze(snap) : [];
+            _advisories = _svc.Settings.Repair.DhcpAdvisory ? Advisor.Analyze(snap, _adapters) : [];
             var vpns = VpnDetector.Detect(_adapters);
             foreach (var msg in VpnDetector.Changes(_vpns, vpns))
             {
@@ -279,6 +279,8 @@ sealed class TrayApp : ApplicationContext
             _menu.Items.Add(new ToolStripMenuItem("DHCP now", Icons.Dot(Theme.Dhcp), (_, _) => ApplyDhcp()) { Checked = w?.Dhcp == true });
         if (w is { Dhcp: true })
             _menu.Items.Add(new ToolStripMenuItem("Renew DHCP lease", null, (_, _) => Renew(manual: true)));
+        if (w is not null)
+            _menu.Items.Add(new ToolStripMenuItem("Reset adapter (disable → enable)", null, (_, _) => ResetAdapter()));
         if (_svc.Allowed(Capability.Reach))
             _menu.Items.Add(new ToolStripMenuItem("Reach IP…", null, (_, _) => ShowPanel()) { ShortcutKeyDisplayString = _svc.Settings.PanelHotkey });
 
@@ -335,7 +337,7 @@ sealed class TrayApp : ApplicationContext
 
     public void ApplyProfile(Profile p)
     {
-        try { Execute(_svc.PlanProfile(p, _svc.ResolveAdapter(p.Adapter, _adapters))); }
+        try { ApplyProfileVerified(p, _svc.ResolveAdapter(p, _adapters)); }
         catch (InvalidOperationException ex) { Status?.Invoke(ex.Message, "error"); Notify("Cannot apply " + p.Name, ex.Message, ToolTipIcon.Error); }
     }
 
@@ -393,8 +395,59 @@ sealed class TrayApp : ApplicationContext
         Notify("Profile saved", $"{p.Name}: {p.Summary()}", ToolTipIcon.Info);
     }
 
+    Profile? _verifyProfile; string? _verifyAdapter;
+    public IReadOnlyList<string> LastVerifyDiffs { get; private set; } = [];
+
+    /// <summary>Two seconds after a successful profile apply, re-read the adapter and compare; a mismatch is a status warning with a Reset action.</summary>
+    void ScheduleVerify(Profile p, string adapter)
+    {
+        _verifyProfile = p; _verifyAdapter = adapter;
+        var t = new System.Windows.Forms.Timer { Interval = 2500 };
+        t.Tick += (_, _) =>
+        {
+            t.Dispose();
+            if (_verifyProfile is null || _verifyAdapter is null) return;
+            var live = _svc.GetAdapters().FirstOrDefault(a => a.Name == _verifyAdapter);
+            LastVerifyDiffs = live is null ? ["adapter disappeared"] : ApplyVerifier.Compare(_verifyProfile, live);
+            if (LastVerifyDiffs.Count > 0)
+            {
+                var text = $"Windows did not fully take '{_verifyProfile.Name}' on {_verifyAdapter}: {string.Join("; ", LastVerifyDiffs)}. Network info → Reset adapter usually clears it.";
+                _svc.Store.Log("verify: " + text);
+                Status?.Invoke(text, "warn"); Notify("Apply not fully effective", text, ToolTipIcon.Warning, force: true);
+                TelemetryHost.Event("apply", "verify-mismatch", _verifyProfile.Dhcp ? "dhcp" : "static", LastVerifyDiffs.Count);
+            }
+            _verifyProfile = null; _verifyAdapter = null;
+            _ = RunCheck();
+        };
+        t.Start();
+    }
+
+    public void ApplyProfileVerified(Profile p, AdapterInfo adapter) { LastVerifyDiffs = []; Execute(_svc.PlanProfile(p, adapter), after: () => ScheduleVerify(p, adapter.Name)); }
+
+    /// <summary>Repair actions from advisories: Release/Reset on the named adapter, Prefer the work adapter.</summary>
+    public void Repair(Advisory adv)
+    {
+        var target = _adapters.FirstOrDefault(a => a.Name == adv.RepairAdapter); if (target is null) return;
+        var plan = adv.Repair switch
+        {
+            RepairKind.Release => Advisor.PlanRelease(target),
+            RepairKind.Reset => ApplyPlanner.PlanResetAdapter(target),
+            RepairKind.Prefer => Advisor.PlanPrefer(target, _adapters),
+            _ => null,
+        };
+        if (plan is null) return;
+        TelemetryHost.Event("repair", adv.Repair.ToString().ToLowerInvariant(), adv.Title);
+        Execute(plan, subtitle: adv.Title + " — " + adv.Text);
+    }
+
+    public void ResetAdapter()
+    {
+        var w = Work; if (w is null) return;
+        Execute(ApplyPlanner.PlanResetAdapter(w), subtitle: "Disable → enable. The documented cure for 'static applied but Windows still shows DHCP / two gateways'.");
+    }
+
     /// <summary>Runs a plan on a worker thread (netsh can take a couple of seconds), optionally after a preview.</summary>
-    public void Execute(ApplyPlan plan, Func<ApplyOutcome>? custom = null, string? subtitle = null)
+    public void Execute(ApplyPlan plan, Func<ApplyOutcome>? custom = null, string? subtitle = null, Action? after = null)
     {
         if (_busy) { Notify("Busy", "Another change is still running.", ToolTipIcon.Warning); return; }
         if (plan.IsEmpty)
@@ -406,8 +459,11 @@ sealed class TrayApp : ApplicationContext
         if (_svc.Settings.ConfirmBeforeApply || plan.Warnings.Count > 0)
             if (!PlanPreviewForm.Confirm(plan, subtitle)) { Status?.Invoke("Cancelled.", "warn"); return; }
         var kind = plan.Title == "DHCP" ? "dhcp" : plan.Title.StartsWith("reach ") ? "reach" : subtitle is not null ? "preset" : "profile";
+        _afterApply = after;
         RunInBackground($"Applying {plan.Title}", () => { ApplyOutcome? o = null; try { o = (custom ?? (() => _svc.Apply(plan)))(); return o; } finally { TelemetryHost.Apply(kind, plan, o); TelemetryHost.Export(_svc, o is { Success: true } ? "info" : "error", $"apply {kind} '{plan.Title}' on {plan.Adapter}: {(o is null ? "crashed" : o.Success ? "ok" : "failed")}", new() { ["adapter"] = plan.Adapter, ["kind"] = kind, ["profile"] = plan.Title, ["steps"] = plan.Steps.Count, ["result"] = o is null ? "crashed" : o.Success ? "ok" : "failed" }, isIncident: false); } }, $"{plan.Title} → {plan.Adapter}");
     }
+
+    Action? _afterApply;
 
     void RunInBackground(string title, Func<ApplyOutcome> work, string doneText)
     {
@@ -426,6 +482,7 @@ sealed class TrayApp : ApplicationContext
             }
             else if (outcome.Success)
             {
+                var afterHook = _afterApply; _afterApply = null; afterHook?.Invoke();
                 var soft = outcome.Failures.ToList();
                 var text = soft.Count == 0 ? "Done." : "Done, with warnings: " + string.Join("; ", soft.Select(f => f.Step.Description + ": " + f.Output));
                 Status?.Invoke(doneText + " — " + text, soft.Count == 0 ? "ok" : "warn");
