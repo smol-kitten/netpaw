@@ -24,6 +24,8 @@ sealed class TrayApp : ApplicationContext
     readonly ConnectivityChecker _checker = new(new NetworkProbe());
     readonly System.Windows.Forms.Timer _checkTimer = new();
     Snapshot? _snapshot, _previous, _announced;
+    readonly RenewScheduler _renew = new();
+    IReadOnlyList<Advisory> _advisories = [];
     NetState? _pendingState; DateTime _pendingSince;
     readonly System.Windows.Forms.Timer _confirm = new() { Interval = 3000 };
     bool _checking;
@@ -32,6 +34,10 @@ sealed class TrayApp : ApplicationContext
 
     public NetPawService Service => _svc;
     public Snapshot? LastSnapshot => _snapshot;
+    public IReadOnlyList<Advisory> Advisories => _advisories;
+    public string RenewInfo => _svc.Settings.Repair.AutoRenew
+        ? $"Renew lease now  (auto-renew {_renew.Attempts}/{_svc.Settings.Repair.AutoRenewMaxAttempts} this incident)"
+        : "Renew lease now  (ipconfig /renew)";
     /// <summary>(text, kind) kind: "busy" | "ok" | "warn" | "error". The quick panel shows it inline instead of a balloon.</summary>
     public event Action<string, string>? Status;
     bool PanelShowing => _panel is { Visible: true };
@@ -92,8 +98,12 @@ sealed class TrayApp : ApplicationContext
             var work = Work;
             var snap = await Task.Run(() => _checker.Check(work, _svc.Settings.Checks));
             _previous = _snapshot; _snapshot = snap;
+            _advisories = _svc.Settings.Repair.DhcpAdvisory ? Advisor.Analyze(snap) : [];
             RefreshState();
             _toast?.Render(snap);
+            // Optional self-repair: a bounded ipconfig /renew when an advisory says a fresh lease could help.
+            if (!_busy && _renew.ShouldRenew(_svc.Settings.Repair, _advisories, DateTimeOffset.Now) && work is { Dhcp: true })
+                Renew(manual: false);
             // Announce against the last *announced* state, and only once the new state has held for its
             // grace period — a reconnect passes through "no address" while DHCP negotiates, which is noise.
             var change = Transitions.Detect(_announced, snap);
@@ -124,6 +134,18 @@ sealed class TrayApp : ApplicationContext
             }
         }
         finally { _checking = false; }
+    }
+
+    /// <summary>ipconfig /renew on the work adapter; automatic runs count against the per-incident limit.</summary>
+    public void Renew(bool manual)
+    {
+        var w = Work; if (w is null || !w.Dhcp) return;
+        var plan = Advisor.PlanRenew(w);
+        if (!manual) { _renew.Mark(DateTimeOffset.Now); _svc.Store.Log($"auto-renew attempt {_renew.Attempts}/{_svc.Settings.Repair.AutoRenewMaxAttempts} on {w.Name}: {string.Join("; ", _advisories.Where(a => a.CanRenew).Select(a => a.Title))}"); }
+        TelemetryHost.Event("repair", manual ? "renew-manual" : "renew-auto", _advisories.FirstOrDefault(a => a.CanRenew)?.Title);
+        RunInBackground($"Renewing DHCP lease on {w.Name}", () => _svc.Apply(plan), $"Renewed lease on {w.Name}");
+        // Re-probe once the lease had time to land.
+        var later = new System.Windows.Forms.Timer { Interval = 8000 }; later.Tick += (_, _) => { later.Dispose(); _ = RunCheck(); }; later.Start();
     }
 
     public void ShowInfo()
@@ -196,6 +218,8 @@ sealed class TrayApp : ApplicationContext
         _menu.Items.Add(new ToolStripSeparator());
         if (_svc.Allowed(Capability.Dhcp))
             _menu.Items.Add(new ToolStripMenuItem("DHCP now", Icons.Dot(Theme.Dhcp), (_, _) => ApplyDhcp()) { Checked = w?.Dhcp == true });
+        if (w is { Dhcp: true })
+            _menu.Items.Add(new ToolStripMenuItem("Renew DHCP lease", null, (_, _) => Renew(manual: true)));
         if (_svc.Allowed(Capability.Reach))
             _menu.Items.Add(new ToolStripMenuItem("Reach IP…", null, (_, _) => ShowPanel()) { ShortcutKeyDisplayString = _svc.Settings.PanelHotkey });
 

@@ -23,6 +23,8 @@ keystroke instead of a trip through *Control Panel → Network → Adapter → P
 - **Tiny and fast** — two executables, ~1.5 MB together, no installer, no service, no telemetry.
 - **Network info card** — `Ctrl+Alt+I`: link, address, gateway, DNS, intranet, internet as ✓/✗ with round-trips. Pin it with 📌.
 - **Monitor mode** (opt-in) — probes gateway/intranet/internet/DNS on an interval and tells you *what* changed: "Internet lost — intranet still reachable", "Link down", "Back online". A red dot on the paw while there is a problem; the card pins itself until things recover.
+- **Advisory** — the card says *what* is wrong: "lease without gateway (option 3)", "no DHCP lease (169.254)", "gateway from lease does not answer — stale after a port move?", "DNS servers not answering". Static profiles get the matching hints.
+- **Auto-repair** (opt-in) — when the advisory says a fresh lease could help, NetPaw runs `ipconfig /renew` itself: bounded attempts per incident, spaced, DHCP adapters only, every attempt logged.
 - **F1 help** on every view.
 - **CLI twin** (`netpaw-cli.exe`) for scripts and remote sessions. Same profiles, same logic.
 - **Enterprise-ready** — MSI for Intune/GPO, read-only managed profiles from `%ProgramData%`, registry policy with ADMX (pin the adapter/hotkey, deny reach/DHCP/user profiles). See [docs/ENTERPRISE.md](docs/ENTERPRISE.md).
@@ -73,6 +75,8 @@ logon.
 | see what will run | *Settings → confirm before applying*, or *Preview plan* in the editor |
 | check the link | `Ctrl+Alt+I` — the info card; 📌 keeps it |
 | get told when the network changes | *Settings → Connectivity → check reachability* + *monitor mode* |
+| renew the lease | *Renew DHCP lease* (menu / panel / info card), or `netpaw-cli renew` |
+| see what's wrong with the config | info card *Advice* rows, or `netpaw-cli advise` |
 | help | `F1` anywhere; opens on the current view |
 
 The tray paw is **blue** on DHCP, **green** on static, **orange** while temporary addresses are

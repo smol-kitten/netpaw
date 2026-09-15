@@ -148,6 +148,8 @@ sealed class QuickPanel : Form
                 _items.Add(new Item($"Remove {temps.Count} temporary address{(temps.Count == 1 ? "" : "es")}", string.Join(", ", temps.Select(t => t.Address.ToString())), Theme.Temp, _app.ClearTemp));
             if (q.Length == 0 || Fuzzy("manage profiles", q) || Fuzzy("edit", q))
                 _items.Add(new Item("Manage profiles…", "Create, edit, hotkeys, routes, VLAN", Theme.Muted, () => _app.ShowEditor(), OpensWindow: true));
+            if (w is { Dhcp: true } && (q.Length == 0 || Fuzzy("renew", q)))
+                _items.Add(new Item("Renew DHCP lease", $"ipconfig /renew on {w.Name}" + (_app.Advisories.FirstOrDefault(a => a.CanRenew) is { } adv ? "   ·   " + adv.Title : ""), Theme.Dhcp, () => _app.Renew(manual: true)));
             if (q.Length == 0 || Fuzzy("network info", q) || Fuzzy("status", q))
                 _items.Add(new Item("Network info", "Link, address, gateway, DNS, intranet/internet — pin it with 📌", Theme.Muted, _app.ShowInfo, OpensWindow: true));
             if (q.Length > 0 && Fuzzy("help", q))
