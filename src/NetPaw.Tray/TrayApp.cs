@@ -271,6 +271,12 @@ sealed class TrayApp : ApplicationContext
         if (_editor is null || _editor.IsDisposed) { _editor = new ProfileEditorForm(this); _editor.FormClosed += (_, _) => { _editor = null; RegisterHotkeys(); RefreshState(); }; }
         if (_editor.WindowState == FormWindowState.Minimized) _editor.WindowState = FormWindowState.Normal;
         _editor.Show(); _editor.Activate(); Native.ForceForeground(_editor.Handle);
+        if (select is not null && select.Source is not null && !select.Managed && !_svc.Profiles.Contains(select) && _svc.Allowed(Capability.UserProfiles))
+        {
+            // A repo profile: editing means "make my own copy".
+            var copy = select.Clone(); copy.Id = Guid.NewGuid().ToString("N"); copy.Source = null;
+            _svc.Profiles.Add(copy); _svc.SaveProfiles(); select = copy;
+        }
         if (select is not null) _editor.Select(select);
     }
 

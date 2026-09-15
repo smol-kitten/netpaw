@@ -4,6 +4,7 @@ using NetPaw.Model;
 using NetPaw.Planning;
 using NetPaw.Presets;
 using NetPaw.Reach;
+using NetPaw.Repos;
 using NetPaw.Store;
 
 const string Usage = """
@@ -27,6 +28,12 @@ const string Usage = """
       netpaw-cli export <file> [--managed]        write profiles as JSON (--managed: only for a profiles.d deployment file)
       netpaw-cli import <file>                    add profiles from a JSON file (same name = replace)
       netpaw-cli policy                           show the effective machine policy (HKLM\SOFTWARE\Policies\NetPaw)
+      netpaw-cli repo                             list repositories (trust, entry count, last sync)
+      netpaw-cli repo add <url[|keyId:pubkey]> | remove <url> | sync | search <query>
+      netpaw-cli pack keygen <dir>                create a signing key pair (private.pem + public.txt)
+      netpaw-cli pack sign <index.json> <private.pem>
+      netpaw-cli pack verify <index.json> [pubkey-base64]
+      netpaw-cli pack build <presets.json> <index.json> [--name N]   turn a presets list into a pack
 
     Exit codes: 0 ok · 1 a step failed · 2 usage/unknown · 3 not VLAN capable · 4 denied by policy
 
@@ -149,6 +156,93 @@ try
             var plan = new ApplyPlan { Title = $"vlan {id}", Adapter = adapter.Name };
             plan.Steps.Add(ApplyPlanner.VlanStep(adapter.Name, id));
             return Run(svc, plan, dryRun);
+        }
+        case "repo":
+        {
+            var sub = argv.Count > 1 ? argv[1].ToLowerInvariant() : "list";
+            switch (sub)
+            {
+                case "list":
+                    if (svc.RepoStates.Count == 0) { Console.WriteLine("no repositories configured — try: netpaw-cli repo add https://raw.githubusercontent.com/smol-kitten/netpaw/main/packs/community/index.json"); return 0; }
+                    foreach (var st in svc.RepoStates)
+                        Console.WriteLine($"{st.Repo.Url}\n    {st.Name,-20} {st.Trust,-13} {st.Count,4} entries  {(st.Fetched is { } f ? "synced " + f.ToString("yyyy-MM-dd HH:mm") : "never synced")}{(st.Repo.FromPolicy ? "  [policy]" : "")}{(st.Repo.Pinned ? "  key " + st.Repo.KeyId : "")}{(st.Error is null ? "" : "\n    ! " + st.Error)}");
+                    return 0;
+                case "add": if (argv.Count < 3) return Fail("repo add needs a URL"); svc.AddRepo(argv[2]); Console.WriteLine("added; run: netpaw-cli repo sync"); return 0;
+                case "remove": if (argv.Count < 3) return Fail("repo remove needs a URL"); svc.RemoveRepo(argv[2]); Console.WriteLine("removed"); return 0;
+                case "sync":
+                {
+                    var states = svc.SyncRepos().GetAwaiter().GetResult();
+                    foreach (var st in states) Console.WriteLine($"{(st.Pack is null ? "FAIL" : "ok  ")} {st.Name,-20} {st.Trust,-13} {st.Count,4} entries{(st.Error is null ? "" : "  — " + st.Error)}");
+                    return states.All(s => s.Pack is not null) ? 0 : 1;
+                }
+                case "search":
+                {
+                    var q = argv.Count > 2 ? argv[2] : "";
+                    foreach (var pr in PresetLibrary.Search(svc.Presets, q).Where(p => p.Source is not null)) Console.WriteLine($"preset   {pr.Key,-44} {pr.Ip}/{pr.Prefix,-16} [{pr.Source}]");
+                    foreach (var p in svc.RepoProfiles.Where(p => q.Length == 0 || p.Name.Contains(q, StringComparison.OrdinalIgnoreCase))) Console.WriteLine($"profile  {p.Name,-44} {p.Summary(),-20} [{p.Source}]");
+                    return 0;
+                }
+                default: return Fail("repo: list | add | remove | sync | search");
+            }
+        }
+        case "pack":
+        {
+            if (argv.Count < 3) return Fail("pack: keygen <dir> | sign <index.json> <private.pem> | verify <index.json> [pubkey] | build <presets.json> <index.json>");
+            switch (argv[1].ToLowerInvariant())
+            {
+                case "keygen":
+                {
+                    var key = PackSigner.Generate();
+                    Directory.CreateDirectory(argv[2]);
+                    File.WriteAllText(Path.Combine(argv[2], "private.pem"), key.PrivateKeyPem);
+                    File.WriteAllText(Path.Combine(argv[2], "public.txt"), key.PublicKeyBase64);
+                    Console.WriteLine($"keyId {key.KeyId}\npublic {key.PublicKeyBase64}\nprivate.pem written to {argv[2]} — keep it out of the repo");
+                    return 0;
+                }
+                case "sign":
+                {
+                    if (argv.Count < 4) return Fail("pack sign <index.json> <private.pem>");
+                    var pack = PackJson.Parse(File.ReadAllText(argv[2]));
+                    pack.Updated = DateTime.UtcNow.ToString("yyyy-MM-dd");
+                    PackSigner.Sign(pack, File.ReadAllText(argv[3]));
+                    File.WriteAllText(argv[2], PackJson.Serialize(pack) + "\n");
+                    Console.WriteLine($"signed {pack.Entries.Count} entries with key {pack.Signature!.KeyId}");
+                    return 0;
+                }
+                case "verify":
+                {
+                    var pack = PackJson.Parse(File.ReadAllText(argv[2]));
+                    var bad = PackJson.VerifyHashes(pack);
+                    var invalid = pack.Entries.Where(e => string.IsNullOrWhiteSpace(e.Id) || string.IsNullOrWhiteSpace(e.Vendor) || (e.Kind == "preset" && !NetPaw.Net.IpMath.IsIPv4(e.Ip)) || (e.Kind == "profile" && (e.Profile is null || e.Profile.Validate().Count > 0))).Select(e => e.Id).ToList();
+                    var dup = pack.Entries.GroupBy(e => e.Id).Where(g => g.Count() > 1).Select(g => g.Key).ToList();
+                    Console.WriteLine($"{pack.Name}: {pack.Entries.Count} entries, {pack.Entries.Count(e => e.Sha256 is not null)} hashed, {(pack.Signature is null ? "unsigned" : "signed by " + pack.Signature.KeyId)}");
+                    if (bad.Count > 0) Console.WriteLine("hash mismatch: " + string.Join(", ", bad));
+                    if (invalid.Count > 0) Console.WriteLine("invalid entries: " + string.Join(", ", invalid));
+                    if (dup.Count > 0) Console.WriteLine("duplicate ids: " + string.Join(", ", dup));
+                    var sigOk = argv.Count > 3 ? PackSigner.Verify(pack, argv[3]) : (bool?)null;
+                    if (sigOk is { } so) Console.WriteLine(so ? "signature OK" : "signature INVALID");
+                    return bad.Count == 0 && invalid.Count == 0 && dup.Count == 0 && sigOk != false ? 0 : 1;
+                }
+                case "build":
+                {
+                    if (argv.Count < 4) return Fail("pack build <presets.json> <index.json> [--name N]");
+                    var name = Opt("--name") ?? "pack";
+                    var presets = System.Text.Json.JsonSerializer.Deserialize<List<Preset>>(File.ReadAllText(argv[2]), new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true, ReadCommentHandling = System.Text.Json.JsonCommentHandling.Skip, AllowTrailingCommas = true }) ?? [];
+                    var pack = File.Exists(argv[3]) ? PackJson.Parse(File.ReadAllText(argv[3])) : new Pack { Name = name };
+                    foreach (var pr in presets)
+                    {
+                        var id = (pr.Vendor + "-" + pr.Model).ToLowerInvariant().Replace(" ", "-").Replace("/", "-");
+                        pack.Entries.RemoveAll(e => e.Id == id);
+                        pack.Entries.Add(new PackEntry { Id = id, Vendor = pr.Vendor, Model = pr.Model, Kind = "preset", Ip = pr.Ip, Prefix = pr.Prefix, HostIp = pr.HostIp, Note = pr.Note, Url = pr.Url });
+                    }
+                    pack.Entries = pack.Entries.OrderBy(e => e.Kind == "profile").ThenBy(e => e.Vendor).ThenBy(e => e.Model).ToList();
+                    PackJson.StampHashes(pack); pack.Signature = null;
+                    File.WriteAllText(argv[3], PackJson.Serialize(pack) + "\n");
+                    Console.WriteLine($"{argv[3]}: {pack.Entries.Count} entries (unsigned — run pack sign)");
+                    return 0;
+                }
+                default: return Fail("pack: keygen | sign | verify | build");
+            }
         }
         case "where":
             Console.WriteLine(svc.Store.Directory);

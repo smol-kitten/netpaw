@@ -14,6 +14,8 @@ public sealed class Preset
     public string? HostIp { get; set; }
     public string? Note { get; set; }
     public string? Url { get; set; }
+    /// <summary>Repository name when the preset came from an online pack; null for bundled/user presets. Not persisted.</summary>
+    [System.Text.Json.Serialization.JsonIgnore] public string? Source { get; set; }
 
     public string Key => $"{Vendor}/{Model}";
     public IpAddr Device => new(Ip, Prefix);

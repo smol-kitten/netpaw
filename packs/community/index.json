@@ -1,0 +1,930 @@
+{
+  "name": "community",
+  "version": "1",
+  "updated": "2026-09-15",
+  "description": "Community pack: factory-default management addresses of common network gear plus ready-made setup profiles. PRs welcome.",
+  "homepage": "https://github.com/smol-kitten/netpaw/tree/main/packs/community",
+  "entries": [
+    {
+      "id": "asus-router-(newer,-rt-ax)",
+      "vendor": "ASUS",
+      "model": "Router (newer, RT-AX)",
+      "kind": "preset",
+      "ip": "192.168.50.1",
+      "prefix": 24,
+      "url": "http://192.168.50.1",
+      "sha256": "b3ecbecd9771719089722cb29f7c80dcf09b7a6719fa606bc42ca1cb6b443364",
+      "title": "ASUS Router (newer, RT-AX)"
+    },
+    {
+      "id": "asus-router-(older)",
+      "vendor": "ASUS",
+      "model": "Router (older)",
+      "kind": "preset",
+      "ip": "192.168.1.1",
+      "prefix": 24,
+      "sha256": "e9af95c76a9710d3e0637f29f510e6ff228d6e0aeca6d9b26131661b08a4a65c",
+      "title": "ASUS Router (older)"
+    },
+    {
+      "id": "avm-fritz!box",
+      "vendor": "AVM",
+      "model": "FRITZ!Box",
+      "kind": "preset",
+      "ip": "192.168.178.1",
+      "prefix": 24,
+      "url": "http://192.168.178.1",
+      "sha256": "f62b4fa27cb5e630617e39cecd759205316a249d9c22f4dd7f75fed8227029e8",
+      "title": "AVM FRITZ!Box"
+    },
+    {
+      "id": "avm-fritz!box-(emergency-address)",
+      "vendor": "AVM",
+      "model": "FRITZ!Box (emergency address)",
+      "kind": "preset",
+      "ip": "169.254.1.1",
+      "prefix": 16,
+      "note": "Always answers here, even misconfigured",
+      "sha256": "d1bb935bb679b3d4cd9f6b2fb7f8fbffe44702eae03c8eb60d724dab7f769ecc",
+      "title": "AVM FRITZ!Box (emergency address)"
+    },
+    {
+      "id": "aruba-instant-ap-(virtual-controller)",
+      "vendor": "Aruba",
+      "model": "Instant AP (virtual controller)",
+      "kind": "preset",
+      "ip": "172.31.98.1",
+      "prefix": 24,
+      "note": "instant.arubanetworks.com via the setup SSID",
+      "url": "https://172.31.98.1:4343",
+      "sha256": "8bb58b11e46f21b755359b726f8478e50facd8b4acbb6c4d4e209c4603e916c6",
+      "title": "Aruba Instant AP (virtual controller)"
+    },
+    {
+      "id": "axis-ip-camera-(no-dhcp-fallback)",
+      "vendor": "Axis",
+      "model": "IP camera (no DHCP fallback)",
+      "kind": "preset",
+      "ip": "192.168.0.90",
+      "prefix": 24,
+      "sha256": "84a9a90dda332cb81ad0b02273ebd918d9158aeb96bfa74580641564c34cb38c",
+      "title": "Axis IP camera (no DHCP fallback)"
+    },
+    {
+      "id": "check-point-appliance-(mgmt)",
+      "vendor": "Check Point",
+      "model": "Appliance (mgmt)",
+      "kind": "preset",
+      "ip": "192.168.1.1",
+      "prefix": 24,
+      "url": "https://192.168.1.1:4434",
+      "sha256": "26cc3cad02ecc1f1c8fc7d70c98853e1df3a90110c6feb53f01a50af02463d5c",
+      "title": "Check Point Appliance (mgmt)"
+    },
+    {
+      "id": "cisco-catalyst-express-setup",
+      "vendor": "Cisco",
+      "model": "Catalyst Express Setup",
+      "kind": "preset",
+      "ip": "10.0.0.1",
+      "prefix": 24,
+      "note": "Express Setup mode (hold Mode button)",
+      "url": "http://10.0.0.1",
+      "sha256": "7f033dd76ad47d51132851f4550019d5cb9f3d5a10bf3871e497f5e70f870733",
+      "title": "Cisco Catalyst Express Setup"
+    },
+    {
+      "id": "cisco-isr---rv-router-(factory)",
+      "vendor": "Cisco",
+      "model": "ISR / RV router (factory)",
+      "kind": "preset",
+      "ip": "192.168.1.1",
+      "prefix": 24,
+      "note": "Varies by model",
+      "url": "https://192.168.1.1",
+      "sha256": "e8c763b0e2aced2494390d4c8849cdd29de51bdb519b73e3b8c0985b9dcfdfa8",
+      "title": "Cisco ISR / RV router (factory)"
+    },
+    {
+      "id": "cisco-meraki-local-status-page",
+      "vendor": "Cisco",
+      "model": "Meraki local status page",
+      "kind": "preset",
+      "ip": "10.128.128.128",
+      "prefix": 24,
+      "note": "Any Meraki device, before dashboard adoption",
+      "url": "http://10.128.128.128",
+      "sha256": "fcc23c34710efd23ff6d5e39b55e33de6b18cf1772143bdb293763afbe3e0747",
+      "title": "Cisco Meraki local status page"
+    },
+    {
+      "id": "cisco-small-business-sg-cbs-switch",
+      "vendor": "Cisco",
+      "model": "Small Business SG/CBS switch",
+      "kind": "preset",
+      "ip": "192.168.1.254",
+      "prefix": 24,
+      "note": "Fallback when no DHCP; cisco / cisco",
+      "url": "http://192.168.1.254",
+      "sha256": "76bd0c0332d9de024ce337a7521eeb94dcd18fd851b1e23b155fb782361b6598",
+      "title": "Cisco Small Business SG/CBS switch"
+    },
+    {
+      "id": "cradlepoint-router",
+      "vendor": "Cradlepoint",
+      "model": "Router",
+      "kind": "preset",
+      "ip": "192.168.0.1",
+      "prefix": 24,
+      "sha256": "22f72ee91ba5e9f79d9eda7b1676818fd669a1349782a28f832e9f0d57538520",
+      "title": "Cradlepoint Router"
+    },
+    {
+      "id": "d-link-dgs-dxs-managed-switch",
+      "vendor": "D-Link",
+      "model": "DGS/DXS managed switch",
+      "kind": "preset",
+      "ip": "10.90.90.90",
+      "prefix": 8,
+      "note": "admin / blank",
+      "url": "http://10.90.90.90",
+      "sha256": "a8e7793e0c74b2b2479c0484d323c302e5e0d8f8ad98c1ad1bad8471a6ee858b",
+      "title": "D-Link DGS/DXS managed switch"
+    },
+    {
+      "id": "d-link-router",
+      "vendor": "D-Link",
+      "model": "Router",
+      "kind": "preset",
+      "ip": "192.168.0.1",
+      "prefix": 24,
+      "sha256": "d0b9d4d3ce1cd53bb203edcd318ab3df3570ea266a7440392739a9148d9f6b0c",
+      "title": "D-Link Router"
+    },
+    {
+      "id": "docsis-cable-modem-status-page",
+      "vendor": "DOCSIS",
+      "model": "Cable modem status page",
+      "kind": "preset",
+      "ip": "192.168.100.1",
+      "prefix": 24,
+      "url": "http://192.168.100.1",
+      "sha256": "b996045d1845cab7fed38b259dcf428d9e1a4d0d2b17e894aa9cdd24dded2a36",
+      "title": "DOCSIS Cable modem status page"
+    },
+    {
+      "id": "dahua-ip-camera---nvr",
+      "vendor": "Dahua",
+      "model": "IP camera / NVR",
+      "kind": "preset",
+      "ip": "192.168.1.108",
+      "prefix": 24,
+      "sha256": "dbd1bdb3fed2fbc7b090a46d5599702d916a4524c620ec3688f639f90b995fef",
+      "title": "Dahua IP camera / NVR"
+    },
+    {
+      "id": "dell-idrac-(default-static)",
+      "vendor": "Dell",
+      "model": "iDRAC (default static)",
+      "kind": "preset",
+      "ip": "192.168.0.120",
+      "prefix": 24,
+      "note": "root / calvin (or label)",
+      "url": "https://192.168.0.120",
+      "sha256": "156c32118b1b01a878333eafd51e2eede2586b8d52c4d0855688c459fe9e18bc",
+      "title": "Dell iDRAC (default static)"
+    },
+    {
+      "id": "draytek-vigor",
+      "vendor": "DrayTek",
+      "model": "Vigor",
+      "kind": "preset",
+      "ip": "192.168.1.1",
+      "prefix": 24,
+      "note": "admin / admin",
+      "sha256": "807a8804ef83f7e886f09e21fda081befea68d0b04904ae792edd95732df4f0c",
+      "title": "DrayTek Vigor"
+    },
+    {
+      "id": "edimax-router---ap",
+      "vendor": "Edimax",
+      "model": "Router / AP",
+      "kind": "preset",
+      "ip": "192.168.2.1",
+      "prefix": 24,
+      "sha256": "0f83341e554b0384461906ee5e1636b134a8a57a07277618630729212eb7413a",
+      "title": "Edimax Router / AP"
+    },
+    {
+      "id": "fortinet-fortigate-(port1---internal)",
+      "vendor": "Fortinet",
+      "model": "FortiGate (port1 / internal)",
+      "kind": "preset",
+      "ip": "192.168.1.99",
+      "prefix": 24,
+      "note": "admin / blank",
+      "url": "https://192.168.1.99",
+      "sha256": "f296973f5dd7148fc692b8f99dba662aede7c25e93c631ada27a2f5884fddf18",
+      "title": "Fortinet FortiGate (port1 / internal)"
+    },
+    {
+      "id": "fortinet-fortiswitch",
+      "vendor": "Fortinet",
+      "model": "FortiSwitch",
+      "kind": "preset",
+      "ip": "192.168.1.99",
+      "prefix": 24,
+      "sha256": "d4ba1a11be17f0ecc091b8e3f1d5be4a33c71917892396f20a4e6b20f892a0e2",
+      "title": "Fortinet FortiSwitch"
+    },
+    {
+      "id": "gl.inet-travel-router",
+      "vendor": "GL.iNet",
+      "model": "Travel router",
+      "kind": "preset",
+      "ip": "192.168.8.1",
+      "prefix": 24,
+      "sha256": "7306db46ae907ce63647817f0ab676f650b78c21f9848b2c3365f93216a4d134",
+      "title": "GL.iNet Travel router"
+    },
+    {
+      "id": "hpe---aruba-officeconnect-1820-1920s---instant-on-1930",
+      "vendor": "HPE / Aruba",
+      "model": "OfficeConnect 1820/1920S / Instant On 1930",
+      "kind": "preset",
+      "ip": "192.168.1.1",
+      "prefix": 24,
+      "note": "Fallback when no DHCP; admin / blank",
+      "sha256": "7531d5d883077281d30200d25ffe29b1fb4c5cca6827f393ff09a4ae67d48282",
+      "title": "HPE / Aruba OfficeConnect 1820/1920S / Instant On 1930"
+    },
+    {
+      "id": "hikvision-ip-camera---nvr",
+      "vendor": "Hikvision",
+      "model": "IP camera / NVR",
+      "kind": "preset",
+      "ip": "192.168.1.64",
+      "prefix": 24,
+      "note": "Activate via SADP first",
+      "sha256": "36a0c8c9b54a42d1f46ad9d600d2c114efdd625b58be6c12771f502c8c7fa853",
+      "title": "Hikvision IP camera / NVR"
+    },
+    {
+      "id": "juniper-srx-branch-(ge-0-0-1\u002B)",
+      "vendor": "Juniper",
+      "model": "SRX branch (ge-0/0/1\u002B)",
+      "kind": "preset",
+      "ip": "192.168.1.1",
+      "prefix": 24,
+      "url": "https://192.168.1.1",
+      "sha256": "bf6ae499d83bdf44731b2e3fd31474b158b4cebdda6c5ccd9006c8f54945dfcb",
+      "title": "Juniper SRX branch (ge-0/0/1\u002B)"
+    },
+    {
+      "id": "lancom-router-(unconfigured)",
+      "vendor": "LANCOM",
+      "model": "Router (unconfigured)",
+      "kind": "preset",
+      "ip": "172.23.56.254",
+      "prefix": 24,
+      "note": "Address the device assumes without DHCP; verify per model",
+      "sha256": "84143f6a145a3fcb64c9b39f3fc145a21a3457156538781199c1c8c23fbe8f5c",
+      "title": "LANCOM Router (unconfigured)"
+    },
+    {
+      "id": "linksys-router",
+      "vendor": "Linksys",
+      "model": "Router",
+      "kind": "preset",
+      "ip": "192.168.1.1",
+      "prefix": 24,
+      "sha256": "67bd0dd96cd14f495fda7dbef265925ed522602564f4bee71d220ee656f6095d",
+      "title": "Linksys Router"
+    },
+    {
+      "id": "mikrotik-routeros-(any)",
+      "vendor": "MikroTik",
+      "model": "RouterOS (any)",
+      "kind": "preset",
+      "ip": "192.168.88.1",
+      "prefix": 24,
+      "note": "admin / blank (newer: password on label)",
+      "url": "http://192.168.88.1",
+      "sha256": "6bb6ebfe368f2c3b91f3f293830ca313f761c031cfd956aa0f452fb0146dbb10",
+      "title": "MikroTik RouterOS (any)"
+    },
+    {
+      "id": "moxa-eds-industrial-switch",
+      "vendor": "Moxa",
+      "model": "EDS industrial switch",
+      "kind": "preset",
+      "ip": "192.168.127.253",
+      "prefix": 24,
+      "note": "admin / moxa",
+      "sha256": "ed2bf6397ea3e99a6498c629d0d9e2f11b88f44bc94001f5fab18d5cd0441ffb",
+      "title": "Moxa EDS industrial switch"
+    },
+    {
+      "id": "netgate---pfsense-pfsense-(lan)",
+      "vendor": "Netgate / pfSense",
+      "model": "pfSense (LAN)",
+      "kind": "preset",
+      "ip": "192.168.1.1",
+      "prefix": 24,
+      "note": "admin / pfsense",
+      "url": "https://192.168.1.1",
+      "sha256": "038c65cfee101704aa8d9aae164e1ffd346cac91045384a7eb305a5d3d41dc65",
+      "title": "Netgate / pfSense pfSense (LAN)"
+    },
+    {
+      "id": "netgear-router---orbi",
+      "vendor": "Netgear",
+      "model": "Router / Orbi",
+      "kind": "preset",
+      "ip": "192.168.1.1",
+      "prefix": 24,
+      "url": "http://192.168.1.1",
+      "sha256": "a1b6b5a2479ece10c06553d839b9d98debeb8fca43609349abfcbdc49c6c98ed",
+      "title": "Netgear Router / Orbi"
+    },
+    {
+      "id": "netgear-smart-managed-switch-(gs3xx-gs7xx)",
+      "vendor": "Netgear",
+      "model": "Smart managed switch (GS3xx/GS7xx)",
+      "kind": "preset",
+      "ip": "192.168.0.239",
+      "prefix": 24,
+      "note": "Fallback when no DHCP; password on label",
+      "url": "http://192.168.0.239",
+      "sha256": "2e5d575e7f4284cd48241d3e7c36a49397a9f8c189105db9df3ae0b2b8de9348",
+      "title": "Netgear Smart managed switch (GS3xx/GS7xx)"
+    },
+    {
+      "id": "opnsense-opnsense-(lan)",
+      "vendor": "OPNsense",
+      "model": "OPNsense (LAN)",
+      "kind": "preset",
+      "ip": "192.168.1.1",
+      "prefix": 24,
+      "note": "root / opnsense",
+      "url": "https://192.168.1.1",
+      "sha256": "b8097a1988fafb451ecaa4475af84bf2bd9d5d546a5992feb4719c7494b1ae19",
+      "title": "OPNsense OPNsense (LAN)"
+    },
+    {
+      "id": "openwrt-openwrt-(lan)",
+      "vendor": "OpenWrt",
+      "model": "OpenWrt (LAN)",
+      "kind": "preset",
+      "ip": "192.168.1.1",
+      "prefix": 24,
+      "url": "http://192.168.1.1",
+      "sha256": "94636f4ca1d33c0a948f3e7cc77ca426d49896cb6696935c9642e00db2f52cae",
+      "title": "OpenWrt OpenWrt (LAN)"
+    },
+    {
+      "id": "planet-managed-switch",
+      "vendor": "PLANET",
+      "model": "Managed switch",
+      "kind": "preset",
+      "ip": "192.168.0.100",
+      "prefix": 24,
+      "note": "admin / admin",
+      "sha256": "ca4112cbd336ba040128742da859a0e97bdf056467f2657bb681b6c7e699e6bd",
+      "title": "PLANET Managed switch"
+    },
+    {
+      "id": "palo-alto-pa-firewall-(mgt)",
+      "vendor": "Palo Alto",
+      "model": "PA firewall (MGT)",
+      "kind": "preset",
+      "ip": "192.168.1.1",
+      "prefix": 24,
+      "note": "admin / admin",
+      "url": "https://192.168.1.1",
+      "sha256": "397d9ddf9a0196799cbae53432a12c215b3ec2f077322ce33e68bea41fdc4d08",
+      "title": "Palo Alto PA firewall (MGT)"
+    },
+    {
+      "id": "peplink-balance---max",
+      "vendor": "Peplink",
+      "model": "Balance / MAX",
+      "kind": "preset",
+      "ip": "192.168.50.1",
+      "prefix": 24,
+      "note": "admin / admin",
+      "sha256": "e25f915df9e1c3ed922e3a963ab3010f24572b64019eac85eb75e124b45f8c0b",
+      "title": "Peplink Balance / MAX"
+    },
+    {
+      "id": "qnap-nas-(no-dhcp-fallback)",
+      "vendor": "QNAP",
+      "model": "NAS (no DHCP fallback)",
+      "kind": "preset",
+      "ip": "169.254.100.100",
+      "prefix": 16,
+      "sha256": "adbaf07ee74b99d3d4fe5af2277ae92359a2867e29fc6a060854466a2f85cb10",
+      "title": "QNAP NAS (no DHCP fallback)"
+    },
+    {
+      "id": "shelly-device-in-ap-mode",
+      "vendor": "Shelly",
+      "model": "Device in AP mode",
+      "kind": "preset",
+      "ip": "192.168.33.1",
+      "prefix": 24,
+      "sha256": "623f61bcfa29c481bbd2b27b58a9651014db4b8b39d228626bf606a7c72a1c49",
+      "title": "Shelly Device in AP mode"
+    },
+    {
+      "id": "sonicwall-tz---nsa-(x0)",
+      "vendor": "SonicWall",
+      "model": "TZ / NSa (X0)",
+      "kind": "preset",
+      "ip": "192.168.168.168",
+      "prefix": 24,
+      "url": "https://192.168.168.168",
+      "sha256": "15f0df0d1089707e4000e63ed787f64536cd051192a6346e22f7d6ae9860a9cb",
+      "title": "SonicWall TZ / NSa (X0)"
+    },
+    {
+      "id": "sophos-xg---xgs-firewall",
+      "vendor": "Sophos",
+      "model": "XG / XGS Firewall",
+      "kind": "preset",
+      "ip": "172.16.16.16",
+      "prefix": 24,
+      "note": "admin / admin on port 1",
+      "url": "https://172.16.16.16:4444",
+      "sha256": "c696a8cf5e7af2438b24610cc89ad149977cdeb702738c6f8543872cc4d8df55",
+      "title": "Sophos XG / XGS Firewall"
+    },
+    {
+      "id": "starlink-dish-(status)",
+      "vendor": "Starlink",
+      "model": "Dish (status)",
+      "kind": "preset",
+      "ip": "192.168.100.1",
+      "prefix": 24,
+      "url": "http://192.168.100.1",
+      "sha256": "e01209b8b93dd5062b2e65f9ac2443df22846ea272573d583eab345d57079dbd",
+      "title": "Starlink Dish (status)"
+    },
+    {
+      "id": "tp-link-omada-eap-(standalone)",
+      "vendor": "TP-Link",
+      "model": "Omada EAP (standalone)",
+      "kind": "preset",
+      "ip": "192.168.0.254",
+      "prefix": 24,
+      "note": "Fallback when no DHCP",
+      "sha256": "4bdcb75240d52b55431e85e5e0d50d9ff57e86bfda0e14ee3ebd3f4e2a69fa74",
+      "title": "TP-Link Omada EAP (standalone)"
+    },
+    {
+      "id": "tp-link-omada-controller-oc200-oc300",
+      "vendor": "TP-Link",
+      "model": "Omada controller OC200/OC300",
+      "kind": "preset",
+      "ip": "192.168.0.253",
+      "prefix": 24,
+      "note": "Fallback when no DHCP",
+      "sha256": "53f7c114a5a1c56780e0d5a6a208be18c1bcd885c401dcdf5d496de09fe64ef2",
+      "title": "TP-Link Omada controller OC200/OC300"
+    },
+    {
+      "id": "tp-link-omada-switch---router",
+      "vendor": "TP-Link",
+      "model": "Omada switch / router",
+      "kind": "preset",
+      "ip": "192.168.0.1",
+      "prefix": 24,
+      "note": "admin / admin",
+      "url": "http://192.168.0.1",
+      "sha256": "b650c8e71a354948502b299756284437ce7f276c5cf6ec675bc70006d7186620",
+      "title": "TP-Link Omada switch / router"
+    },
+    {
+      "id": "tasmota---esp-device-in-ap-mode",
+      "vendor": "Tasmota / ESP",
+      "model": "Device in AP mode",
+      "kind": "preset",
+      "ip": "192.168.4.1",
+      "prefix": 24,
+      "sha256": "aab2cddfc4d07f9688c6f0fbac51b0018b8328689489bfe7cde9f6fccad47c86",
+      "title": "Tasmota / ESP Device in AP mode"
+    },
+    {
+      "id": "telekom-speedport",
+      "vendor": "Telekom",
+      "model": "Speedport",
+      "kind": "preset",
+      "ip": "192.168.2.1",
+      "prefix": 24,
+      "url": "http://192.168.2.1",
+      "sha256": "75c6232bf0d4c1e0237f652049b51cadd26a21c55e97a2fab82463f93a360996",
+      "title": "Telekom Speedport"
+    },
+    {
+      "id": "teltonika-rut---rutx",
+      "vendor": "Teltonika",
+      "model": "RUT / RUTX",
+      "kind": "preset",
+      "ip": "192.168.1.1",
+      "prefix": 24,
+      "sha256": "4af25c731a003087008c5ee107ff02b72508973e3f032ab30bbbd7146d842c4d",
+      "title": "Teltonika RUT / RUTX"
+    },
+    {
+      "id": "ubiquiti-edgerouter",
+      "vendor": "Ubiquiti",
+      "model": "EdgeRouter",
+      "kind": "preset",
+      "ip": "192.168.1.1",
+      "prefix": 24,
+      "note": "ubnt / ubnt on eth0",
+      "url": "https://192.168.1.1",
+      "sha256": "68e885b8ffc7ab5ef0f2c3854fab8c354935724360eb8b070fe897956292e8cd",
+      "title": "Ubiquiti EdgeRouter"
+    },
+    {
+      "id": "ubiquiti-edgeswitch",
+      "vendor": "Ubiquiti",
+      "model": "EdgeSwitch",
+      "kind": "preset",
+      "ip": "192.168.1.2",
+      "prefix": 24,
+      "note": "Fallback when no DHCP lease; ubnt / ubnt",
+      "sha256": "2285f04e391a0f6e6af185ffbf888b71fcf74b0beed0bb6e0bcd2a0a5c608ada",
+      "title": "Ubiquiti EdgeSwitch"
+    },
+    {
+      "id": "ubiquiti-unifi-ap---switch-(unadopted)",
+      "vendor": "Ubiquiti",
+      "model": "UniFi AP / Switch (unadopted)",
+      "kind": "preset",
+      "ip": "192.168.1.20",
+      "prefix": 24,
+      "note": "Fallback when no DHCP; ssh ubnt / ubnt",
+      "sha256": "b0a3d21463984f637b0ed5a5e8fca545a26ca45de93b7027b17aeb15ca11d6bc",
+      "title": "Ubiquiti UniFi AP / Switch (unadopted)"
+    },
+    {
+      "id": "ubiquiti-unifi-gateway---udm---usg",
+      "vendor": "Ubiquiti",
+      "model": "UniFi Gateway / UDM / USG",
+      "kind": "preset",
+      "ip": "192.168.1.1",
+      "prefix": 24,
+      "url": "https://192.168.1.1",
+      "sha256": "1c7316011a40acd83e6772e47b8504c764d972fa5bccc561bb3856058eea4be6",
+      "title": "Ubiquiti UniFi Gateway / UDM / USG"
+    },
+    {
+      "id": "ubiquiti-airmax---airfiber",
+      "vendor": "Ubiquiti",
+      "model": "airMAX / airFiber",
+      "kind": "preset",
+      "ip": "192.168.1.20",
+      "prefix": 24,
+      "note": "ubnt / ubnt",
+      "sha256": "084ca796c975217c3a23628e8a1814afff35c611dbbcb8617a33db0f5fe299a2",
+      "title": "Ubiquiti airMAX / airFiber"
+    },
+    {
+      "id": "vodafone-vodafone-station",
+      "vendor": "Vodafone",
+      "model": "Vodafone Station",
+      "kind": "preset",
+      "ip": "192.168.0.1",
+      "prefix": 24,
+      "sha256": "507df131af6da27ff3273bf0fa3f271d5e1ffed20d4587ef6dc916d696a73836",
+      "title": "Vodafone Vodafone Station"
+    },
+    {
+      "id": "watchguard-firebox-(eth1)",
+      "vendor": "WatchGuard",
+      "model": "Firebox (eth1)",
+      "kind": "preset",
+      "ip": "10.0.1.1",
+      "prefix": 24,
+      "url": "https://10.0.1.1:8080",
+      "sha256": "03e77cabaa5c456578e63586084330b979896db174d804a279f092db40670e84",
+      "title": "WatchGuard Firebox (eth1)"
+    },
+    {
+      "id": "xiaomi-mi-router",
+      "vendor": "Xiaomi",
+      "model": "Mi Router",
+      "kind": "preset",
+      "ip": "192.168.31.1",
+      "prefix": 24,
+      "sha256": "b31b7aa4bc0e79848187bc2e58b36c6725fa29f2a28ab34d3ae11241eada54e9",
+      "title": "Xiaomi Mi Router"
+    },
+    {
+      "id": "zyxel-switch---usg---router",
+      "vendor": "Zyxel",
+      "model": "Switch / USG / router",
+      "kind": "preset",
+      "ip": "192.168.1.1",
+      "prefix": 24,
+      "note": "admin / 1234",
+      "url": "https://192.168.1.1",
+      "sha256": "539cc3c46532811a4c996a30bf86c3718dd5d2e9791ca61de8d4481061e43e70",
+      "title": "Zyxel Switch / USG / router"
+    },
+    {
+      "id": "bintec-elmeg-be.ip---rs-series",
+      "vendor": "bintec elmeg",
+      "model": "be.IP / RS series",
+      "kind": "preset",
+      "ip": "192.168.0.254",
+      "prefix": 24,
+      "sha256": "37aef604c807bd5571ba3a7331590158958dc8ed54e6048a07dd9b5f03fd4308",
+      "title": "bintec elmeg be.IP / RS series"
+    },
+    {
+      "id": "mikrotik-first-boot",
+      "vendor": "MikroTik",
+      "model": "First boot (192.168.88.0/24)",
+      "kind": "profile",
+      "profile": {
+        "id": "6046eaf920dd4684a7538e473d8bf45a",
+        "name": "MikroTik first boot",
+        "dhcp": false,
+        "addresses": [
+          {
+            "address": "192.168.88.250",
+            "prefixLength": 24,
+            "mask": "255.255.255.0",
+            "network": "192.168.88.0"
+          }
+        ],
+        "gateway": "192.168.88.1",
+        "dns": [],
+        "routes": [],
+        "temporary": false,
+        "primary": {
+          "address": "192.168.88.250",
+          "prefixLength": 24,
+          "mask": "255.255.255.0",
+          "network": "192.168.88.0"
+        },
+        "secondaries": []
+      },
+      "note": "Talk to a factory-fresh RouterOS box on ether2\u002B; WinBox also finds it by MAC.",
+      "url": "https://help.mikrotik.com/docs/display/ROS/First\u002BTime\u002BConfiguration",
+      "sha256": "39ce07dac6b7695d6e78a7ee628bd3bdd9800a4b43faa3696c4ce8a00f3f2a83",
+      "title": "MikroTik First boot (192.168.88.0/24)"
+    },
+    {
+      "id": "unifi-adoption",
+      "vendor": "Ubiquiti",
+      "model": "UniFi adoption (192.168.1.0/24)",
+      "kind": "profile",
+      "profile": {
+        "id": "b17ab50daba64854ad34817215117313",
+        "name": "UniFi adoption",
+        "dhcp": false,
+        "addresses": [
+          {
+            "address": "192.168.1.250",
+            "prefixLength": 24,
+            "mask": "255.255.255.0",
+            "network": "192.168.1.0"
+          }
+        ],
+        "dns": [],
+        "routes": [],
+        "temporary": false,
+        "primary": {
+          "address": "192.168.1.250",
+          "prefixLength": 24,
+          "mask": "255.255.255.0",
+          "network": "192.168.1.0"
+        },
+        "secondaries": []
+      },
+      "note": "Unadopted APs/switches fall back to 192.168.1.20; the controller must be reachable from the same L2.",
+      "sha256": "7bbf4439e9bb0203ad42e5951e67b51ad4478fd0512614d67820cf3ef1791107",
+      "title": "Ubiquiti UniFi adoption (192.168.1.0/24)"
+    },
+    {
+      "id": "fortigate-port1",
+      "vendor": "Fortinet",
+      "model": "FortiGate port1 setup",
+      "kind": "profile",
+      "profile": {
+        "id": "d9d808f143994552b9f0f20f09de4ddd",
+        "name": "FortiGate setup",
+        "dhcp": false,
+        "addresses": [
+          {
+            "address": "192.168.1.250",
+            "prefixLength": 24,
+            "mask": "255.255.255.0",
+            "network": "192.168.1.0"
+          }
+        ],
+        "gateway": "192.168.1.99",
+        "dns": [],
+        "routes": [],
+        "temporary": false,
+        "primary": {
+          "address": "192.168.1.250",
+          "prefixLength": 24,
+          "mask": "255.255.255.0",
+          "network": "192.168.1.0"
+        },
+        "secondaries": []
+      },
+      "note": "Factory FortiGate serves DHCP on port1 too; static avoids the lease lag.",
+      "sha256": "011443c64e920f22565eabb956494522051eb5072d525ec1b541010eefdf741a",
+      "title": "Fortinet FortiGate port1 setup"
+    },
+    {
+      "id": "fritzbox-rescue",
+      "vendor": "AVM",
+      "model": "FRITZ!Box rescue (169.254.1.1)",
+      "kind": "profile",
+      "profile": {
+        "id": "36cbf1fce40a425083c5751e71bbc248",
+        "name": "FRITZ!Box rescue",
+        "dhcp": false,
+        "addresses": [
+          {
+            "address": "169.254.1.2",
+            "prefixLength": 16,
+            "mask": "255.255.0.0",
+            "network": "169.254.0.0"
+          }
+        ],
+        "dns": [],
+        "routes": [],
+        "temporary": false,
+        "primary": {
+          "address": "169.254.1.2",
+          "prefixLength": 16,
+          "mask": "255.255.0.0",
+          "network": "169.254.0.0"
+        },
+        "secondaries": []
+      },
+      "note": "Reaches any FRITZ!Box regardless of its LAN config; needed for recovery images.",
+      "sha256": "74b844230e258e1292215c7b2ba0dad988900853be4937d18b7361584c27d21f",
+      "title": "AVM FRITZ!Box rescue (169.254.1.1)"
+    },
+    {
+      "id": "dlink-dgs-setup",
+      "vendor": "D-Link",
+      "model": "DGS switch setup (10.0.0.0/8)",
+      "kind": "profile",
+      "profile": {
+        "id": "23a1c544de6a49c088f8a728dea50151",
+        "name": "D-Link DGS setup",
+        "dhcp": false,
+        "addresses": [
+          {
+            "address": "10.90.90.91",
+            "prefixLength": 8,
+            "mask": "255.0.0.0",
+            "network": "10.0.0.0"
+          }
+        ],
+        "dns": [],
+        "routes": [],
+        "temporary": false,
+        "primary": {
+          "address": "10.90.90.91",
+          "prefixLength": 8,
+          "mask": "255.0.0.0",
+          "network": "10.0.0.0"
+        },
+        "secondaries": []
+      },
+      "note": "D-Link managed switches ship on 10.90.90.90/8.",
+      "sha256": "09ed2c6f58190eadeb8b44f86a0649c2952df881c03a77bc90248d9cd9d3b30b",
+      "title": "D-Link DGS switch setup (10.0.0.0/8)"
+    },
+    {
+      "id": "cisco-sb-setup",
+      "vendor": "Cisco",
+      "model": "Small Business switch setup",
+      "kind": "profile",
+      "profile": {
+        "id": "967a1977b7444e4ea31df9304a27186e",
+        "name": "Cisco SB setup",
+        "dhcp": false,
+        "addresses": [
+          {
+            "address": "192.168.1.250",
+            "prefixLength": 24,
+            "mask": "255.255.255.0",
+            "network": "192.168.1.0"
+          }
+        ],
+        "gateway": "192.168.1.254",
+        "dns": [],
+        "routes": [],
+        "temporary": false,
+        "primary": {
+          "address": "192.168.1.250",
+          "prefixLength": 24,
+          "mask": "255.255.255.0",
+          "network": "192.168.1.0"
+        },
+        "secondaries": []
+      },
+      "note": "SG/CBS fall back to 192.168.1.254 without DHCP.",
+      "sha256": "dd636a2d859548202db9c5ee52cda724768391f62ec81e15a5b8575b60cb2159",
+      "title": "Cisco Small Business switch setup"
+    },
+    {
+      "id": "multi-setup-bench",
+      "vendor": "Generic",
+      "model": "Setup bench (5 vendor subnets at once)",
+      "kind": "profile",
+      "profile": {
+        "id": "8833c24ca8b64f97aa2fde66cfea3b86",
+        "name": "Setup bench",
+        "dhcp": false,
+        "addresses": [
+          {
+            "address": "192.168.88.250",
+            "prefixLength": 24,
+            "mask": "255.255.255.0",
+            "network": "192.168.88.0"
+          },
+          {
+            "address": "192.168.1.250",
+            "prefixLength": 24,
+            "mask": "255.255.255.0",
+            "network": "192.168.1.0"
+          },
+          {
+            "address": "192.168.0.250",
+            "prefixLength": 24,
+            "mask": "255.255.255.0",
+            "network": "192.168.0.0"
+          },
+          {
+            "address": "192.168.178.250",
+            "prefixLength": 24,
+            "mask": "255.255.255.0",
+            "network": "192.168.178.0"
+          },
+          {
+            "address": "172.16.16.250",
+            "prefixLength": 24,
+            "mask": "255.255.255.0",
+            "network": "172.16.16.0"
+          }
+        ],
+        "dns": [],
+        "routes": [],
+        "temporary": false,
+        "primary": {
+          "address": "192.168.88.250",
+          "prefixLength": 24,
+          "mask": "255.255.255.0",
+          "network": "192.168.88.0"
+        },
+        "secondaries": [
+          {
+            "address": "192.168.1.250",
+            "prefixLength": 24,
+            "mask": "255.255.255.0",
+            "network": "192.168.1.0"
+          },
+          {
+            "address": "192.168.0.250",
+            "prefixLength": 24,
+            "mask": "255.255.255.0",
+            "network": "192.168.0.0"
+          },
+          {
+            "address": "192.168.178.250",
+            "prefixLength": 24,
+            "mask": "255.255.255.0",
+            "network": "192.168.178.0"
+          },
+          {
+            "address": "172.16.16.250",
+            "prefixLength": 24,
+            "mask": "255.255.255.0",
+            "network": "172.16.16.0"
+          }
+        ]
+      },
+      "note": "One profile that sits in the default subnets of MikroTik, Ubiquiti/Cisco, TP-Link/Netgear, FRITZ!Box and Sophos simultaneously.",
+      "sha256": "6035534c1fdc7556f4d7b8d7cb9a1d776f9edb0675e9af427044de5fbb3ca847",
+      "title": "Generic Setup bench (5 vendor subnets at once)"
+    }
+  ],
+  "signature": {
+    "alg": "ecdsa-p256-sha256",
+    "keyId": "ec6ef08c",
+    "value": "MEUCIERi35cfAbpd52M\u002BBTZSgDkPHNM\u002BZqxIV1p5s5YUyeReAiEA15Swyr0QCvlKXrIwoyDvivhS6K0c/uiVsYESNF4bCg4="
+  }
+}

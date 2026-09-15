@@ -137,9 +137,12 @@ sealed class QuickPanel : Form
             }
             if ((q.Length == 0 || Fuzzy("dhcp", q)) && svc.Allowed(Capability.Dhcp))
                 _items.Add(new Item("DHCP now", $"Let {w?.Name ?? "the adapter"} take a lease", Theme.Dhcp, _app.ApplyDhcp, Badge: w?.Dhcp == true ? "current" : null, BadgeColor: Theme.Static));
+            if (q.Length > 0)
+                foreach (var rp in svc.RepoProfiles.Where(p => Fuzzy(p.Name, q) || p.Summary().Contains(q, StringComparison.OrdinalIgnoreCase)).Take(6))
+                    _items.Add(new Item(rp.Name, rp.Summary() + (rp.Note is null ? "" : "   " + rp.Note), rp.Dhcp ? Theme.Dhcp : Theme.Static, () => _app.ApplyProfile(rp), null, rp, Badge: rp.Source, BadgeColor: Theme.Accent));
             if (q.Length > 0 && svc.Allowed(Capability.Reach) && svc.Allowed(Capability.TempAddresses))
                 foreach (var pr in PresetLibrary.Search(svc.Presets, q).Take(8))
-                    _items.Add(new Item($"{pr.Vendor} {pr.Model}", $"{pr.Ip}/{pr.Prefix}{(pr.Note is null ? "" : "   " + pr.Note)}", Theme.Temp, () => _app.ApplyPreset(pr)));
+                    _items.Add(new Item($"{pr.Vendor} {pr.Model}", $"{pr.Ip}/{pr.Prefix}{(pr.Note is null ? "" : "   " + pr.Note)}", Theme.Temp, () => _app.ApplyPreset(pr), Badge: pr.Source, BadgeColor: Theme.Accent));
             var temps = svc.TempAddresses;
             if (temps.Count > 0 && (q.Length == 0 || Fuzzy("temporary", q) || Fuzzy("clear", q)))
                 _items.Add(new Item($"Remove {temps.Count} temporary address{(temps.Count == 1 ? "" : "es")}", string.Join(", ", temps.Select(t => t.Address.ToString())), Theme.Temp, _app.ClearTemp));
