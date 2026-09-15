@@ -19,6 +19,7 @@ public sealed class JsonStore
     public string StateFile => Path.Combine(Directory, "state.json");
     public string PresetsFile => Path.Combine(Directory, "presets.json");
     public string LogFile => Path.Combine(Directory, "netpaw.log");
+    public string IncidentsFile => Path.Combine(Directory, "incidents.jsonl");
 
     public JsonStore(string directory)
     {

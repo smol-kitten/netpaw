@@ -26,6 +26,9 @@ sealed class TrayApp : ApplicationContext
     Snapshot? _snapshot, _previous, _announced;
     readonly RenewScheduler _renew = new();
     IReadOnlyList<Advisory> _advisories = [];
+    IReadOnlyList<string> _loggedAdvisories = [];
+    DateTime? _advisoriesSince;
+    IncidentLog? _incidents;
     NetState? _pendingState; DateTime _pendingSince;
     readonly System.Windows.Forms.Timer _confirm = new() { Interval = 3000 };
     bool _checking;
@@ -100,6 +103,23 @@ sealed class TrayApp : ApplicationContext
             _previous = _snapshot; _snapshot = snap;
             _advisories = _svc.Settings.Repair.DhcpAdvisory ? Advisor.Analyze(snap) : [];
             RefreshState();
+            if (_svc.Settings.Repair.IncidentLog)
+            {
+                // Findings are logged once they held for 10 s (DHCP negotiation is not an "invalid config"); clearing is logged at once.
+                var titles = _advisories.Select(a => a.Title).ToList();
+                if (titles.SequenceEqual(_loggedAdvisories)) _advisoriesSince = null;
+                else
+                {
+                    _advisoriesSince ??= DateTime.UtcNow;
+                    if (titles.Count == 0 || DateTime.UtcNow - _advisoriesSince >= TimeSpan.FromSeconds(10))
+                    {
+                        _incidents ??= new IncidentLog(_svc.Store.IncidentsFile);
+                        if (IncidentLog.FromChange(snap, null, _advisories, _loggedAdvisories) is { } cfg) _incidents.Append(cfg);
+                        _loggedAdvisories = titles; _advisoriesSince = null;
+                    }
+                    else { _confirm.Stop(); _confirm.Interval = 10_100; _confirm.Start(); }
+                }
+            }
             _toast?.Render(snap);
             // Optional self-repair: a bounded ipconfig /renew when an advisory says a fresh lease could help.
             if (!_busy && _renew.ShouldRenew(_svc.Settings.Repair, _advisories, DateTimeOffset.Now) && work is { Dhcp: true })
@@ -117,6 +137,7 @@ sealed class TrayApp : ApplicationContext
                 else
                 {
                     _announced = snap; _pendingState = null;
+                    if (_svc.Settings.Repair.IncidentLog) (_incidents ??= new IncidentLog(_svc.Store.IncidentsFile)).Append(IncidentLog.FromChange(snap, change, _advisories, [])!);
                     // Link-down/up is always announced (it needs no probes); the finer states only in monitor mode.
                     var linkEvent = change.To == NetState.LinkDown || change.From == NetState.LinkDown;
                     if (_svc.Settings.Checks.MonitorMode || linkEvent)
@@ -146,6 +167,15 @@ sealed class TrayApp : ApplicationContext
         RunInBackground($"Renewing DHCP lease on {w.Name}", () => _svc.Apply(plan), $"Renewed lease on {w.Name}");
         // Re-probe once the lease had time to land.
         var later = new System.Windows.Forms.Timer { Interval = 8000 }; later.Tick += (_, _) => { later.Dispose(); _ = RunCheck(); }; later.Start();
+    }
+
+    public void ShowScan()
+    {
+        var w = Work; if (w is null) { Notify("No adapter", "Pick a work adapter first.", ToolTipIcon.Warning); return; }
+        if (_busy) { Notify("Busy", "Another change is still running.", ToolTipIcon.Warning); return; }
+        using var f = new ScanForm(this, w);
+        f.ShowDialog();
+        RefreshState(); _ = RunCheck();
     }
 
     public void ShowInfo()
@@ -260,6 +290,9 @@ sealed class TrayApp : ApplicationContext
         if (_svc.Allowed(Capability.UserProfiles))
             _menu.Items.Add(new ToolStripMenuItem("Capture current as profile…", null, (_, _) => CaptureCurrent()));
         _menu.Items.Add(new ToolStripMenuItem("Network info", null, (_, _) => ShowInfo()) { ShortcutKeyDisplayString = _svc.Settings.InfoHotkey });
+        _menu.Items.Add(new ToolStripMenuItem("Scan for a working profile…", null, (_, _) => ShowScan()));
+        if (_svc.Settings.Repair.IncidentLog)
+            _menu.Items.Add(new ToolStripMenuItem("Open incident log", null, (_, _) => { if (File.Exists(_svc.Store.IncidentsFile)) Process.Start(new ProcessStartInfo(_svc.Store.IncidentsFile) { UseShellExecute = true }); }));
         _menu.Items.Add(new ToolStripMenuItem("Manage profiles…", null, (_, _) => ShowEditor()));
         _menu.Items.Add(new ToolStripMenuItem("Settings…", null, (_, _) => ShowSettings()));
         _menu.Items.Add(new ToolStripMenuItem("Open log", null, (_, _) => OpenLog()));

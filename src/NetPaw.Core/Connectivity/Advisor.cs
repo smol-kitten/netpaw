@@ -70,6 +70,10 @@ public sealed class RepairSettings
     public int AutoRenewIntervalSeconds { get; set; } = 60;
     /// <summary>Attempts per incident; resets once the state is healthy again.</summary>
     public int AutoRenewMaxAttempts { get; set; } = 3;
+    /// <summary>Write state changes and configuration findings with timestamps to incidents.jsonl. Off by default.</summary>
+    public bool IncidentLog { get; set; }
+    /// <summary>Scan: include a DHCP candidate before the static profiles.</summary>
+    public bool ScanIncludeDhcp { get; set; } = true;
 }
 
 /// <summary>Decides when an automatic renew is due: bounded per incident, spaced by the interval, never while healthy.</summary>
