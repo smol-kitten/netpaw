@@ -17,6 +17,7 @@ sealed class ScanForm : Form
     readonly ListView _list = new() { Dock = DockStyle.Fill, View = View.Details, FullRowSelect = true, HeaderStyle = ColumnHeaderStyle.Nonclickable, BorderStyle = BorderStyle.None, MultiSelect = false };
     readonly RadioButton _first = new() { Text = "stop at the first fully working profile", AutoSize = true, Checked = true }, _all = new() { Text = "try all and rank by usability", AutoSize = true };
     readonly CheckBox _dhcp = new() { Text = "include DHCP as a candidate", AutoSize = true };
+    readonly CheckBox _repos = new() { Text = "also try community / repository profiles", AutoSize = true };
     readonly Button _start = new() { Text = "Start scan", Width = 120, Height = 30 }, _keep = new() { Text = "Keep selected", Width = 130, Height = 30, Enabled = false }, _close = new() { Text = "Restore && close", Width = 130, Height = 30 };
     readonly Label _status = new() { Dock = DockStyle.Bottom, Height = 24, Padding = new Padding(12, 4, 0, 0), ForeColor = Theme.Muted, Font = Theme.Small };
     readonly Dictionary<string, ListViewItem> _rows = [];
@@ -35,7 +36,12 @@ sealed class ScanForm : Form
         var top = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 62, Padding = new Padding(12, 8, 12, 0), FlowDirection = FlowDirection.TopDown, WrapContents = false };
         var modes = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = Padding.Empty }; modes.Controls.Add(_first); modes.Controls.Add(_all);
         _first.Margin = new Padding(0, 0, 16, 0);
-        top.Controls.Add(modes); top.Controls.Add(_dhcp);
+        var opts = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = Padding.Empty }; opts.Controls.Add(_dhcp); opts.Controls.Add(_repos);
+        _dhcp.Margin = new Padding(0, 0, 16, 0);
+        _repos.Enabled = app.Service.RepoProfiles.Count > 0; _repos.Text += app.Service.RepoProfiles.Count == 0 ? "  (none synced)" : $"  ({app.Service.RepoProfiles.Count})";
+        _repos.CheckedChanged += (_, _) => { if (_cts is null) Fill(); };
+        _dhcp.CheckedChanged += (_, _) => { if (_cts is null) Fill(); };
+        top.Controls.Add(modes); top.Controls.Add(opts);
         var bar = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 48, FlowDirection = FlowDirection.RightToLeft, Padding = new Padding(8) };
         bar.Controls.AddRange([_keep, _start, _close]);
         Controls.Add(_list); Controls.Add(_status); Controls.Add(bar); Controls.Add(top);
@@ -56,7 +62,7 @@ sealed class ScanForm : Form
     void Fill()
     {
         _list.Items.Clear(); _rows.Clear();
-        foreach (var c in NetworkScanner.Candidates(_app.Service.Profiles.Concat(_app.Service.RepoProfiles), _adapter, _dhcp.Checked))
+        foreach (var c in NetworkScanner.Candidates(_app.Service.Profiles, _adapter, _dhcp.Checked, _repos.Checked ? _app.Service.RepoProfiles : null))
         {
             var it = new ListViewItem([c.Name + (c.Managed ? "  (managed)" : c.Source is not null ? $"  ({c.Source})" : ""), "", "", "", "", ""]) { Tag = c, ForeColor = Theme.Muted };
             _list.Items.Add(it); _rows[c.Id] = it;
@@ -70,7 +76,7 @@ sealed class ScanForm : Form
         Fill();
         _original ??= _app.Service.Capture("scan-original", _adapter);
         _cts = new CancellationTokenSource();
-        _start.Text = "Cancel"; _first.Enabled = _all.Enabled = _dhcp.Enabled = false; _keep.Enabled = false;
+        _start.Text = "Cancel"; _first.Enabled = _all.Enabled = _dhcp.Enabled = _repos.Enabled = false; _keep.Enabled = false;
         var checks = new CheckSettings { Enabled = true, InternetTargets = _app.Service.Settings.Checks.InternetTargets, DnsCheckHost = _app.Service.Settings.Checks.DnsCheckHost, TimeoutMs = 1000 };
         var checker = new ConnectivityChecker(new NetworkProbe());
         var scanner = new NetworkScanner(async (p, ct) =>
@@ -110,7 +116,7 @@ sealed class ScanForm : Form
             TelemetryHost.Event("scan", _all.Checked ? "rank-all" : "first-working", best?.Verdict, results.Count);
         }
         catch (OperationCanceledException) { _status.Text = "Cancelled — restoring the previous configuration…"; await Restore(); _original = null; _status.Text = "Cancelled; previous configuration restored."; }
-        finally { _cts = null; _start.Text = "Start scan"; _first.Enabled = _all.Enabled = _dhcp.Enabled = true; }
+        finally { _cts = null; _start.Text = "Start scan"; _first.Enabled = _all.Enabled = _dhcp.Enabled = true; _repos.Enabled = _app.Service.RepoProfiles.Count > 0; }
     }
 
     void Keep()

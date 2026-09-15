@@ -24,12 +24,25 @@ public sealed record ScanProgress(int Index, int Total, Profile Candidate, ScanR
 /// </summary>
 public sealed class NetworkScanner(Func<Profile, CancellationToken, Task<Snapshot>> applyAndMeasure)
 {
-    /// <summary>DHCP first (least intrusive, most often right), then static profiles in list order.</summary>
-    public static List<Profile> Candidates(IEnumerable<Profile> profiles, AdapterInfo adapter, bool includeDhcp)
+    /// <summary>
+    /// DHCP first (least intrusive, most often right), then the user's/managed static profiles in list
+    /// order, then — when asked — repository (community) profiles, de-duplicated by primary address.
+    /// </summary>
+    public static List<Profile> Candidates(IEnumerable<Profile> profiles, AdapterInfo adapter, bool includeDhcp, IEnumerable<Profile>? repoProfiles = null)
     {
         var list = new List<Profile>();
         if (includeDhcp) list.Add(new Profile { Id = "scan-dhcp", Name = "DHCP", Dhcp = true, Adapter = adapter.Name, Temporary = true });
-        list.AddRange(profiles.Where(p => !p.Temporary && !p.Dhcp && (p.Adapter is null || string.Equals(p.Adapter, adapter.Name, StringComparison.OrdinalIgnoreCase))));
+        bool Fits(Profile p) => !p.Temporary && !p.Dhcp && (p.Adapter is null || string.Equals(p.Adapter, adapter.Name, StringComparison.OrdinalIgnoreCase));
+        list.AddRange(profiles.Where(Fits));
+        if (repoProfiles is not null)
+        {
+            var seen = list.Where(p => p.Primary is not null).Select(p => p.Primary!.Network + "/" + p.Primary.PrefixLength).ToHashSet();
+            foreach (var p in repoProfiles.Where(Fits))
+            {
+                var key = p.Primary is null ? p.Id : p.Primary.Network + "/" + p.Primary.PrefixLength;
+                if (seen.Add(key)) list.Add(p);
+            }
+        }
         return list;
     }
 
