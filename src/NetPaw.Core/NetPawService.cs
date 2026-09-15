@@ -17,6 +17,16 @@ public sealed class NetPawService
     readonly Func<Policy> _policyReader;
     public IAdapterProvider Adapters { get; }
     public IVlanProvider Vlan { get; }
+    readonly Dictionary<string, (VlanInfo Info, DateTime At)> _vlanCache = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>WMI takes ~1 s per adapter; the editor asks repeatedly, so answers are kept for 30 s.</summary>
+    public VlanInfo QueryVlan(string adapterName)
+    {
+        if (_vlanCache.TryGetValue(adapterName, out var c) && DateTime.UtcNow - c.At < TimeSpan.FromSeconds(30)) return c.Info;
+        var v = Vlan.Query(adapterName);
+        _vlanCache[adapterName] = (v, DateTime.UtcNow);
+        return v;
+    }
     public IStepRunner Runner { get; }
     public Settings Settings { get; private set; }
     public List<Profile> Profiles { get; private set; }
@@ -168,7 +178,7 @@ public sealed class NetPawService
     public ApplyPlan PlanProfile(Profile p, AdapterInfo? adapter = null)
     {
         adapter ??= ResolveAdapter(p.Adapter);
-        var vlan = p.VlanId is null ? null : Vlan.Query(adapter.Name);
+        var vlan = p.VlanId is null ? null : QueryVlan(adapter.Name);
         return ApplyPlanner.Plan(p, adapter, vlan);
     }
 
@@ -280,7 +290,7 @@ public sealed class NetPawService
             p.Gateway = adapter.Gateways.FirstOrDefault();
             p.Dns = [.. adapter.Dns];
         }
-        var v = Vlan.Query(adapter.Name);
+        var v = QueryVlan(adapter.Name);
         if (v.Capable && v.VlanId is > 0) p.VlanId = v.VlanId;
         return p;
     }

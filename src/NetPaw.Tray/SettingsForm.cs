@@ -10,7 +10,7 @@ sealed class SettingsForm : Form
     {
         var s = app.Service.Settings; var pol = app.Service.Policy;
         Text = "NetPaw — settings"; StartPosition = FormStartPosition.CenterScreen; FormBorderStyle = FormBorderStyle.FixedDialog;
-        MinimizeBox = false; MaximizeBox = false; ShowInTaskbar = false; ClientSize = new Size(600, 560);
+        MinimizeBox = false; MaximizeBox = false; ShowInTaskbar = false; ClientSize = new Size(700, 580);
 
         var grid = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, Padding = new Padding(14), AutoSize = true };
         grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 150)); grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
@@ -57,11 +57,11 @@ sealed class SettingsForm : Form
         void FillRepos() { repos.Items.Clear(); foreach (var st in app.Service.RepoStates) repos.Items.Add(st); }
         FillRepos();
         var canEdit = app.Service.Allowed(Capability.UserRepos);
-        var url = new TextBox { PlaceholderText = "https://…/index.json  or  url|keyId:publicKey", Width = 250, Enabled = canEdit };
+        var url = new TextBox { PlaceholderText = "https://…/index.json  or  url|keyId:publicKey", Width = 296, Enabled = canEdit };
         var add = new Button { Text = "Add", Width = 52, Height = 26, Enabled = canEdit };
         var remove = new Button { Text = "Remove", Width = 66, Height = 26, Enabled = canEdit };
         var sync = new Button { Text = "Sync now", Width = 78, Height = 26 };
-        var repoErr = new Label { AutoSize = true, ForeColor = Theme.Error, Font = Theme.Small, MaximumSize = new Size(380, 0) };
+        var repoErr = new Label { AutoSize = true, ForeColor = Theme.Error, Font = Theme.Small, MaximumSize = new Size(510, 0) };
         add.Click += (_, _) => { try { app.Service.AddRepo(url.Text); url.Text = ""; repoErr.Text = ""; FillRepos(); } catch (InvalidOperationException ex) { repoErr.Text = ex.Message; } };
         remove.Click += (_, _) => { if (repos.SelectedItem is NetPaw.Repos.RepoState st) try { app.Service.RemoveRepo(st.Repo.Url); repoErr.Text = ""; FillRepos(); } catch (InvalidOperationException ex) { repoErr.Text = ex.Message; } };
         sync.Click += async (_, _) =>
@@ -74,7 +74,7 @@ sealed class SettingsForm : Form
         var repoBar = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = Padding.Empty };
         foreach (var c in new Control[] { url, add, remove, sync }) { c.Margin = new Padding(0, 0, 4, 0); repoBar.Controls.Add(c); }
         var repoBox = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.TopDown, WrapContents = false, Margin = Padding.Empty };
-        repos.Width = 400; repoBox.Controls.Add(repos); repoBox.Controls.Add(repoBar); repoBox.Controls.Add(repoErr);
+        repos.Width = 510; repoBox.Controls.Add(repos); repoBox.Controls.Add(repoBar); repoBox.Controls.Add(repoErr);
         Row("Repositories", repoBox);
         if (!canEdit) Row("", new Label { Text = "Repositories are set by your organisation.", AutoSize = true, ForeColor = Theme.Temp, Font = Theme.Small });
 
