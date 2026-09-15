@@ -18,5 +18,11 @@ public sealed class Settings
     public string InfoHotkey { get; set; } = "Ctrl+Alt+I";
     public Connectivity.CheckSettings Checks { get; set; } = new();
 
+    /// <summary>Random id so the telemetry build can count installs without any machine identity. Created on first use.</summary>
+    public string? InstallId { get; set; }
+    /// <summary>Runtime switch for the telemetry build (the default build ignores it — there is nothing to switch).</summary>
+    public bool TelemetryEnabled { get; set; } = true;
+    public bool TelemetryNoticeShown { get; set; }
+
     public const string CommunityRepo = "https://raw.githubusercontent.com/smol-kitten/netpaw/main/packs/community/index.json|ec6ef08c:MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEkWwClD0ojzS8c3otMcxZ6nzXZiF0QxFvTgpWMT3zmQDywGACDuUqj21aiLzpjfgJBchHNttrU637vWycRKMMnA==";
 }

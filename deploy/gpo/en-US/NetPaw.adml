@@ -25,6 +25,8 @@
       <string id="AllowDhcp_Help">Disabled: the DHCP button and "netpaw-cli dhcp" are refused.</string>
       <string id="AllowUnsignedRepos">Allow unsigned repositories</string>
       <string id="AllowUnsignedRepos_Help">Disabled: entries from a repository without a valid signature and pinned key are not shown.</string>
+      <string id="AllowTelemetry">Allow telemetry (telemetry build only)</string>
+      <string id="AllowTelemetry_Help">Disabled: the telemetry build of NetPaw sends nothing, regardless of the user's setting. The standard build never sends telemetry.</string>
     </stringTable>
     <presentationTable>
       <presentation id="WorkAdapter"><textBox refId="WorkAdapter"><label>Adapter name:</label></textBox></presentation>

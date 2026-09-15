@@ -23,14 +23,15 @@ public sealed record Policy(
     bool AllowTempAddresses,
     bool AllowDhcp,
     bool AllowUnsignedRepos,
+    bool AllowTelemetry,
     IReadOnlySet<string> SetKeys)
 {
-    public static readonly Policy None = new(null, null, null, [], true, true, true, true, true, true, new HashSet<string>());
+    public static readonly Policy None = new(null, null, null, [], true, true, true, true, true, true, true, new HashSet<string>());
     public bool IsSet(string key) => SetKeys.Contains(key);
     public bool Any => SetKeys.Count > 0;
 
     public const string KeyPath = @"SOFTWARE\Policies\NetPaw";
-    public static readonly string[] Keys = ["WorkAdapter", "PanelHotkey", "ConfirmBeforeApply", "RepoUrls", "AllowUserProfiles", "AllowUserRepos", "AllowReach", "AllowTempAddresses", "AllowDhcp", "AllowUnsignedRepos"];
+    public static readonly string[] Keys = ["WorkAdapter", "PanelHotkey", "ConfirmBeforeApply", "RepoUrls", "AllowUserProfiles", "AllowUserRepos", "AllowReach", "AllowTempAddresses", "AllowDhcp", "AllowUnsignedRepos", "AllowTelemetry"];
 }
 
 public static class PolicyReader
@@ -43,7 +44,7 @@ public static class PolicyReader
         bool Allow(string k) => B(k) ?? true;
         var urls = src.GetMulti("RepoUrls"); if (urls is not null) set.Add("RepoUrls");
         return new Policy(S("WorkAdapter"), S("PanelHotkey"), B("ConfirmBeforeApply"), urls?.Where(u => !string.IsNullOrWhiteSpace(u)).ToList() ?? [],
-            Allow("AllowUserProfiles"), Allow("AllowUserRepos"), Allow("AllowReach"), Allow("AllowTempAddresses"), Allow("AllowDhcp"), Allow("AllowUnsignedRepos"), set);
+            Allow("AllowUserProfiles"), Allow("AllowUserRepos"), Allow("AllowReach"), Allow("AllowTempAddresses"), Allow("AllowDhcp"), Allow("AllowUnsignedRepos"), Allow("AllowTelemetry"), set);
     }
 
     public static Policy ReadMachine() => OperatingSystem.IsWindows() ? Read(new RegistryPolicySource()) : Policy.None;

@@ -149,11 +149,19 @@ public sealed class NetPawService
         Capability.TempAddresses => Policy.AllowTempAddresses,
         Capability.Dhcp => Policy.AllowDhcp,
         Capability.UnsignedRepos => Policy.AllowUnsignedRepos,
+        Capability.Telemetry => Policy.AllowTelemetry,
         _ => true,
     };
 
     public void Require(Capability c) { if (!Allowed(c)) throw new DeniedByPolicyException(c); }
     public void SaveSettings() => Store.SaveSettings(Settings);
+
+    /// <summary>Stable random install id (created once, stored in settings.json).</summary>
+    public string InstallId()
+    {
+        if (string.IsNullOrEmpty(Settings.InstallId)) { Settings.InstallId = Guid.NewGuid().ToString("N")[..16]; SaveSettings(); }
+        return Settings.InstallId;
+    }
 
     public IReadOnlyList<AdapterInfo> GetAdapters() => Adapters.GetAdapters();
 

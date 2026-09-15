@@ -26,4 +26,14 @@
   <ItemGroup>
     <EmbeddedResource Include="help\*.md" LogicalName="help/%(Filename)%(Extension)" />
   </ItemGroup>
+  <!-- Opt-in telemetry variant: dotnet publish -p:Telemetry=true -p:TelemetryToken=cattel_… .
+       The default build has no TELEMETRY symbol, so TelemetryHost compiles to empty stubs. -->
+  <PropertyGroup Condition="'$(Telemetry)' == 'true'">
+    <DefineConstants>$(DefineConstants);TELEMETRY</DefineConstants>
+    <Product>NetPaw (telemetry build)</Product>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(Telemetry)' == 'true'">
+    <AssemblyMetadata Include="TelemetryToken" Value="$(TelemetryToken)" />
+    <AssemblyMetadata Include="TelemetryEndpoint" Value="$(TelemetryEndpoint)" />
+  </ItemGroup>
 </Project>

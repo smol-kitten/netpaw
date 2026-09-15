@@ -106,6 +106,18 @@ jobs:
           $p = Start-Process msiexec -ArgumentList "/x `"$msi`" /qn" -Wait -PassThru
           if ($p.ExitCode -ne 0) { throw "uninstall exit $($p.ExitCode)" }
           if (Test-Path "$env:ProgramFiles\NetPaw\NetPaw.exe") { throw "NetPaw.exe still present after uninstall" }
+      - name: Telemetry variant (only when the project token secret exists — opt-in download)
+        if: env.TOKEN != ''
+        shell: pwsh
+        env:
+          TOKEN: ${{ secrets.NETPAW_TELEMETRY_TOKEN }}
+        run: |
+          dotnet publish src/NetPaw.Tray -c Release -r win-x64 --self-contained false -o out/bin-telemetry -p:Telemetry=true "-p:TelemetryToken=$env:TOKEN"
+          Copy-Item out/bin/netpaw-cli.exe out/bin-telemetry/
+          wix build deploy/msi/Package.wxs -arch x64 -d Telemetry=1 -d Version=${{ steps.ver.outputs.version }} -d BinDir=out/bin-telemetry -o out/NetPaw-${{ steps.ver.outputs.version }}-telemetry.msi
+          function HasMeta($f) { [Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes($f)).Contains('TelemetryToken') }
+          if (-not (HasMeta 'out/bin-telemetry/NetPaw.exe')) { throw "telemetry metadata missing from the variant" }
+          if (HasMeta 'out/bin/NetPaw.exe') { throw "default build must not carry telemetry metadata" }
       - uses: actions/upload-artifact@v7
         with:
           name: netpaw-msi
