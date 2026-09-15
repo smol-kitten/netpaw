@@ -1,0 +1,10 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/NetPaw.Cli/NetPaw.Cli.csproj" />
+    <Project Path="src/NetPaw.Core/NetPaw.Core.csproj" />
+    <Project Path="src/NetPaw.Tray/NetPaw.Tray.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/NetPaw.Core.Tests/NetPaw.Core.Tests.csproj" />
+  </Folder>
+</Solution>
