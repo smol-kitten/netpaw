@@ -54,3 +54,50 @@ jobs:
         with:
           files: out/*.zip
           generate_release_notes: true
+
+  msi:
+    # The only job on a hosted Windows runner: WiX 5 needs Windows, and msiexec lets CI prove the
+    # package installs and uninstalls cleanly. Free for a public repo.
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+      - name: Publish (framework-dependent)
+        run: |
+          dotnet publish src/NetPaw.Tray -c Release -r win-x64 --self-contained false -o out/bin
+          dotnet publish src/NetPaw.Cli  -c Release -r win-x64 --self-contained false -o out/bin
+      - name: Version
+        id: ver
+        shell: pwsh
+        run: |
+          $v = if ($env:GITHUB_REF -like 'refs/tags/v*') { $env:GITHUB_REF.Substring(11) } else { '0.0.0' }
+          "version=$v" >> $env:GITHUB_OUTPUT
+      - name: Build MSI (WiX 5)
+        shell: pwsh
+        run: |
+          dotnet tool install --global wix --version 5.0.2
+          wix build deploy/msi/Package.wxs -arch x64 -d Version=${{ steps.ver.outputs.version }} -d BinDir=out/bin -o out/NetPaw-${{ steps.ver.outputs.version }}.msi
+      - name: Install / verify / uninstall
+        shell: pwsh
+        run: |
+          $msi = Get-Item out/*.msi
+          $p = Start-Process msiexec -ArgumentList "/i `"$msi`" /qn /l*v out/install.log" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { Get-Content out/install.log | Select-Object -Last 40; throw "install exit $($p.ExitCode)" }
+          if (-not (Test-Path "$env:ProgramFiles\NetPaw\NetPaw.exe")) { throw "NetPaw.exe missing after install" }
+          if (-not (Test-Path "$env:ProgramData\NetPaw\profiles.d")) { throw "profiles.d missing after install" }
+          & "$env:ProgramFiles\NetPaw\netpaw-cli.exe" where
+          & "$env:ProgramFiles\NetPaw\netpaw-cli.exe" policy
+          $p = Start-Process msiexec -ArgumentList "/x `"$msi`" /qn" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "uninstall exit $($p.ExitCode)" }
+          if (Test-Path "$env:ProgramFiles\NetPaw\NetPaw.exe") { throw "NetPaw.exe still present after uninstall" }
+      - uses: actions/upload-artifact@v7
+        with:
+          name: netpaw-msi
+          path: out/*.msi
+      - name: Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: out/*.msi
