@@ -96,12 +96,12 @@ public sealed class TelemetryClient : IDisposable
     public static async Task<AdoptRequest> RequestAdoption(string endpoint, string project, string version, CancellationToken ct = default)
     {
         using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
-        using var res = await http.PostAsJsonAsync(endpoint.TrimEnd('/') + "/api/adopt/request", new { project, host = "release-build", environment = "production", version }, Json, ct);
+        using var res = await http.PostAsJsonAsync(endpoint.TrimEnd('/') + "/api/adopt/request", new { project, host = "release-build", environment = "production", version, sdk = "NetPaw-cli" }, Json, ct);
         res.EnsureSuccessStatusCode();
         var doc = await res.Content.ReadFromJsonAsync<JsonElement>(cancellationToken: ct);
         string S(params string[] names) { foreach (var n in names) if (doc.TryGetProperty(n, out var v)) return v.ToString(); return ""; }
         var exp = DateTimeOffset.TryParse(S("expires_at", "expiresAt"), out var e) ? e : DateTimeOffset.Now.AddMinutes(10);
-        return new AdoptRequest(S("id", "request_id"), S("secret", "poll_secret"), S("code"), exp);
+        return new AdoptRequest(S("adoption_id", "id"), S("poll_secret", "secret"), S("code"), exp);
     }
 
     /// <summary>Long-polls until confirmed (token), rejected (null) or expired (null).</summary>
@@ -116,7 +116,7 @@ public sealed class TelemetryClient : IDisposable
                 var state = doc.TryGetProperty("state", out var s) ? s.GetString() : null;
                 progress?.Invoke(state ?? "?");
                 if (state == "confirmed" && doc.TryGetProperty("token", out var t)) return t.GetString();
-                if (state is "rejected" or "expired") return null;
+                if (state is "rejected" or "expired" or "not_found" or "forbidden" or "completed") return null;
             }
             catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException) { progress?.Invoke("retry: " + ex.Message); await Task.Delay(5000, ct); }
         }
