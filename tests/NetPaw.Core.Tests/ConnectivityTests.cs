@@ -124,12 +124,15 @@ public class AdvisorTests
         var s = new RenewScheduler(); var t0 = DateTimeOffset.UnixEpoch;
         var fix = new[] { new Advisory(AdvisorySeverity.Error, "x", "y", true) };
         Assert.False(s.ShouldRenew(new RepairSettings(), fix, t0));                 // off by default
-        Assert.True(s.ShouldRenew(r, fix, t0)); s.Mark(t0);
-        Assert.False(s.ShouldRenew(r, fix, t0.AddSeconds(30)));                     // too soon
-        Assert.True(s.ShouldRenew(r, fix, t0.AddSeconds(61))); s.Mark(t0.AddSeconds(61));
+        Assert.False(s.ShouldRenew(r, fix, t0));                                    // first sight: let DHCP finish on its own
+        Assert.False(s.ShouldRenew(r, fix, t0.AddSeconds(5)));
+        Assert.True(s.ShouldRenew(r, fix, t0.AddSeconds(10))); s.Mark(t0.AddSeconds(10));
+        Assert.False(s.ShouldRenew(r, fix, t0.AddSeconds(40)));                     // too soon after an attempt
+        Assert.True(s.ShouldRenew(r, fix, t0.AddSeconds(71))); s.Mark(t0.AddSeconds(71));
         Assert.False(s.ShouldRenew(r, fix, t0.AddSeconds(200)));                    // max attempts
         Assert.False(s.ShouldRenew(r, [], t0.AddSeconds(300)));                     // healthy → resets
         Assert.Equal(0, s.Attempts);
+        Assert.False(s.ShouldRenew(r, fix, t0.AddSeconds(301)));                    // new incident starts the persistence clock again
         Assert.False(s.ShouldRenew(r, [new Advisory(AdvisorySeverity.Info, "s", "t", false)], t0.AddSeconds(400)));
     }
 }
