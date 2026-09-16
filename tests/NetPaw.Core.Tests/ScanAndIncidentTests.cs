@@ -117,6 +117,28 @@ public class AutoSwitchTests
     }
 
     [Fact]
+    public async Task VirtualRouterMacAloneNeverMatches()
+    {
+        // Two sites, both 192.168.1.0/24 behind a VRRP pair: same virtual MAC, different DHCP servers.
+        Assert.True(NetworkFingerprint.IsVirtualRouterMac("00-00-5E-00-01-01"));
+        Assert.True(NetworkFingerprint.IsVirtualRouterMac("00:00:0c:9f:f0:01"));
+        Assert.False(NetworkFingerprint.IsVirtualRouterMac("aa-bb-cc-dd-ee-01"));
+        var vrrp = new NetworkFingerprint("00-00-5e-00-01-01", null, "192.168.1.0/24");
+        Assert.False(vrrp.Matches(vrrp));                                                                    // no DHCP evidence at all
+        Assert.False(vrrp.Matches(vrrp with { DhcpServer = "192.168.1.10" }));                              // one side only
+        Assert.True((vrrp with { DhcpServer = "192.168.1.10" }).Matches(vrrp with { DhcpServer = "192.168.1.10" }));
+        Assert.False((vrrp with { DhcpServer = "192.168.1.10" }).Matches(vrrp with { DhcpServer = "192.168.1.11" }));
+        var real = new NetworkFingerprint("aa-bb-cc-dd-ee-01", null, "192.168.1.0/24");
+        Assert.True(real.Matches(real with { DhcpServer = "192.168.1.10" }));                               // unchanged rule for real MACs
+
+        var arp = new FakeArp(new() { ["192.168.1.1"] = "00-00-5e-00-01-01" });
+        var sw = new AutoSwitcher(arp, (_, _) => Task.FromResult(true), (_, _) => Task.CompletedTask);
+        var site = Auto("site", "00-00-5e-00-01-01", "192.168.1.0/24", addrs: ["192.168.1.77/24"], gw: "192.168.1.1");
+        Assert.Null((await sw.Decide(Live(["192.168.1.20/24"], "192.168.1.1"), [site])).Profile);           // static now, no DHCP server known
+        Assert.Equal("site", (await sw.Decide(Live(["192.168.1.20/24"], "192.168.1.1", "192.168.1.10"), [Auto("site", "00-00-5e-00-01-01", "192.168.1.0/24", dhcp: "192.168.1.10", addrs: ["192.168.1.77/24"], gw: "192.168.1.1")])).Profile?.Name);
+    }
+
+    [Fact]
     public async Task LearnsAndMatchesExactlyOne()
     {
         var arp = new FakeArp(new() { ["192.168.1.1"] = "aa-bb-cc-dd-ee-01" });

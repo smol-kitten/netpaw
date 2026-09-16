@@ -7,10 +7,20 @@ namespace NetPaw.Model;
 /// <summary>What identifies a wired network without any config on it: the gateway's MAC (unique per box, VRRP aside), the DHCP server, the subnet.</summary>
 public sealed record NetworkFingerprint(string GatewayMac, string? DhcpServer, string Subnet)
 {
-    /// <summary>Every field present on both sides must match; a missing DHCP server on one side is not a mismatch.</summary>
+    /// <summary>Every field present on both sides must match; a missing DHCP server on one side is not a mismatch.
+    /// A virtual-router MAC (VRRP/HSRP/CARP) repeats across sites, so it only matches when the DHCP server confirms it.</summary>
     public bool Matches(NetworkFingerprint other) =>
         string.Equals(GatewayMac, other.GatewayMac, StringComparison.OrdinalIgnoreCase) && Subnet == other.Subnet
-        && (DhcpServer is null || other.DhcpServer is null || DhcpServer == other.DhcpServer);
+        && (IsVirtualRouterMac(GatewayMac)
+            ? DhcpServer is not null && other.DhcpServer is not null && DhcpServer == other.DhcpServer
+            : DhcpServer is null || other.DhcpServer is null || DhcpServer == other.DhcpServer);
+
+    /// <summary>VRRP 00:00:5e:00:01:xx / IPv6 VRRP 00:00:5e:00:02:xx, HSRP v1 00:00:0c:07:ac:xx, HSRP v2 00:00:0c:9f:fx:xx. Not a per-box identity.</summary>
+    public static bool IsVirtualRouterMac(string mac)
+    {
+        var m = mac.Replace('-', ':').ToLowerInvariant();
+        return m.StartsWith("00:00:5e:00:01:") || m.StartsWith("00:00:5e:00:02:") || m.StartsWith("00:00:0c:07:ac:") || m.StartsWith("00:00:0c:9f:f");
+    }
     public override string ToString() => $"gw {GatewayMac} · {Subnet}{(DhcpServer is null ? "" : " · dhcp " + DhcpServer)}";
 }
 
