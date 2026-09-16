@@ -37,8 +37,7 @@ no new dependencies, no elevation needed for the watcher.
   (0 hides the setting and stops the watcher). Nothing leaves the machine. the log line is verbose level.
 - R6 CLI `netpaw-cli stuck` prints the current stuck targets with the classification and the
   recommendation (one sample of 4 s).
-- R7 Must not: run when checks are off?: no: the watcher is independent of probes (it sends nothing);
-  it runs whenever the setting is on. Must not spawn a process per sample. Must not act by itself
+- R7 The watcher is independent of the probes (it sends nothing). It runs whenever the setting is on. Must not spawn a process per sample. Must not act by itself
   (no automatic apply). Must not read the table more often than every 2 s.
 
 ## Design details
@@ -119,3 +118,16 @@ table seam and a small pure watcher, so every rule has a Linux test with a fake 
 - The advice row fills with many stuck targets on a dead network → cap at 3 rows, oldest first,
   and suppress the watcher entirely while the adapter has no address (the existing advisories
   already say why).
+
+## Review round (2026-09-16, after v0.11.0 shipped)
+The critic compared this plan with the v0.10 request. Reconciliation:
+- Scope: rebutted. The operator asked on 2026-09-16 "Research how to spot browser error no route to
+  host in windows to make profile recommendations", then "Go" on the intent-watcher proposal.
+  v0.10 (slimming, cadence, verbosity, error logging) shipped as v0.10.0 before this plan.
+- "Contradicts 'that's for later'": rebutted. The deferred item is IPv6 diagnostics, not this feature.
+- Research doc and VM measurements "not in the given state": rebutted with the cheap check the critic
+  named. `docs/RESEARCH-NO-ROUTE-2026-09.md` is on `main` (PR #45). Tests: 201 at planning time, 208 after.
+- R7 wording: adopted earlier. The requirement reads "The watcher is independent of the probes. It runs
+  whenever the setting is on."
+- Not in the critique, found on the VM: parallel browser sockets to one host:port shared a watcher key
+  and looked stuck on first sight. The key now includes the local port (PR #47).
