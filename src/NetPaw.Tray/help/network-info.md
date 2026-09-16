@@ -8,6 +8,11 @@
 
 The card fades after a few seconds. Click 📌 to keep it; ✕ closes it.
 
+## Wi-Fi, 802.1X and path MTU rows
+- **Wi-Fi** (wireless adapters): SSID, channel, signal %, rate — read from `netsh wlan`. Under 30 % the advice row says so; drops and slow lookups on a weak link are not a DHCP problem.
+- **802.1X** appears only when a wired port is up without an address and `netsh lan` reports the authentication state. *Authentication failed* means the switch rejected the certificate/credentials: DHCP cannot answer on a closed port, and no renew will fix it.
+- **Path MTU** is measured once per link-up (checks on) with Don't-Fragment pings towards the first internet target. 1452 or 1492 instead of 1500 means a tunnel or PPPoE upstream swallows big packets — pages hang after the handshake. The advice row offers *Set MTU* (`netsh interface ipv4 set subinterface`). Not raised on Wi-Fi or while a VPN is up.
+
 ## Reachability checks (off by default)
 *Settings → Connectivity → check reachability*. Every interval NetPaw pings the default gateway, your extra intranet hosts, the internet targets (`1.1.1.1`, `9.9.9.9`), and resolves one name to prove DNS. Nothing is probed until you switch it on.
 

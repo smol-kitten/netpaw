@@ -6,7 +6,7 @@ namespace NetPaw.Connectivity;
 public enum AdvisorySeverity { Info, Warning, Error }
 
 /// <summary>A plain-language finding about the current configuration and whether a DHCP renew could fix it.</summary>
-public enum RepairKind { None, Renew, Release, Reset, Prefer }
+public enum RepairKind { None, Renew, Release, Reset, Prefer, SetMtu }
 
 public sealed record Advisory(AdvisorySeverity Severity, string Title, string Text, bool CanRenew)
 {
@@ -15,6 +15,8 @@ public sealed record Advisory(AdvisorySeverity Severity, string Title, string Te
     public string? RepairAdapter { get; init; }
     /// <summary>The adapter the finding is about (set by <see cref="Advisor.Analyze(Snapshot, IReadOnlyList{AdapterInfo}?)"/>).</summary>
     public string? Adapter { get; init; }
+    /// <summary>Numeric argument for the repair (the MTU for <see cref="RepairKind.SetMtu"/>).</summary>
+    public int? Value { get; init; }
     public override string ToString() => $"{Title}: {Text}";
 }
 
@@ -48,6 +50,17 @@ public static class Advisor
             else if (alive.Count == 0 && s.DnsCheck is null)
                 list.Add(new(AdvisorySeverity.Warning, "No DNS server answers", $"{string.Join(", ", dead)} gave no reply to a direct query. Names will not resolve{(s.GatewayOk ? " although the gateway answers" : "")}.", CanRenew: a.Dhcp));
         }
+        if (s.Wlan is { Weak: true } w)
+            list.Add(new(AdvisorySeverity.Warning, $"Weak Wi-Fi signal ({w.Signal} %)", $"'{w.Ssid}' on channel {w.Channel?.ToString() ?? "?"} at {w.Signal} % — drops, retries and slow lookups are expected. Move closer, switch band, or use the cable.", CanRenew: false));
+        if (s.PathMtu is { Reduced: true } m && !a.Wireless && !(others is not null && VpnDetector.Detect(others).Any(v => v.Up)))
+            list.Add(new(AdvisorySeverity.Warning, $"Path MTU {m.Mtu} on {a.Name}", $"Packets larger than {m.Mtu} bytes are dropped on the way to {m.Host} (a tunnel or PPPoE upstream). Pages hang after the handshake; set the adapter MTU to {m.Mtu} so Windows fragments before sending.", CanRenew: false) { Repair = RepairKind.SetMtu, RepairAdapter = a.Name, Value = m.Mtu });
+        if (s.Dot1x is { Failed: true } d && !s.HasAddress)
+        {
+            list.Add(new(AdvisorySeverity.Error, $"802.1X authentication failed on {a.Name}", $"The switch rejected this port's credentials or certificate ({d.State}). DHCP cannot answer on a closed port — this is not a lease problem. Check the machine/user certificate or the Wired AutoConfig profile.", CanRenew: false));
+            return list;
+        }
+        if (s.Dot1x is { InProgress: true } && !s.HasAddress)
+            list.Add(new(AdvisorySeverity.Info, "802.1X authentication in progress", $"{a.Name} is still authenticating with the switch; DHCP follows once the port opens.", CanRenew: false));
         if (a.VSwitchUplink)
         {
             list.Add(new(AdvisorySeverity.Info, "Bound to a Hyper-V virtual switch", $"{a.Name} carries the external switch and has no host address by design. Configure the host on its vEthernet adapter instead — pick it as the work adapter (tray menu → Work adapter).", CanRenew: false));
@@ -114,6 +127,14 @@ public static class Advisor
     }
 
     /// <summary>`ipconfig /release "<adapter>"` on the adapter that still owns the address.</summary>
+    /// <summary>netsh set subinterface: the one knob that makes Windows fragment before a too-small link swallows the packet.</summary>
+    public static ApplyPlan PlanSetMtu(AdapterInfo adapter, int mtu)
+    {
+        var plan = new ApplyPlan { Title = $"MTU {mtu} on {adapter.Name}", Adapter = adapter.Name };
+        plan.Steps.Add(Step.Netsh($"Interface MTU {mtu}", $"interface ipv4 set subinterface \"{adapter.Name}\" mtu={mtu} store=persistent"));
+        return plan;
+    }
+
     public static ApplyPlan PlanRelease(AdapterInfo adapter)
     {
         var plan = new ApplyPlan { Title = "release DHCP lease", Adapter = adapter.Name };
