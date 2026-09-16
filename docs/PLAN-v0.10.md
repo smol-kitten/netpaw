@@ -9,20 +9,25 @@ standalone build under 60 MB. No new features that add rows.
 ## Given state
 - `main` at v0.9.0, 191 Core tests. The operator deferred IPv6 (2026-09-16). a later step may add
   IPv6 *diagnostics* only (address assigned, DNS, internet), not profiles.
-- Standalone `NetPaw.exe` is 107 MB (`PublishSingleFile`, no compression, no trimming. WinForms
-  cannot trim). Portable build 1.2 MB + runtime. No `ReadyToRun`.
-- Every check tick (30 s) spawns processes: `netsh interface ipv4 show route` (route table, v0.9),
-  `netsh wlan show interfaces` for wireless adapters, `netsh lan` for wired ports without address,
-  plus `GetAdapters()` five times per tick path in `TrayApp`. `StepRunner` kills a step after 30 s.
-- The info card has 15 row kinds (`InfoToast.cs`). each one renders whenever it has data. Sticky alert and
+- Standalone `NetPaw.exe` is 107,514,586 bytes (measured 2026-09-16, `dotnet publish … --self-contained true`,
+  `PublishSingleFile` without `EnableCompressionInSingleFile`; WinForms does not support trimming).
+  Portable build 1,172,794 bytes + runtime. No `ReadyToRun` (`NetPaw.Tray.csproj` lines 14–16).
+- Every check tick (30 s) spawns processes: `RouteTable.ReadAll` in `TrayApp.RunCheck`
+  (`TrayApp.cs:133`, v0.9), `Wlan.Read` for wireless adapters and `Dot1x.Read` for wired ports
+  without an address (`ConnectivityChecker.Check`). `grep -c "GetAdapters()" TrayApp.cs` = 5.
+  `StepRunner.cs:25` kills a step after 30 s.
+- The info card has 15 row kinds (`grep -o 'Row("…"' InfoToast.cs`: Link, Address, Gateway, DNS,
+  Checks, Intranet, Internet, Temporary, VPN, Also, Advice, Switch, Wi-Fi, 802.1X, Path MTU) plus
+  the Verify and Path link rows. Each one renders whenever it has data. Sticky alert and
   pin are global switches. Secondary adapters, VPN, switch, MTU, Wi-Fi rows have no off switch.
 - Telemetry build reports crashes from `Application.ThreadException`, `UnhandledException` and the
   apply continuation. Background `Task.Run` continuations in `RunCheck`, `DiscoverSwitch`,
   `AutoSwitch`, `CheckForUpdates`, `ExportDiagnostics` log to `netpaw.log` only. no context (last
   log lines, snapshot state) travels with a report.
 - `netpaw.log` rotates at 5 MB. the Tray writes 18 kinds of lines, the service 3.
-- Operator-authorized README directive m-2143/m-2145 (pawkit readme_kit / readmecheck) is open and
-  independent of code.
+- Separate from the operator's v0.10 request: the orchestrator relayed an operator-authorized README
+  directive (m-2143/m-2145, pawkit readme_kit / readmecheck). It is documentation work, not a v0.10
+  feature. It runs first because it touches no code.
 - No standing rules for scope `netpaw`.
 
 ## Requirements
@@ -46,11 +51,60 @@ standalone build under 60 MB. No new features that add rows.
   (`PublishReadyToRun` measured, kept only when the cold start gets faster).
 - R9 Log lines carry a category prefix (`check`, `apply`, `switch`, `update`, …) and a
   *Settings → Log level* (errors / normal / verbose) gates the verbose ones.
-- R10 README rebuilt per m-2143/m-2145 with the pawkit tooling: hub + docs sub-pages, verified
+- D1 (directive, not a v0.10 requirement) README rebuilt per m-2143/m-2145 with the pawkit tooling: hub + docs sub-pages, verified
   claims (`readme-verify.py` + CI), ACCESS.md moved under docs/, stelint under 3/100 w.
 - Must not: hide Error-severity advice under any mode. change profile/settings JSON shape for
   existing fields (new fields only). add dependencies. run probes when checks are off. grow the
   portable build past 2 MB.
+
+## Design details
+**Row visibility.** `enum Visibility { Never, OnIssue, Always }` in `Model/Settings.cs`.
+`InfoCardSettings { Dictionary<string, Visibility> Rows; Visibility AutoPin = OnIssue; }` on
+`Settings.InfoCard`. Row kinds and their *issue* condition:
+
+| Kind | Issue when | Default |
+|---|---|---|
+| Link | adapter down | Always |
+| Address | no real address | Always |
+| Gateway | not set, or ping failed | Always |
+| DNS | none, resolver check failed, or a server ✗ | Always |
+| Internet | no target answers | Always |
+| Intranet | an extra target fails | OnIssue |
+| Checks (off notice) | never | OnIssue (= hidden) |
+| Wi-Fi | `WlanInfo.Weak` | OnIssue |
+| 802.1X | `Failed` or `InProgress` | OnIssue |
+| Path MTU | `Reduced` | OnIssue |
+| Also | secondary state is a problem, or it has advice | OnIssue |
+| VPN | tunnel down while adapter exists | OnIssue |
+| Switch | never (information) | OnIssue (= hidden) |
+| Temporary | temp addresses exist | Always |
+| Advice | severity ≥ Warning | OnIssue. Error rows ignore the mode |
+
+`InfoToast.Show(kind, issue)` returns `mode == Always || (mode == OnIssue && issue)`. A hidden row
+is not added to `_grid`. The grid autosizes, so the card shrinks. The header (adapter, state, time)
+always shows.
+
+**Auto-pin.** `AutoPin(problem)` pins when `mode == Always`, or `mode == OnIssue && problem`.
+Migration: when `Settings.InfoCard` is absent in the JSON, `AutoPin = Checks.StickyAlerts ? OnIssue : Never`.
+
+**Cadence** (`Connectivity/Cadence.cs`, pure): `Next(bool problem, bool changed, DateTimeOffset
+lastChange, DateTimeOffset now, int last, CheckSettings s)` returns seconds: `s.IntervalSeconds`
+when `problem`, when `changed`, when `now - lastChange < 5 min`, or when `s.MonitorMode`. Else
+`min(s.MaxIntervalSeconds, last * 2)` (30 → 60 → 120). Link and address events call `RunCheck`
+directly and bypass the timer. `changed` = state or advisory titles differ from the previous tick.
+
+**Watchdog** (`TrayApp`): `RunCheck` records `_tickStarted` and owns `_tickCts`. The timer handler
+checks: if `_checking && now - _tickStarted > 2 × current interval`, cancel `_tickCts`, log
+`check: watchdog cancelled tick after N s`, set `_checking = false`, run the next tick at
+`s.IntervalSeconds`. The `Checks` header line shows `(last check N min ago)` when the newest
+snapshot is older than 3 × current interval.
+
+**Reader cadence.** `bool readersDue = linkUp || addressesChanged || tick % 5 == 0`. When not due,
+the previous `Routes`, `Wlan`, `Dot1x` values are copied onto the new snapshot.
+
+**Guarded.** `Task Guarded(string op, Func<CancellationToken, Task> work)`: try/await/catch
+(`OperationCanceledException` → log only. Other → `Store.Log(op, …)` + `TelemetryHost.Error(ex, op,
+Context())`). `Context()` = `{ state, adapter, version, uptime, lastLog[40] }`.
 
 ## Options considered
 - A. One global "compact / normal / verbose" switch: rejected: admins differ on which rows matter
