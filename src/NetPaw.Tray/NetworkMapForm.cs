@@ -30,6 +30,8 @@ sealed class NetworkMapPanel : UserControl
     /// <summary>The host closes (a window) or navigates away (the main window) when the panel asks.</summary>
     public event Action? CloseRequested;
     public AdapterInfo Adapter => _adapter;
+    /// <summary>0 neighbours, 1 find routers, 2 switch, 3 routes.</summary>
+    public void SelectTab(int tab) { if (tab is >= 0 and <= 3) { _tabs.SelectedIndex = tab; if (tab == 3 && _routes.Items.Count == 0) LoadRoutes(); } }
 
     /// <param name="tab">0 neighbours, 1 find routers, 2 switch (LLDP/CDP), 3 routes.</param>
     public NetworkMapPanel(TrayApp app, AdapterInfo adapter, int tab = 0)

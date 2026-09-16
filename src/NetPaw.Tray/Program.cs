@@ -28,7 +28,7 @@ static class Program
         TelemetryHost.Init(svc);
         Application.ThreadException += (_, e) => { svc.Store.Log("unhandled: " + e.Exception); TelemetryHost.Error(e.Exception, "ui"); MessageBox.Show(e.Exception.Message, "NetPaw", MessageBoxButtons.OK, MessageBoxIcon.Error); };
         TrayApp app;
-        try { app = new TrayApp(svc, showPanelAtStart: args.Contains("--panel")); svc.Store.Log("startup", $"tray ready after {startup.ElapsedMilliseconds} ms"); }
+        try { app = new TrayApp(svc, showPanelAtStart: args.Contains("--panel")); svc.Store.Log("startup", $"tray ready after {startup.ElapsedMilliseconds} ms"); if (args.Contains("--main")) app.ShowMain(); }
         catch (Exception ex)
         {
             svc.Store.Log("startup failed: " + ex);

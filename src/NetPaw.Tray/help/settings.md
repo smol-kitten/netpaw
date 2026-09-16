@@ -1,6 +1,7 @@
 # Settings
 
 - **Work adapter** — the adapter NetPaw acts on when a profile names none. *(auto-detect)* = first physical adapter with a gateway.
+- **Tray click opens** — quick panel (default) or the main window; double-click always opens the window.
 - **Panel hotkey** / **Info hotkey** — global shortcuts. Need a modifier.
 - **Confirm** — show the command plan (exact `netsh` lines) before every change.
 - **Notifications** — balloon tips for results when the panel is not showing.

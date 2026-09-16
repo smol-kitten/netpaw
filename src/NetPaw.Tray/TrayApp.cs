@@ -84,7 +84,8 @@ sealed class TrayApp : ApplicationContext
         _menu.Opening += (_, _) => { _menuOpen = true; BuildMenu(); };
         _menu.Closed += (_, _) => { _menuOpen = false; FlushDeferred(); };
         _tray = new NotifyIcon { Icon = Icons.Paw(Theme.Down), Text = "NetPaw", Visible = true, ContextMenuStrip = _menu };
-        _tray.MouseClick += (_, e) => { if (e.Button == MouseButtons.Left) TogglePanel(); };
+        _tray.MouseClick += (_, e) => { if (e.Button == MouseButtons.Left) { if (_svc.Settings.TrayClick == "main") ShowMain(); else TogglePanel(); } };
+        _tray.MouseDoubleClick += (_, e) => { if (e.Button == MouseButtons.Left) ShowMain(); };
         _tray.BalloonTipClicked += (_, _) => { if (_balloonAction is { } act) { _balloonAction = null; act(); } else OpenLog(); };
         _refresh.Tick += (_, _) => RefreshState();
         _refresh.Start();
@@ -512,6 +513,14 @@ sealed class TrayApp : ApplicationContext
     /// <summary>Traceroute window; the probe is the same one the monitor uses.</summary>
     public void ShowTrace(string host) { var f = new TraceForm(Probe, host); f.Show(); Native.ForceForeground(f.Handle); }
 
+    MainForm? _main;
+    /// <summary>The optional main window; created on first use, hidden on close, one instance.</summary>
+    public void ShowMain(string? page = null)
+    {
+        if (_main is null || _main.IsDisposed) _main = new MainForm(this);
+        _main.Open(page);
+    }
+
     public void ShowMap() => ShowMap(0);
     /// <param name="tab">0 neighbours, 1 find routers, 2 switch (LLDP/CDP), 3 routes.</param>
     public void ShowMap(int tab)
@@ -546,6 +555,7 @@ sealed class TrayApp : ApplicationContext
 
     public void RefreshState()
     {
+        _main?.OnStateChanged();
         try { _adapters = _svc.GetAdapters(); } catch (Exception ex) { _svc.Store.Log("adapters: " + ex.Message); }
         var w = Work;
         var temps = _svc.TempAddresses.Count;
@@ -648,6 +658,7 @@ sealed class TrayApp : ApplicationContext
         _menu.Items.Add(adapters);
         if (_svc.Allowed(Capability.UserProfiles))
             _menu.Items.Add(new ToolStripMenuItem("Capture current as profile…", null, (_, _) => CaptureCurrent()));
+        _menu.Items.Add(new ToolStripMenuItem("Open NetPaw window…", null, (_, _) => ShowMain()) { Font = new Font(Theme.Base, FontStyle.Bold) });
         _menu.Items.Add(new ToolStripMenuItem("Network info", null, (_, _) => ShowInfo()) { ShortcutKeyDisplayString = _svc.Settings.InfoHotkey });
         if (_svc.Allowed(Capability.Scan))
             _menu.Items.Add(new ToolStripMenuItem("Scan for a working profile…", null, (_, _) => ShowScan()));
@@ -738,7 +749,7 @@ sealed class TrayApp : ApplicationContext
         RunInBackground("Removing temporary addresses", () => _svc.ClearTemp() ?? new ApplyOutcome(), "Temporary addresses removed");
     }
 
-    void CaptureCurrent()
+    public void CaptureCurrent()
     {
         var w = Work; if (w is null) return;
         if (!_svc.Allowed(Capability.UserProfiles)) { Denied(Capability.UserProfiles); return; }
@@ -898,6 +909,7 @@ sealed class TrayApp : ApplicationContext
 
     void Quit()
     {
+        _main?.ExitApp();
         _tray.Visible = false;
         _hotkeys.Dispose();
         ExitThread();

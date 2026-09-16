@@ -11,7 +11,7 @@ sealed class HelpForm : Form
     static readonly (string Id, string Title)[] Topics =
     [
         ("overview", "Overview"), ("quick-panel", "Quick panel"), ("reach", "Reach mode"), ("profiles", "Profiles"),
-        ("presets-repos", "Presets & repositories"), ("network-info", "Network info & monitor"), ("settings", "Settings"),
+        ("presets-repos", "Presets & repositories"), ("main-window", "Main window"), ("network-info", "Network info & monitor"), ("settings", "Settings"),
         ("enterprise", "Enterprise"), ("cli", "Command line"), ("troubleshooting", "Troubleshooting"),
     ];
 
