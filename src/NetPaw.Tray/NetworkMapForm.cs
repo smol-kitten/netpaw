@@ -27,7 +27,8 @@ sealed class NetworkMapForm : Form
     readonly Dictionary<ListViewItem, NetPaw.Planning.RouteEntry> _routeRows = [];
     CancellationTokenSource? _cts;
 
-    public NetworkMapForm(TrayApp app, AdapterInfo adapter)
+    /// <param name="tab">0 neighbours, 1 find routers, 2 switch (LLDP/CDP), 3 routes.</param>
+    public NetworkMapForm(TrayApp app, AdapterInfo adapter, int tab = 0)
     {
         _app = app; _adapter = adapter;
         Text = $"NetPaw — network map on {adapter.Name}"; StartPosition = FormStartPosition.CenterScreen; ClientSize = new Size(820, 520); MinimumSize = new Size(640, 400);
@@ -68,6 +69,7 @@ sealed class NetworkMapForm : Form
         wake.Items.Add("Copy MAC", null, (_, _) => { if (_hosts.SelectedItems.Count == 1) Clipboard.SetText(_hosts.SelectedItems[0].SubItems[1].Text); });
         _hosts.MouseClick += (_, e) => { if (e.Button == MouseButtons.Right && _hosts.GetItemAt(e.X, e.Y) is { } it && it.Tag is null) { it.Selected = true; wake.Show(_hosts, e.Location); } };
         _tabs.TabPages.Add(t1); _tabs.TabPages.Add(t2); _tabs.TabPages.Add(t3); _tabs.TabPages.Add(t4);
+        if (tab is >= 1 and <= 3) { _tabs.SelectedIndex = tab; if (tab == 3) LoadRoutes(); }
         Controls.Add(_tabs); Controls.Add(_status);
         _refresh.Click += (_, _) => { if (_cts is not null) _cts.Cancel(); else LoadCache(); };
         _check.Click += async (_, _) => await Recheck(sweep: false);
