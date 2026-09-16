@@ -6,6 +6,7 @@
 - `list` / `show <profile>` / `apply <profile> [-a adapter] [-n]` — `-n` prints the plan only.
 - `dhcp [-a adapter]`
 - `reach <ip[/prefix]> [--replace]`
+- `check <host:port> [--timeout ms]` — one TCP connect; exit 0 open, 1 refused/unreachable, 2 timeout, 3 unresolved
 - `preset [query]` / `preset apply <vendor/model>`
 - `capture <name>` / `export <file> [--managed]` / `import <file>`
 - `temp` / `clear-temp`

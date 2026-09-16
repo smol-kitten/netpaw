@@ -14,6 +14,8 @@ public interface IProbe
     Task<ProbeResult> Resolve(string host, int timeoutMs, CancellationToken ct);
     /// <summary>GET a URL and report whether the body equals <paramref name="expectedBody"/> — a captive portal answers with its login page instead.</summary>
     Task<ProbeResult> Http(string url, string expectedBody, int timeoutMs, CancellationToken ct) => Task.FromResult(new ProbeResult(url, true, 0, "not implemented"));
+    /// <summary>One TCP connect. Detail is "open", "refused", "timeout", "unreachable" or "unresolved".</summary>
+    Task<ProbeResult> Connect(string host, int port, int timeoutMs, CancellationToken ct) => Task.FromResult(new ProbeResult($"{host}:{port}", false, 0, "not implemented"));
 }
 
 public sealed class NetworkProbe : IProbe
@@ -38,6 +40,31 @@ public sealed class NetworkProbe : IProbe
             return new ProbeResult(url, !portal, (int)sw.ElapsedMilliseconds, portal ? (status >= 300 && status < 400 ? "redirected: " + res.Headers.Location : "body differs (login page?)") : status >= 400 ? $"HTTP {status} (inconclusive)" : null);
         }
         catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException) { return new ProbeResult(url, true, (int)sw.ElapsedMilliseconds, "inconclusive: " + ex.GetBaseException().Message); }
+    }
+
+    public async Task<ProbeResult> Connect(string host, int port, int timeoutMs, CancellationToken ct)
+    {
+        var sw = System.Diagnostics.Stopwatch.StartNew(); var target = $"{host}:{port}";
+        try
+        {
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct); cts.CancelAfter(timeoutMs);
+            using var client = new System.Net.Sockets.TcpClient();
+            await client.ConnectAsync(host, port, cts.Token);
+            return new ProbeResult(target, true, (int)sw.ElapsedMilliseconds, "open");
+        }
+        catch (OperationCanceledException) { return new ProbeResult(target, false, (int)sw.ElapsedMilliseconds, ct.IsCancellationRequested ? "cancelled" : "timeout"); }
+        catch (System.Net.Sockets.SocketException ex)
+        {
+            var detail = ex.SocketErrorCode switch
+            {
+                System.Net.Sockets.SocketError.ConnectionRefused => "refused",
+                System.Net.Sockets.SocketError.HostNotFound or System.Net.Sockets.SocketError.NoData or System.Net.Sockets.SocketError.TryAgain => "unresolved",
+                System.Net.Sockets.SocketError.HostUnreachable or System.Net.Sockets.SocketError.NetworkUnreachable or System.Net.Sockets.SocketError.AddressNotAvailable => "unreachable",
+                System.Net.Sockets.SocketError.TimedOut => "timeout",
+                _ => "unreachable",
+            };
+            return new ProbeResult(target, false, (int)sw.ElapsedMilliseconds, detail);
+        }
     }
 
     public async Task<ProbeResult> Ping(string host, int timeoutMs, CancellationToken ct)

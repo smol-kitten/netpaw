@@ -22,7 +22,8 @@ sealed class TrayApp : ApplicationContext
     ProfileEditorForm? _editor;
     InfoToast? _toast;
     HelpForm? _help;
-    readonly ConnectivityChecker _checker = new(new NetworkProbe());
+    public IProbe Probe { get; } = new NetworkProbe();
+    readonly ConnectivityChecker _checker;
     readonly System.Windows.Forms.Timer _checkTimer = new();
     Snapshot? _snapshot, _previous, _announced;
     readonly RenewScheduler _renew = new();
@@ -68,6 +69,7 @@ sealed class TrayApp : ApplicationContext
 
     public TrayApp(NetPawService svc, bool showPanelAtStart)
     {
+        _checker = new ConnectivityChecker(Probe);
         _svc = svc;
         _menu = new ContextMenuStrip { Renderer = new DarkMenuRenderer(), Font = Theme.Base, ShowImageMargin = true, ShowCheckMargin = false };
         _menu.Opening += (_, _) => { _menuOpen = true; BuildMenu(); };
@@ -527,11 +529,23 @@ sealed class TrayApp : ApplicationContext
         Execute(plan, () => _svc.Reach(d, w).Outcome!, d.Explanation);
     }
 
+    /// <summary>One TCP connect, verdict in the status line and a balloon. No address change — reach mode's read-only cousin.</summary>
+    public async Task CheckPort(string host, int port)
+    {
+        Status?.Invoke($"Checking {host}:{port}…", "busy");
+        var r = await PortCheck.Run(Probe, host, port, 2000);
+        _svc.Store.Log($"check {host}:{port}: {r.Verdict} {r.Ms} ms");
+        Status?.Invoke(r.Text, r.Open ? "ok" : "warn");
+        Notify(r.Open ? "Port open" : "Port check", r.Text, r.Open ? ToolTipIcon.Info : ToolTipIcon.Warning, force: true);
+        TelemetryHost.Event("check", "port", r.Verdict.ToString());
+    }
+
     public void Reach(string target, bool? replace = null)
     {
         var w = Work; if (w is null) { Notify("No adapter", "Pick a work adapter first.", ToolTipIcon.Warning); return; }
         if (!_svc.Allowed(Capability.Reach)) { Denied(Capability.Reach); return; }
         var d = _svc.ResolveReach(target, w);
+        if (d.Kind == ReachKind.PortCheck && PortCheck.TryParse(d.Target, out var h, out var p)) { _ = CheckPort(h, p); return; }
         if (d.Kind is ReachKind.TempAddress or ReachKind.UsePreset && !_svc.Allowed(Capability.TempAddresses)) { Denied(Capability.TempAddresses); return; }
         switch (d.Kind)
         {
