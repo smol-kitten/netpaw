@@ -14,7 +14,7 @@ sealed class NetworkMapForm : Form
     readonly TrayApp _app;
     readonly AdapterInfo _adapter;
     readonly IArpProvider _arp = new WindowsArpProvider();
-    readonly TabControl _tabs = new() { Dock = DockStyle.Fill };
+    readonly Theme.DarkTabControl _tabs = new() { Dock = DockStyle.Fill };
     readonly ListView _hosts = new() { Dock = DockStyle.Fill, View = View.Details, FullRowSelect = true, BorderStyle = BorderStyle.None, ShowGroups = true };
     readonly ListView _routers = new() { Dock = DockStyle.Fill, View = View.Details, FullRowSelect = true, BorderStyle = BorderStyle.None };
     readonly ListView _switch = new() { Dock = DockStyle.Fill, View = View.Details, FullRowSelect = true, BorderStyle = BorderStyle.None };

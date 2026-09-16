@@ -16,7 +16,7 @@ sealed class SettingsForm : Form
         MinimizeBox = false; MaximizeBox = false; ShowInTaskbar = false; ClientSize = new Size(700, 520);
 
         // Tabs keep the dialog at a laptop-friendly height (the one-column version had grown to 890 px).
-        var tabs = new TabControl { Dock = DockStyle.Fill };
+        var tabs = new Theme.DarkTabControl { Dock = DockStyle.Fill };
         TableLayoutPanel Tab(string title)
         {
             var page = new TabPage(title) { BackColor = Theme.Bg, Padding = new Padding(4) };
@@ -29,7 +29,7 @@ sealed class SettingsForm : Form
         void RowIn(TableLayoutPanel g, string label, Control c) { g.Controls.Add(new Label { Text = label, Anchor = AnchorStyles.Left, AutoSize = true, Margin = new Padding(0, 8, 0, 8) }); c.Anchor = AnchorStyles.Left | AnchorStyles.Right; c.Margin = new Padding(0, 5, 0, 5); g.Controls.Add(c); }
         void Row(string label, Control c) => RowIn(grid, label, c);
 
-        var adapter = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList };
+        var adapter = new Theme.DarkComboBox();
         adapter.Items.Add("(auto-detect)");
         foreach (var a in app.Service.GetAdapters()) adapter.Items.Add(a.Name);
         adapter.SelectedIndex = s.WorkAdapter is null ? 0 : Math.Max(0, adapter.Items.IndexOf(s.WorkAdapter));
