@@ -216,10 +216,11 @@ sealed class TrayApp : ApplicationContext
                 }
             }
             if (!snap.Link && snap.Adapter is not null) _pathMtu.Remove(snap.Adapter.Name);
-            if (_svc.Settings.Checks.StickyAlerts && !_menuOpen)
+            var card = _svc.Settings.CardSettings();
+            if (card.AutoPin != Visibility.Never && !_menuOpen)
             {
-                var problem = Snapshot.IsProblem(snap.State);
-                if (problem || _toast is { Visible: true }) { _toast ??= new InfoToast(this); _toast.AutoPin(problem); }
+                var pin = card.ShouldPin(Snapshot.IsProblem(snap.State));
+                if (pin || _toast is { Visible: true }) { _toast ??= new InfoToast(this); _toast.AutoPin(pin); }
             }
         }
         finally { _checking = false; }

@@ -1,5 +1,52 @@
 namespace NetPaw.Model;
 
+[System.Text.Json.Serialization.JsonConverter(typeof(System.Text.Json.Serialization.JsonStringEnumConverter))]
+public enum Visibility { Never, OnIssue, Always }
+
+/// <summary>
+/// What the info card shows: one mode per row kind (never / on issue / always) and when the card pins itself.
+/// Error-level advice ignores the mode — it is the one thing an admin must not be able to hide.
+/// </summary>
+public sealed class InfoCardSettings
+{
+    public Dictionary<string, Visibility> Rows { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    public Visibility AutoPin { get; set; } = Visibility.OnIssue;
+
+    /// <summary>Row kinds in card order; the defaults keep the pre-v0.8 rows visible and quiet the newer ones.</summary>
+    public static readonly IReadOnlyList<(string Kind, Visibility Default, string IssueWhen)> Catalog =
+    [
+        ("Link", Visibility.Always, "adapter down"),
+        ("Wi-Fi", Visibility.OnIssue, "signal under 30 %"),
+        ("802.1X", Visibility.OnIssue, "authentication failed or in progress"),
+        ("Path MTU", Visibility.OnIssue, "below 1500"),
+        ("Address", Visibility.Always, "no real address"),
+        ("Gateway", Visibility.Always, "not set or no reply"),
+        ("DNS", Visibility.Always, "none, or a server does not answer"),
+        ("Intranet", Visibility.OnIssue, "an extra target fails"),
+        ("Internet", Visibility.Always, "no target answers"),
+        ("Checks", Visibility.OnIssue, "never (it is the 'checks are off' notice)"),
+        ("Temporary", Visibility.Always, "temporary addresses exist"),
+        ("VPN", Visibility.OnIssue, "a tunnel is down"),
+        ("Also", Visibility.OnIssue, "another adapter has a problem or advice"),
+        ("Switch", Visibility.OnIssue, "never (information only)"),
+        ("Advice", Visibility.OnIssue, "warning or error; errors always show"),
+    ];
+    public static IEnumerable<string> Kinds => Catalog.Select(c => c.Kind);
+
+    public Visibility Mode(string kind) => Rows.TryGetValue(kind, out var v) ? v : Catalog.FirstOrDefault(c => c.Kind == kind).Default;
+
+    /// <summary>true = render this row now. <paramref name="issue"/> is the row's own verdict (see the catalog).</summary>
+    public bool Show(string kind, bool issue) => Mode(kind) switch { Visibility.Always => true, Visibility.OnIssue => issue, _ => false };
+
+    /// <summary>Advice rows: errors ignore the mode; warnings count as an issue; info rows only with Always.</summary>
+    public bool ShowAdvice(Connectivity.AdvisorySeverity severity) =>
+        severity == Connectivity.AdvisorySeverity.Error || Show("Advice", severity == Connectivity.AdvisorySeverity.Warning);
+
+    public bool ShouldPin(bool problem) => AutoPin == Visibility.Always || (AutoPin == Visibility.OnIssue && problem);
+
+    public void ResetToDefaults() { Rows.Clear(); AutoPin = Visibility.OnIssue; }
+}
+
 public sealed class Settings
 {
     /// <summary>Adapter the tray/CLI act on when a profile does not name one. Null = auto-detect.</summary>
@@ -19,6 +66,9 @@ public sealed class Settings
     /// <summary>The community pack in this repo, pinned to its signing key. Listed by default, fetched only on an explicit Sync (never at start-up).</summary>
     public string InfoHotkey { get; set; } = "Ctrl+Alt+I";
     public Connectivity.CheckSettings Checks { get; set; } = new();
+    /// <summary>Null in files written before v0.10; <see cref="CardSettings"/> migrates once from <c>Checks.StickyAlerts</c>.</summary>
+    public InfoCardSettings? InfoCard { get; set; }
+    public InfoCardSettings CardSettings() => InfoCard ??= new InfoCardSettings { AutoPin = Checks.StickyAlerts ? Visibility.OnIssue : Visibility.Never };
     public Connectivity.RepairSettings Repair { get; set; } = new();
 
     /// <summary>Random id so the telemetry build can count installs without any machine identity. Created on first use.</summary>
