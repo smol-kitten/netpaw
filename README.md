@@ -100,6 +100,8 @@ logon.
 | see what's wrong with the config | info card *Advice* rows, or `netpaw-cli advise` |
 | find a profile that works on this port | *Scan for a working profile…* (menu / `scan` in the panel), or `netpaw-cli scan [--all] [--keep]` |
 | when did it break? | *Settings → Incident log*, then *Open incident log* or `netpaw-cli incidents` |
+| wake the box on the bench | *Network map* → right-click a neighbour → *Wake*; `netpaw-cli wake <mac>` |
+| a stale route eats my traffic | *Network map → Routes* → *Delete route*; advice row *Two default routes* offers it too |
 | who is on this cable? | *Network map…* (menu / `map` in the panel) → Neighbours, Re-check, Sweep, Find routers; `netpaw-cli arp`, `find-routers` |
 | switch automatically on a known network | editor → Advanced → *Learn from current network* + *auto-switch* |
 | Windows didn't take the change | info card → *Reset adapter*; `netpaw-cli verify <profile>`, `reset`, `release`, `prefer` |
@@ -153,6 +155,8 @@ netpaw-cli dhcp [-a X]                      switch the adapter to DHCP
 netpaw-cli reach <ip[/prefix]> [--replace]  make <ip> reachable
 netpaw-cli check <host:port> [--timeout ms] one TCP connect: open / refused / timeout (rc 0/1/2)
 netpaw-cli trace <host> [--max N]           traceroute: where does the path stop?
+netpaw-cli wake <mac> [subnet]              Wake-on-LAN magic packet
+netpaw-cli routes                           route table with interface names
 netpaw-cli preset [query]                   list presets
 netpaw-cli preset apply <vendor/model|query>
 netpaw-cli capture <name> [-a X]            save the adapter's live config as a profile

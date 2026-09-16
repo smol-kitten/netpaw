@@ -50,6 +50,11 @@ Unknown port? *Find routers* borrows a temporary address in each common subnet (
 ## Other adapters
 Dual-homed boxes (dock plus Wi-Fi, a second NIC, a Hyper-V vEthernet) get one *Also* row per host-facing adapter that is up and has a real address: its address, DHCP or static, and whether its gateway answers (one ping, no internet/DNS probes — the full checks run on the work adapter only). Findings on those adapters appear as *Advice* rows prefixed with the adapter name; they are shown, never auto-repaired. Pick a different work adapter from the tray menu to act on it.
 
+## Wake-on-LAN and routes (network map)
+Right-click a neighbour in *Network map → Neighbours* and choose **Wake**: NetPaw sends the magic packet three times to the global broadcast and to that subnet's broadcast (routers do not forward it — same segment only). Re-check the map a few seconds later. CLI: `netpaw-cli wake bc:24:11:2f:f7:33`.
+
+*Network map → Routes* lists the IPv4 route table with interface names; manual routes (a stale VPN default, a leftover lab route) can be deleted there. When two manual default routes sit on the work adapter, the advice row says *Two default routes* and offers to delete the second one.
+
 ## VPN status
 The info card lists VPN adapters NetPaw recognises (WireGuard/wintun, OpenVPN TAP/DCO, Windows native IKEv2/L2TP/SSTP, Tailscale, ZeroTier, common enterprise clients) with *full tunnel* (the VPN owns the default route) or *split tunnel*. Up/down and full↔split changes are announced (*Settings → VPN*) and logged to the incident log. Detection is passive — no vendor APIs, nothing sent.
 

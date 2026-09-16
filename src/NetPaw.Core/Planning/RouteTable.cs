@@ -4,7 +4,12 @@ using NetPaw.Net;
 namespace NetPaw.Planning;
 
 /// <summary>One line of the IPv4 route table as netsh prints it.</summary>
-public sealed record RouteEntry(string Prefix, int InterfaceIndex, string? Gateway, int Metric);
+public sealed record RouteEntry(string Prefix, int InterfaceIndex, string? Gateway, int Metric, string Type = "", string InterfaceName = "")
+{
+    /// <summary>Added by an admin or a program (netsh/route add): the ones that go stale and the ones NetPaw may delete.</summary>
+    public bool Manual => Type.Equals("Manual", StringComparison.OrdinalIgnoreCase) || Type.Equals("Manuell", StringComparison.OrdinalIgnoreCase);
+    public bool Default => Prefix == "0.0.0.0/0";
+}
 
 /// <summary>
 /// Reads what Windows actually holds after an apply: the route table and the interface metric.
@@ -24,7 +29,7 @@ public static class RouteTable
             var gw = System.Net.IPAddress.TryParse(rest, out var ip) && ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork ? rest : null;
             var slash = t[3].IndexOf('/');
             if (!int.TryParse(t[3][(slash + 1)..], out var len)) continue;
-            list.Add(new RouteEntry($"{IpMath.NetworkOf(t[3][..slash], len)}/{len}", idx, gw, met));
+            list.Add(new RouteEntry($"{IpMath.NetworkOf(t[3][..slash], len)}/{len}", idx, gw, met, t[1], gw is null ? rest : ""));
         }
         return list;
     }
@@ -40,6 +45,9 @@ public static class RouteTable
         }
         return d;
     }
+
+    /// <summary>The whole IPv4 route table.</summary>
+    public static List<RouteEntry> ReadAll(IStepRunner runner) => Parse(runner.Run(Step.Netsh("Read route table", "interface ipv4 show route", critical: false)).Output);
 
     /// <summary>Routes on one interface plus its metric, read through the step runner (so the same elevation/path rules apply as for an apply).</summary>
     public static (IReadOnlyList<RouteEntry> Routes, int? InterfaceMetric) Read(IStepRunner runner, int interfaceIndex)
