@@ -10,6 +10,17 @@ class FakeProbe : IProbe
     public List<string> Pinged { get; } = [];
     public Task<ProbeResult> Ping(string host, int timeoutMs, CancellationToken ct) { Pinged.Add(host); return Task.FromResult(new ProbeResult(host, Reachable.Contains(host), 3)); }
     public Task<ProbeResult> Resolve(string host, int timeoutMs, CancellationToken ct) => Task.FromResult(new ProbeResult(host, Resolvable.Contains(host), 5));
+    public HashSet<string> DnsAnswering { get; } = [];
+    public List<string> DnsAsked { get; } = [];
+    public Task<ProbeResult> DnsQuery(string server, string name, int timeoutMs, CancellationToken ct) { DnsAsked.Add(server); return Task.FromResult(new ProbeResult(server, DnsAnswering.Contains(server), 6, DnsAnswering.Contains(server) ? "1.2.3.4" : "no answer")); }
+    /// <summary>target → path of hop addresses; null entries are silent hops. The last entry is the target itself.</summary>
+    public Dictionary<string, string?[]> Paths { get; } = [];
+    public Task<ProbeResult> PingTtl(string host, int ttl, int timeoutMs, CancellationToken ct)
+    {
+        if (!Paths.TryGetValue(host, out var path) || ttl > path.Length) return Task.FromResult(new ProbeResult(host, false, timeoutMs, "*"));
+        var hop = path[ttl - 1];
+        return Task.FromResult(new ProbeResult(host, hop == host, ttl * 2, hop ?? "*"));
+    }
     public HashSet<string> OpenPorts { get; } = [];
     public HashSet<string> RefusedPorts { get; } = [];
     public HashSet<string> UnreachableHosts { get; } = [];

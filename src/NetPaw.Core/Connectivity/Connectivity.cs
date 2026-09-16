@@ -16,6 +16,10 @@ public interface IProbe
     Task<ProbeResult> Http(string url, string expectedBody, int timeoutMs, CancellationToken ct) => Task.FromResult(new ProbeResult(url, true, 0, "not implemented"));
     /// <summary>One TCP connect. Detail is "open", "refused", "timeout", "unreachable" or "unresolved".</summary>
     Task<ProbeResult> Connect(string host, int port, int timeoutMs, CancellationToken ct) => Task.FromResult(new ProbeResult($"{host}:{port}", false, 0, "not implemented"));
+    /// <summary>One A query to one DNS server. Ok = any reply (NXDOMAIN counts: the server is alive). Detail = answer or rcode.</summary>
+    Task<ProbeResult> DnsQuery(string server, string name, int timeoutMs, CancellationToken ct) => Task.FromResult(new ProbeResult(server, false, 0, "not implemented"));
+    /// <summary>Ping with a TTL. Ok = the target itself answered; Detail = the replying hop's address, or "*" for silence.</summary>
+    Task<ProbeResult> PingTtl(string host, int ttl, int timeoutMs, CancellationToken ct) => Task.FromResult(new ProbeResult(host, false, 0, "*"));
 }
 
 public sealed class NetworkProbe : IProbe
@@ -65,6 +69,28 @@ public sealed class NetworkProbe : IProbe
             };
             return new ProbeResult(target, false, (int)sw.ElapsedMilliseconds, detail);
         }
+    }
+
+    public Task<ProbeResult> DnsQuery(string server, string name, int timeoutMs, CancellationToken ct) => Connectivity.DnsQuery.Ask(server, name, timeoutMs, ct);
+
+    public async Task<ProbeResult> PingTtl(string host, int ttl, int timeoutMs, CancellationToken ct)
+    {
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        try
+        {
+            using var p = new System.Net.NetworkInformation.Ping();
+            var r = await p.SendPingAsync(host, TimeSpan.FromMilliseconds(timeoutMs), new byte[32], new PingOptions(ttl, false), ct);
+            var ms = (int)sw.ElapsedMilliseconds;
+            return r.Status switch
+            {
+                IPStatus.Success => new ProbeResult(host, true, ms, r.Address?.ToString()),
+                IPStatus.TtlExpired or IPStatus.TimeExceeded => new ProbeResult(host, false, ms, r.Address?.ToString() ?? "*"),
+                IPStatus.DestinationUnreachable or IPStatus.DestinationHostUnreachable or IPStatus.DestinationNetworkUnreachable or IPStatus.DestinationProhibited
+                    => new ProbeResult(host, false, ms, r.Address is { } a && !a.Equals(System.Net.IPAddress.Any) ? a.ToString() : "*"),
+                _ => new ProbeResult(host, false, ms, "*"),
+            };
+        }
+        catch (Exception ex) when (ex is PingException or System.Net.Sockets.SocketException or InvalidOperationException) { return new ProbeResult(host, false, (int)sw.ElapsedMilliseconds, "*"); }
     }
 
     public async Task<ProbeResult> Ping(string host, int timeoutMs, CancellationToken ct)
@@ -117,6 +143,9 @@ public sealed record Snapshot(
 {
     /// <summary>Secondary adapter: only the gateway was pinged, so "no internet" is not a finding here.</summary>
     public bool Partial { get; init; }
+    /// <summary>One result per configured DNS server (Ok = it replied at all). Empty when checks are off.</summary>
+    public IReadOnlyList<ProbeResult> DnsServers { get; init; } = [];
+    public bool AnyDnsServerAnswers => DnsServers.Any(d => d.Ok);
     public bool GatewayOk => Intranet.Any(p => p.Ok);
     public bool InternetOk => Internet.Any(p => p.Ok);
     public bool DnsOk => DnsCheck?.Ok ?? false;
@@ -196,7 +225,10 @@ public sealed class ConnectivityChecker(IProbe probe)
         ProbeResult? dns = null, captive = null;
         if (!string.IsNullOrWhiteSpace(s.DnsCheckHost) && internet.Any(p => p.Ok)) dns = await probe.Resolve(s.DnsCheckHost, s.TimeoutMs * 2, ct);
         if (!string.IsNullOrWhiteSpace(s.CaptiveProbeUrl) && internet.Any(p => p.Ok) && (dns is null || dns.Ok)) captive = await probe.Http(s.CaptiveProbeUrl, s.CaptiveProbeBody, s.TimeoutMs * 3, ct);
-        return new Snapshot(now, adapter, link, hasAddr, hasGw, intranet, internet, dns, true, captive);
+        // Each configured server on its own: the resolver hides which one is dead (and waits for it on every lookup).
+        var name = string.IsNullOrWhiteSpace(s.DnsCheckHost) ? "www.msftconnecttest.com" : s.DnsCheckHost;
+        var servers = await Task.WhenAll(adapter.Dns.Distinct().Select(d => probe.DnsQuery(d, name, s.TimeoutMs, ct)));
+        return new Snapshot(now, adapter, link, hasAddr, hasGw, intranet, internet, dns, true, captive) { DnsServers = servers };
     }
 
     /// <summary>

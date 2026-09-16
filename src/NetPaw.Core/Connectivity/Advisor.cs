@@ -37,6 +37,17 @@ public static class Advisor
         var a = s.Adapter;
         if (a is null || !s.Link) return list;
         if (others is not null) list.AddRange(CrossAdapter(a, s, others));
+        // Per-server DNS verdicts (checks on): name the dead one when another answers; say so when none does.
+        if (s.ChecksEnabled && s.DnsServers.Count > 0)
+        {
+            var dead = s.DnsServers.Where(d => !d.Ok).Select(d => d.Target).ToList();
+            var alive = s.DnsServers.Where(d => d.Ok).Select(d => d.Target).ToList();
+            if (dead.Count > 0 && alive.Count > 0)
+                list.Add(new(AdvisorySeverity.Warning, $"DNS server {string.Join(", ", dead)} does not answer",
+                    $"{string.Join(", ", alive)} answers. Every lookup that hits {dead[0]} first waits for its timeout before falling back — remove or replace it{(a.Dhcp ? " on the DHCP server" : " in the profile")}.", CanRenew: false));
+            else if (alive.Count == 0 && s.DnsCheck is null)
+                list.Add(new(AdvisorySeverity.Warning, "No DNS server answers", $"{string.Join(", ", dead)} gave no reply to a direct query. Names will not resolve{(s.GatewayOk ? " although the gateway answers" : "")}.", CanRenew: a.Dhcp));
+        }
         if (a.VSwitchUplink)
         {
             list.Add(new(AdvisorySeverity.Info, "Bound to a Hyper-V virtual switch", $"{a.Name} carries the external switch and has no host address by design. Configure the host on its vEthernet adapter instead — pick it as the work adapter (tray menu → Work adapter).", CanRenew: false));

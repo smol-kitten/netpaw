@@ -94,11 +94,19 @@ sealed class InfoToast : Form
             Row("Link", a.Up ? "up" : "down", a.Up);
             Row("Address", a.Addresses.Count == 0 ? "none" : string.Join(", ", a.Addresses.Select(x => x.ToString())) + (a.Dhcp ? "  (DHCP)" : "") + (s.HasAddress ? "" : "  self-assigned"), s.HasAddress);
             Row("Gateway", a.HasGateway ? a.Gateways[0] + (s!.ChecksEnabled && s.Intranet.Count > 0 ? (s.GatewayOk ? $"  {s.Intranet[0].Ms} ms" : "  no reply") : "") : "not set", a.HasGateway && (!s!.ChecksEnabled || s.Intranet.Count == 0 || s.GatewayOk));
-            Row("DNS", a.Dns.Count == 0 ? "none" : string.Join(", ", a.Dns), a.Dns.Count > 0 && (s!.DnsCheck is null || s.DnsOk));
+            // With checks on, each server carries its own verdict: "10.0.0.53 ✗, 10.0.0.54 ✓ 3 ms".
+            var dnsText = a.Dns.Count == 0 ? "none" : s!.DnsServers.Count == 0 ? string.Join(", ", a.Dns) : string.Join(", ", s.DnsServers.Select(d => d.Ok ? $"{d.Target} ✓ {d.Ms} ms" : $"{d.Target} ✗"));
+            Row("DNS", dnsText, a.Dns.Count > 0 && (s!.DnsCheck is null || s.DnsOk) && (s.DnsServers.Count == 0 || s.AnyDnsServerAnswers));
             if (s!.ChecksEnabled)
             {
                 if (s.Intranet.Count > 1) Row("Intranet", string.Join(", ", s.Intranet.Skip(1).Select(p => $"{p.Target} {(p.Ok ? p.Ms + " ms" : "✗")}")), s.Intranet.Skip(1).Any(p => p.Ok));
                 Row("Internet", string.Join(", ", s.Internet.Select(p => $"{p.Target} {(p.Ok ? p.Ms + " ms" : "✗")}")), s.InternetOk);
+                if (s.HasAddress && (!s.InternetOk || !s.GatewayOk) && (s.Internet.FirstOrDefault()?.Target ?? s.Intranet.FirstOrDefault()?.Target) is { } traceTarget)
+                {
+                    _grid.Controls.Add(new Label { Text = "Path", AutoSize = true, ForeColor = Theme.Muted, Font = Theme.Small, Margin = new Padding(0, 3, 0, 3) });
+                    var trace = new LinkLabel { Text = $"Trace route to {traceTarget} — where does it stop?", AutoSize = true, Font = Theme.Small, Margin = new Padding(0, 3, 0, 3), MaximumSize = new Size(230, 0) };
+                    trace.LinkClicked += (_, _) => _app.ShowTrace(traceTarget); Theme.Apply(trace); _grid.Controls.Add(trace);
+                }
             }
             else Row("Checks", "off — enable in Settings for intranet/internet probes");
             var temps = _app.Service.TempAddresses.Count;

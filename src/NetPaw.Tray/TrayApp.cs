@@ -360,6 +360,9 @@ sealed class TrayApp : ApplicationContext
         return await MakeSwitcher(live).Learn(live);
     }
 
+    /// <summary>Traceroute window; the probe is the same one the monitor uses.</summary>
+    public void ShowTrace(string host) { var f = new TraceForm(Probe, host); f.Show(); Native.ForceForeground(f.Handle); }
+
     public void ShowMap()
     {
         var w = Work; if (w is null) { Notify("No adapter", "Pick a work adapter first.", ToolTipIcon.Warning); return; }
