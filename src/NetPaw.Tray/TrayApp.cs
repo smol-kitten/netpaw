@@ -87,6 +87,7 @@ sealed class TrayApp : ApplicationContext
         NetworkChange.NetworkAvailabilityChanged += (_, _) => OnNetworkEvent();
         NetworkChange.NetworkAddressChanged += (_, _) => OnNetworkEvent();
         _ = RunCheck();
+        AskUpdateOptIn();
         _ = CheckForUpdates();
         var leftovers = _svc.TempAddresses;
         if (leftovers.Count > 0)
@@ -286,6 +287,33 @@ sealed class TrayApp : ApplicationContext
             }
         }
         finally { _discovering = false; }
+    }
+
+    /// <summary>First start: one explicit yes/no for the daily update check. Nothing leaves the machine before the answer; policy-denied installs are never asked.</summary>
+    void AskUpdateOptIn()
+    {
+        var s = _svc.Settings;
+        if (s.UpdateCheckAsked) return;
+        if (!_svc.Allowed(Capability.UpdateCheck)) { s.UpdateCheckAsked = true; s.UpdateCheck = false; _svc.SaveSettings(); return; }
+        using var f = new Form
+        {
+            Text = "NetPaw — updates", FormBorderStyle = FormBorderStyle.FixedDialog, StartPosition = FormStartPosition.CenterScreen,
+            MaximizeBox = false, MinimizeBox = false, ShowInTaskbar = true, ClientSize = new Size(460, 150), TopMost = true,
+        };
+        var text = new Label
+        {
+            Text = "May NetPaw ask GitHub once a day whether a newer release exists?\n\nOne request to api.github.com (version number only, nothing about you or your networks). " +
+                   "A newer release shows one balloon; nothing is ever downloaded or installed. Change it any time in Settings → Updates.",
+            Location = new Point(16, 14), Size = new Size(428, 86), Font = Theme.Base,
+        };
+        var yes = new Button { Text = "Yes, check daily", DialogResult = DialogResult.Yes, Location = new Point(216, 108), Size = new Size(130, 30) };
+        var no = new Button { Text = "No", DialogResult = DialogResult.No, Location = new Point(354, 108), Size = new Size(90, 30) };
+        f.Controls.Add(text); f.Controls.Add(yes); f.Controls.Add(no); f.AcceptButton = yes; f.CancelButton = no;
+        Theme.Apply(f); Theme.Primary(yes);
+        f.Shown += (_, _) => Native.ForceForeground(f.Handle);
+        var answer = f.ShowDialog();
+        s.UpdateCheck = answer == DialogResult.Yes; s.UpdateCheckAsked = true; _svc.SaveSettings();
+        TelemetryHost.Event("updates", s.UpdateCheck ? "opt-in" : "opt-out");
     }
 
     /// <summary>What a click on the current balloon does (default: open the log). Set right before Notify.</summary>
