@@ -55,6 +55,10 @@ sealed class SettingsForm : Form
         if (pol.Any) Row("Policy", new Label { Text = "Greyed values are set by your organisation.", AutoSize = true, ForeColor = Theme.Temp, Font = Theme.Small });
         Row("Notifications", notify);
         Row("Updates", updatesRow); updates.Enabled = updateNow.Enabled = app.Service.Allowed(Capability.UpdateCheck);
+        var logLevel = new Theme.DarkComboBox { Width = 110 }; logLevel.Items.AddRange(["errors only", "normal", "verbose"]); logLevel.SelectedIndex = (int)s.LogLevel;
+        var logRow = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = Padding.Empty };
+        logRow.Controls.Add(logLevel); logRow.Controls.Add(new Label { Text = "netpaw.log detail (verbose = every check round)", AutoSize = true, ForeColor = Theme.Muted, Font = Theme.Small, Margin = new Padding(6, 6, 0, 0) });
+        Row("Log level", logRow);
         if (!app.Service.Allowed(Capability.UpdateCheck)) updates.Text += "  (disabled by policy)";
         Row("Reach mode", secondary);
         Row("Reach default prefix", prefix);
@@ -215,6 +219,7 @@ sealed class SettingsForm : Form
             if (!pol.IsSet("PanelHotkey")) s.PanelHotkey = hk.ToString();
             if (!pol.IsSet("ConfirmBeforeApply")) s.ConfirmBeforeApply = confirm.Checked;
             s.UpdateCheck = updates.Checked;
+            s.LogLevel = (LogLevel)logLevel.SelectedIndex; app.Service.Store.MinLevel = s.LogLevel;
             s.ShowNotifications = notify.Checked;
             s.ReachAsSecondary = secondary.Checked; s.ReachDefaultPrefix = (int)prefix.Value; s.FlushDns = flush.Checked;
             app.Service.SaveSettings();

@@ -43,6 +43,18 @@ public sealed class JsonStore
     public List<TempAddress> LoadTemp() => Load<List<TempAddress>>(StateFile) ?? [];
     public void SaveTemp(IEnumerable<TempAddress> temp) => Save(StateFile, temp.ToList());
 
+    /// <summary>The most verbose level that still reaches the file (set from Settings.LogLevel).</summary>
+    public LogLevel MinLevel { get; set; } = LogLevel.Normal;
+
+    /// <summary>Categorised line ("check", "apply", "switch", …). Verbose lines only land when the level allows.</summary>
+    public void Log(string category, string text, LogLevel level = LogLevel.Normal)
+    {
+        if (level > MinLevel) return;   // Errors < Normal < Verbose: drop what is more verbose than allowed
+        Log($"{category}: {text}");
+    }
+    public void Verbose(string category, string text) => Log(category, text, LogLevel.Verbose);
+    public void Error(string category, string text) => Log(category, text, LogLevel.Errors);
+
     /// <summary>Append-only text log; rotates at 5 MB to one .1 backup so a long-running tray never fills a disk.</summary>
     public void Log(string line)
     {

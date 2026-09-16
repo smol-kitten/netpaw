@@ -243,13 +243,14 @@ public sealed class ConnectivityChecker(IProbe probe)
     Adapters.WlanInfo? Wlan(AdapterInfo a) { try { return a.Wireless && a.Up ? WlanReader?.Invoke(a.Name) : null; } catch (Exception) { return null; } }
     Adapters.Dot1xInfo? Dot1x(AdapterInfo a, bool hasAddr) { try { return !a.Wireless && a.IsPhysical && a.Up && !hasAddr ? Dot1xReader?.Invoke(a.Name) : null; } catch (Exception) { return null; } }
 
-    public async Task<Snapshot> Check(AdapterInfo? adapter, CheckSettings s, CancellationToken ct = default)
+    /// <param name="readers">false = skip the netsh readers (Wi-Fi, 802.1X) this round; the caller copies the previous values.</param>
+    public async Task<Snapshot> Check(AdapterInfo? adapter, CheckSettings s, CancellationToken ct = default, bool readers = true)
     {
         var now = DateTimeOffset.Now;
         if (adapter is null) return new Snapshot(now, null, false, false, false, [], [], null, s.Enabled);
         // A 169.254.x.x self-assigned address means "DHCP did not answer", not "configured".
         var link = adapter.Up; var hasAddr = adapter.Addresses.Any(a => !a.Address.StartsWith("169.254.")); var hasGw = adapter.HasGateway;
-        if (!s.Enabled || !link || !hasAddr) return new Snapshot(now, adapter, link, hasAddr, hasGw, [], [], null, s.Enabled) { Wlan = Wlan(adapter), Dot1x = Dot1x(adapter, hasAddr) };
+        if (!s.Enabled || !link || !hasAddr) return new Snapshot(now, adapter, link, hasAddr, hasGw, [], [], null, s.Enabled) { Wlan = readers ? Wlan(adapter) : null, Dot1x = readers ? Dot1x(adapter, hasAddr) : null };
 
         var intranetTargets = adapter.Gateways.Take(1).Concat(s.IntranetTargets).Where(t => !string.IsNullOrWhiteSpace(t)).Distinct().ToList();
         var intranet = await Task.WhenAll(intranetTargets.Select(t => probe.Ping(t, s.TimeoutMs, ct)));
@@ -260,7 +261,7 @@ public sealed class ConnectivityChecker(IProbe probe)
         // Each configured server on its own: the resolver hides which one is dead (and waits for it on every lookup).
         var name = string.IsNullOrWhiteSpace(s.DnsCheckHost) ? "www.msftconnecttest.com" : s.DnsCheckHost;
         var servers = await Task.WhenAll(adapter.Dns.Distinct().Select(d => probe.DnsQuery(d, name, s.TimeoutMs, ct)));
-        return new Snapshot(now, adapter, link, hasAddr, hasGw, intranet, internet, dns, true, captive) { DnsServers = servers, Wlan = Wlan(adapter) };
+        return new Snapshot(now, adapter, link, hasAddr, hasGw, intranet, internet, dns, true, captive) { DnsServers = servers, Wlan = readers ? Wlan(adapter) : null };
     }
 
     /// <summary>

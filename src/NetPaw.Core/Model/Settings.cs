@@ -47,6 +47,9 @@ public sealed class InfoCardSettings
     public void ResetToDefaults() { Rows.Clear(); AutoPin = Visibility.OnIssue; }
 }
 
+[System.Text.Json.Serialization.JsonConverter(typeof(System.Text.Json.Serialization.JsonStringEnumConverter))]
+public enum LogLevel { Errors, Normal, Verbose }
+
 public sealed class Settings
 {
     /// <summary>Adapter the tray/CLI act on when a profile does not name one. Null = auto-detect.</summary>
@@ -65,6 +68,8 @@ public sealed class Settings
 
     /// <summary>The community pack in this repo, pinned to its signing key. Listed by default, fetched only on an explicit Sync (never at start-up).</summary>
     public string InfoHotkey { get; set; } = "Ctrl+Alt+I";
+    /// <summary>What reaches netpaw.log: errors only, the normal narrative, or every round's details.</summary>
+    public LogLevel LogLevel { get; set; } = LogLevel.Normal;
     public Connectivity.CheckSettings Checks { get; set; } = new();
     /// <summary>Null in files written before v0.10; <see cref="CardSettings"/> migrates once from <c>Checks.StickyAlerts</c>.</summary>
     public InfoCardSettings? InfoCard { get; set; }

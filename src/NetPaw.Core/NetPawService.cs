@@ -59,6 +59,7 @@ public sealed class NetPawService
     {
         Policy = _policyReader();
         Settings = Store.LoadSettings();
+        Store.MinLevel = Settings.LogLevel;
         if (Policy.WorkAdapter is not null) Settings.WorkAdapter = Policy.WorkAdapter;
         if (Policy.PanelHotkey is not null) Settings.PanelHotkey = Policy.PanelHotkey;
         if (Policy.ConfirmBeforeApply is { } c) Settings.ConfirmBeforeApply = c;

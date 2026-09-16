@@ -116,7 +116,7 @@ sealed class TrayApp : ApplicationContext
     readonly DateTimeOffset _started = DateTimeOffset.Now;
     DateTimeOffset _tickStarted, _lastChange = DateTimeOffset.Now;
     CancellationTokenSource? _tickCts;
-    int _currentInterval;
+    int _currentInterval; long _tick;
     NetState _lastState = NetState.Unknown; List<string> _lastAdviceTitles = [];
     /// <summary>Seconds the loop currently waits between rounds (grows on a stable network); the card uses it to call a snapshot stale.</summary>
     public int CurrentInterval => _currentInterval > 0 ? _currentInterval : Math.Clamp(_svc.Settings.Checks.IntervalSeconds, 5, 3600);
@@ -148,7 +148,7 @@ sealed class TrayApp : ApplicationContext
         _lastState = snap.State; _lastAdviceTitles = titles;
         if (!_svc.Settings.Checks.Enabled) return;
         _currentInterval = Cadence.Next(Snapshot.IsProblem(snap.State), changed, _lastChange, DateTimeOffset.Now, _currentInterval, _svc.Settings.Checks);
-        if (_checkTimer.Interval != _currentInterval * 1000) { _checkTimer.Interval = _currentInterval * 1000; _svc.Store.Log($"check: next round in {_currentInterval} s"); }
+        if (_checkTimer.Interval != _currentInterval * 1000) { _checkTimer.Interval = _currentInterval * 1000; _svc.Store.Verbose("check", $"next round in {_currentInterval} s"); }
     }
 
     /// <summary>NetworkChange fires on a worker thread, in bursts; hop to the UI thread and let RunCheck coalesce.</summary>
@@ -170,9 +170,16 @@ sealed class TrayApp : ApplicationContext
         {
             try { _adapters = _svc.GetAdapters(); } catch (Exception ex) { _svc.Store.Log("adapters: " + ex.Message); }
             var work = Work;
-            var snap = await Task.Run(() => _checker.Check(work, _svc.Settings.Checks, ct), ct);
+            // netsh readers (routes, Wi-Fi, 802.1X) cost a process each: only on link-up, an address change, or every 5th round.
+            _tick++;
+            var addressesChanged = work is not null && (_previous?.Adapter?.Name != work.Name || !(_previous?.Adapter?.Addresses.Select(x => x.ToString()).SequenceEqual(work.Addresses.Select(x => x.ToString())) ?? false));
+            var linkChanged = work is not null && _previous?.Adapter?.Up != work.Up;
+            var readersDue = linkChanged || addressesChanged || _tick % 5 == 1;
+            var snap = await Task.Run(() => _checker.Check(work, _svc.Settings.Checks, ct, readersDue), ct);
+            if (!readersDue && _previous is not null && _previous.Adapter?.Name == snap.Adapter?.Name) snap = snap with { Wlan = _previous.Wlan, Dot1x = _previous.Dot1x, Routes = _previous.Routes };
             if (snap.Adapter is not null && _pathMtu.TryGetValue(snap.Adapter.Name, out var knownMtu)) snap = snap with { PathMtu = knownMtu };
-            if (snap.Link && snap.HasAddress && OperatingSystem.IsWindows()) { try { snap = snap with { Routes = await Task.Run(() => RouteTable.ReadAll(_svc.Runner)) }; } catch (Exception ex) { _svc.Store.Log("routes: " + ex.Message); } }
+            if (readersDue && snap.Link && snap.HasAddress && OperatingSystem.IsWindows()) { try { snap = snap with { Routes = await Task.Run(() => RouteTable.ReadAll(_svc.Runner), ct) }; } catch (Exception ex) { _svc.Store.Log("routes", ex.Message); } }
+            _svc.Store.Verbose("check", $"round {_tick} on {snap.Adapter?.Name ?? "-"}: {snap.State}{(readersDue ? " (readers)" : "")}");
             _previous = _snapshot; _snapshot = snap;
             _advisories = _svc.Settings.Repair.DhcpAdvisory ? Advisor.Analyze(snap, _adapters) : [];
             var secondaries = AdapterSelector.Secondaries(_adapters, work);
@@ -192,7 +199,7 @@ sealed class TrayApp : ApplicationContext
             var vpns = VpnDetector.Detect(_adapters);
             foreach (var msg in VpnDetector.Changes(_vpns, vpns))
             {
-                _svc.Store.Log("vpn: " + msg);
+                _svc.Store.Log("vpn", msg);
                 if (_svc.Settings.Repair.VpnNotifications && _previous is not null) Notify("VPN", msg, ToolTipIcon.Info, force: true);
                 if (_svc.Settings.Repair.IncidentLog) (_incidents ??= new IncidentLog(_svc.Store.IncidentsFile)).Append(new Incident(DateTimeOffset.Now, msg.Contains('\'') ? msg.Split('\'')[1] : "vpn", "vpn", "", "", msg, []));
             }
@@ -307,7 +314,7 @@ sealed class TrayApp : ApplicationContext
         {
             // Give DHCP a moment; a lease makes identification a single ARP.
             await Task.Delay(4000);
-            if (_busy) { _svc.Store.Log("auto-switch skipped: a manual change is running"); return; }
+            if (_busy) { _svc.Store.Log("auto-switch", "skipped: a manual change is running"); return; }
             var live = _svc.GetAdapters().FirstOrDefault(a => a.Name == adapter.Name); if (live is null || !live.Up) return;
             _busy = true; RefreshState(); // deciding may borrow addresses: hold the gate so a click cannot interleave
             AutoSwitcher.Decision d;
@@ -340,7 +347,7 @@ sealed class TrayApp : ApplicationContext
         {
             var mac = _adapters.FirstOrDefault(a => a.Name == adapter)?.Mac;
             var (found, err) = await Task.Run(() => new Discovery.PktmonCapture().Listen(adapter, mac, Math.Clamp(_svc.Settings.Repair.DiscoverSeconds, 10, 120), null, _svc.Store.Log));
-            if (err is not null) { _svc.Store.Log("switch discovery: " + err); return; }
+            if (err is not null) { _svc.Store.Log("switch", err); return; }
             SetSwitchNeighbors(adapter, found);
             if (found.Count > 0)
             {
@@ -405,7 +412,7 @@ sealed class TrayApp : ApplicationContext
             _balloonAction = () => Process.Start(new ProcessStartInfo(info.Url) { UseShellExecute = true });
             Notify($"NetPaw {info.Version} is available", (info.Headline is null ? "" : info.Headline + " — ") + "click to open the release page.", ToolTipIcon.Info, force: true);
         }
-        catch (Exception ex) { _svc.Store.Log("update check: " + ex.Message); if (manual) Notify("Update check failed", ex.Message, ToolTipIcon.Warning, force: true); }
+        catch (Exception ex) { _svc.Store.Error("update", ex.Message); if (manual) Notify("Update check failed", ex.Message, ToolTipIcon.Warning, force: true); }
     }
 
     public void UndoAutoSwitch()
@@ -755,7 +762,7 @@ sealed class TrayApp : ApplicationContext
             var outcome = t.IsFaulted ? null : t.Result;
             if (outcome is null)
             {
-                _svc.Store.Log("apply crashed: " + t.Exception);
+                _svc.Store.Error("apply", "crashed: " + t.Exception);
                 if (t.Exception is not null) TelemetryHost.Error(t.Exception.GetBaseException(), "apply");
                 var msg = t.Exception?.GetBaseException().Message ?? "unknown";
                 Status?.Invoke(msg, "error"); Notify("NetPaw error", msg, ToolTipIcon.Error);
