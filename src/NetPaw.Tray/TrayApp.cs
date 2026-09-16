@@ -591,7 +591,8 @@ sealed class TrayApp : ApplicationContext
             Status?.Invoke(text, "warn"); Notify(plan.Title, text, ToolTipIcon.Info);
             return;
         }
-        if (_svc.Settings.ConfirmBeforeApply || plan.Warnings.Count > 0)
+        // Shift while choosing = show the exact netsh lines first, even when "Confirm" is off.
+        if (_svc.Settings.ConfirmBeforeApply || plan.Warnings.Count > 0 || (Control.ModifierKeys & Keys.Shift) == Keys.Shift)
             if (!PlanPreviewForm.Confirm(plan, subtitle)) { Status?.Invoke("Cancelled.", "warn"); return; }
         var kind = plan.Title == "DHCP" ? "dhcp" : plan.Title.StartsWith("reach ") ? "reach" : subtitle is not null ? "preset" : "profile";
         RunInBackground($"Applying {plan.Title}", () => { ApplyOutcome? o = null; try { o = (custom ?? (() => ApplyVerified(plan)))(); return o; } finally { TelemetryHost.Apply(kind, plan, o); TelemetryHost.Export(_svc, o is { Success: true } ? "info" : "error", $"apply {kind} '{plan.Title}' on {plan.Adapter}: {(o is null ? "crashed" : o.Success ? "ok" : "failed")}", new() { ["adapter"] = plan.Adapter, ["kind"] = kind, ["profile"] = plan.Title, ["steps"] = plan.Steps.Count, ["result"] = o is null ? "crashed" : o.Success ? "ok" : "failed" }, isIncident: false); } }, $"{plan.Title} → {plan.Adapter}", after);

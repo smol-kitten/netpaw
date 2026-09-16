@@ -64,6 +64,8 @@ static class Theme
             case NumericUpDown n: n.BackColor = Field; n.ForeColor = Text; n.BorderStyle = BorderStyle.FixedSingle; break;
             case ComboBox cb: cb.BackColor = Field; cb.ForeColor = Text; cb.FlatStyle = FlatStyle.Flat; break;
             case ListBox lb: lb.BackColor = Panel; lb.ForeColor = Text; lb.BorderStyle = BorderStyle.None; break;
+            case ListView lv: DarkListView(lv); break;
+            case TabControl tc: DarkTabs(tc); break;
             case CheckBox or RadioButton: c.ForeColor = Text; c.BackColor = Color.Transparent; break;
             case LinkLabel ll: ll.LinkColor = Accent; ll.ActiveLinkColor = Text; ll.VisitedLinkColor = Accent; ll.LinkBehavior = LinkBehavior.HoverUnderline; ll.BackColor = Color.Transparent; break;
             case Label l: if (l.ForeColor == SystemColors.ControlText) l.ForeColor = Text; l.BackColor = Color.Transparent; break;
@@ -71,6 +73,51 @@ static class Theme
             case System.Windows.Forms.Panel or TableLayoutPanel or FlowLayoutPanel or SplitContainer: if (c.BackColor == SystemColors.Control) c.BackColor = Bg; break;
         }
     }
+
+    /// <summary>
+    /// WinForms paints ListView column headers with the light system theme whatever the colours say. Owner-draw the
+    /// header only; rows keep the default painting. Group headers cannot be owner-drawn at all, so callers use
+    /// <see cref="SeparatorItem"/> rows instead of <see cref="ListViewGroup"/>s.
+    /// </summary>
+    static void DarkListView(ListView lv)
+    {
+        lv.BackColor = Panel; lv.ForeColor = Text; lv.BorderStyle = BorderStyle.None;
+        if (lv.OwnerDraw) return;
+        lv.OwnerDraw = true;
+        lv.DrawColumnHeader += (_, e) =>
+        {
+            using var bg = new SolidBrush(Field); e.Graphics.FillRectangle(bg, e.Bounds);
+            using var line = new Pen(Border); e.Graphics.DrawLine(line, e.Bounds.Left, e.Bounds.Bottom - 1, e.Bounds.Right, e.Bounds.Bottom - 1); e.Graphics.DrawLine(line, e.Bounds.Right - 1, e.Bounds.Top, e.Bounds.Right - 1, e.Bounds.Bottom);
+            TextRenderer.DrawText(e.Graphics, e.Header?.Text ?? "", Small, Rectangle.Inflate(e.Bounds, -6, 0), Muted, TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+        };
+        lv.DrawItem += (_, e) =>
+        {
+            if (e.Item.Tag is not SeparatorTag) { e.DrawDefault = true; return; }
+            using var bg = new SolidBrush(Bg); e.Graphics.FillRectangle(bg, e.Bounds);
+            TextRenderer.DrawText(e.Graphics, e.Item.Text, new Font(Small, FontStyle.Bold), Rectangle.Inflate(e.Bounds, -4, 0), Accent, TextFormatFlags.Left | TextFormatFlags.VerticalCenter);
+        };
+        lv.DrawSubItem += (_, e) => { e.DrawDefault = e.Item.Tag is not SeparatorTag; };
+        lv.ItemSelectionChanged += (_, e) => { if (e.Item?.Tag is SeparatorTag && e.IsSelected) e.Item.Selected = false; };
+    }
+
+    /// <summary>TabControl ignores BackColor; owner-draw the tab strip so it matches the dark forms.</summary>
+    static void DarkTabs(TabControl tc)
+    {
+        if (tc.DrawMode == TabDrawMode.OwnerDrawFixed) return;
+        tc.DrawMode = TabDrawMode.OwnerDrawFixed; tc.SizeMode = TabSizeMode.Fixed; tc.ItemSize = new Size(Math.Max(tc.ItemSize.Width, 110), 26); tc.Padding = new Point(12, 4);
+        foreach (TabPage page in tc.TabPages) { page.BackColor = Bg; page.ForeColor = Text; page.UseVisualStyleBackColor = false; }
+        tc.DrawItem += (_, e) =>
+        {
+            var selected = e.Index == tc.SelectedIndex;
+            using var bg = new SolidBrush(selected ? Bg : Field); e.Graphics.FillRectangle(bg, e.Bounds);
+            if (selected) { using var accent = new SolidBrush(Accent); e.Graphics.FillRectangle(accent, e.Bounds.Left, e.Bounds.Bottom - 2, e.Bounds.Width, 2); }
+            TextRenderer.DrawText(e.Graphics, tc.TabPages[e.Index].Text, selected ? new Font(Base, FontStyle.Bold) : Base, e.Bounds, selected ? Text : Muted, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+        };
+    }
+
+    sealed class SeparatorTag { public static readonly SeparatorTag Instance = new(); }
+    /// <summary>A full-width dark heading row (the replacement for a ListViewGroup header).</summary>
+    public static ListViewItem SeparatorItem(string text) => new(text) { Tag = SeparatorTag.Instance };
 
     public static Button Primary(Button b) { b.BackColor = Accent; b.ForeColor = Bg; b.FlatAppearance.BorderColor = Accent; b.Font = new Font(Base, FontStyle.Bold); return b; }
 
