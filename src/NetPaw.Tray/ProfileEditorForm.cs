@@ -74,7 +74,7 @@ sealed class ProfileEditorForm : Form
         _advanced.Row("Note", _note, "note");
         var autoBox = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.TopDown, WrapContents = false, Margin = Padding.Empty };
         autoBox.Controls.Add(Inline(_autoSwitch, _learn)); autoBox.Controls.Add(_fpInfo);
-        _advanced.Row("Auto-switch", autoBox, "autoswitch", hint: "Fingerprint = gateway MAC + subnet (+ DHCP server). On link-up NetPaw applies the one profile whose fingerprint matches; the first time it asks.");
+        _advanced.Row("Auto-switch", autoBox, "autoswitch", hint: "Fingerprint = gateway MAC, subnet, DHCP server, DNS suffix, ARP neighbours, plus the switch port (LLDP/CDP) and Wi-Fi BSSID when known — weighted, so a shared VRRP MAC or a common subnet alone never triggers. On link-up NetPaw applies the profile that scores best by a clear margin; the first time it asks.");
         _learn.Click += async (_, _) =>
         {
             var name = _adapter.SelectedIndex <= 0 ? _app.Work?.Name : (string)_adapter.SelectedItem!;

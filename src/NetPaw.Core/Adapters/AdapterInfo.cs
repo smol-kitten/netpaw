@@ -20,6 +20,8 @@ public sealed record AdapterInfo(
     public bool HyperVVirtual { get; init; }
     /// <summary>802.11 adapter. Static-IP work happens on the cable, so a wired adapter with a gateway wins over Wi-Fi.</summary>
     public bool Wireless { get; init; }
+    /// <summary>Connection-specific DNS suffix (from DHCP option 15 or the profile).</summary>
+    public string? DnsSuffix { get; init; }
     /// <summary>DHCP server that handed out the lease (Windows reports it); empty for static.</summary>
     public IReadOnlyList<string> DhcpServers { get; init; } = [];
     /// <summary>A physical NIC bound to an external Hyper-V switch: it carries the switch and has no host address by design. Not a fault.</summary>

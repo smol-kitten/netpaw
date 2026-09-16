@@ -7,7 +7,8 @@ namespace NetPaw.Store;
 /// <summary>Profiles, settings and temp-address state as plain JSON files (atomic writes) so they are greppable and backup-friendly.</summary>
 public sealed class JsonStore
 {
-    static readonly JsonSerializerOptions Json = new()
+    /// <summary>The options every NetPaw file uses (camelCase, indented, enums as strings); public so tests and tools round-trip the same way.</summary>
+    public static readonly JsonSerializerOptions Json = new()
     {
         WriteIndented = true, PropertyNameCaseInsensitive = true,
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull, ReadCommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true,
