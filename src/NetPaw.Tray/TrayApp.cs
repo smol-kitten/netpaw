@@ -55,6 +55,9 @@ sealed class TrayApp : ApplicationContext
     public NetPawService Service => _svc;
     public Snapshot? LastSnapshot => _snapshot;
     public IReadOnlyList<Advisory> Advisories => _advisories;
+    /// <summary>Snapshots of the other host-facing adapters (gateway ping only) and their findings; the work adapter stays the target of repairs and renews.</summary>
+    public IReadOnlyList<Snapshot> Secondaries { get; private set; } = [];
+    public IReadOnlyList<Advisory> SecondaryAdvisories { get; private set; } = [];
     public string RenewInfo => _svc.Settings.Repair.AutoRenew
         ? $"Renew lease now  (auto-renew {_renew.Attempts}/{_svc.Settings.Repair.AutoRenewMaxAttempts} this incident)"
         : "Renew lease now  (ipconfig /renew)";
@@ -123,6 +126,10 @@ sealed class TrayApp : ApplicationContext
             var snap = await Task.Run(() => _checker.Check(work, _svc.Settings.Checks));
             _previous = _snapshot; _snapshot = snap;
             _advisories = _svc.Settings.Repair.DhcpAdvisory ? Advisor.Analyze(snap, _adapters) : [];
+            var secondaries = AdapterSelector.Secondaries(_adapters, work);
+            Secondaries = secondaries.Count == 0 ? [] : await Task.Run(() => _checker.CheckSecondaries(secondaries, _svc.Settings.Checks));
+            // Secondary findings are shown, never auto-repaired: the renew scheduler and the incident log stay on the work adapter.
+            SecondaryAdvisories = _svc.Settings.Repair.DhcpAdvisory ? Secondaries.SelectMany(x => Advisor.Analyze(x, null)).Where(x => x.Severity != AdvisorySeverity.Info).ToList() : [];
             // Auto-switch: one decision per link-up (armed again when the link drops), never while busy.
             var linkUp = snap.Link && snap.Adapter is not null && (_previous is null || !_previous.Link || _previous.Adapter?.Name != snap.Adapter.Name);
             if (!snap.Link) { _autoSwitchArmed = true; if (snap.Adapter is not null) _switches.Remove(snap.Adapter.Name); }

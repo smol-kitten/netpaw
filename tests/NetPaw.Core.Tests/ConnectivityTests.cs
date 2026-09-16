@@ -282,3 +282,55 @@ public class V07AdvisorTests
         Assert.Single(NetPaw.Planning.ApplyVerifier.Compare(new NetPaw.Model.Profile { Dhcp = true }, Fx.Adapter(dhcp: false)));
     }
 }
+
+public class MultiAdapterTests
+{
+    [Fact]
+    public void SecondariesExcludeWorkUplinkAndVirtual()
+    {
+        var work = Fx.Nic("Wi-Fi", wireless: true, dhcp: true, addrs: ["10.1.1.5/24"], gw: "10.1.1.1");
+        var all = NetPaw.Adapters.AdapterSelector.TagVSwitchUplinks(
+        [
+            work,
+            Fx.Nic("Ethernet 3", "Realtek USB GbE", dhcp: true, addrs: ["10.2.2.5/24"], gw: "10.2.2.1"),
+            Fx.Nic("Ethernet 4", "Intel I225", dhcp: true, addrs: ["169.254.7.7/16"], gw: null),                 // link up, DHCP failed → no real address
+            Fx.Nic("Ethernet 5", "Intel I226", dhcp: false, addrs: ["192.168.50.2/24"], gw: null),              // static lab port, no gateway: still watched
+            Fx.Nic("WireGuard", "WireGuard Tunnel", physical: false, addrs: ["10.99.0.2/32"], gw: "10.99.0.1"),
+            Fx.Nic("Ethernet", "Intel X550", addrs: null, gw: null),                                              // bound to the external switch
+            Fx.Nic("vEthernet (UwU)", "Hyper-V Virtual Ethernet Adapter #2", physical: false, dhcp: true, addrs: ["10.10.0.42/24"], gw: "10.10.0.1", hyperv: true),
+            Fx.Nic("Ethernet 9", up: false, addrs: ["10.3.3.3/24"], gw: "10.3.3.1"),
+        ]);
+        var sec = NetPaw.Adapters.AdapterSelector.Secondaries(all, work);
+        Assert.Equal(["Ethernet 3", "vEthernet (UwU)", "Ethernet 5"], sec.Select(a => a.Name));   // with gateway first, then by name
+    }
+
+    [Fact]
+    public async Task SecondaryCheckPingsGatewayOnly()
+    {
+        var probe = new FakeProbe(); probe.Reachable.Add("10.2.2.1");
+        var checker = new ConnectivityChecker(probe);
+        var s = new CheckSettings { Enabled = true, InternetTargets = ["1.1.1.1"], DnsCheckHost = "x", CaptiveProbeUrl = "http://x" };
+        var dock = Fx.Nic("Ethernet 3", dhcp: true, addrs: ["10.2.2.5/24"], gw: "10.2.2.1");
+        var lab = Fx.Nic("Ethernet 5", addrs: ["192.168.50.2/24"], gw: null);
+        var dead = Fx.Nic("Ethernet 6", dhcp: true, addrs: ["10.4.4.5/24"], gw: "10.4.4.1");
+        var r = await checker.CheckSecondaries([dock, lab, dead], s);
+        Assert.Equal(["10.2.2.1", "10.4.4.1"], probe.Pinged);                                  // no internet, DNS or captive probes for secondaries
+        Assert.Equal(NetState.GatewayReachable, r[0].State); Assert.False(Snapshot.IsProblem(r[0].State));
+        Assert.Equal(NetState.NoGateway, r[1].State);
+        Assert.Equal(NetState.NoGateway, r[2].State);
+        Assert.All(r, x => Assert.True(x.Partial));
+        var off = await checker.CheckSecondaries([dock], new CheckSettings());
+        Assert.Empty(probe.Pinged.Skip(2)); Assert.Equal(NetState.ChecksOff, off[0].State);
+    }
+
+    [Fact]
+    public void AdviseNamesTheAdapterWithoutGateway()
+    {
+        var dock = Fx.Nic("Ethernet 3", dhcp: true, addrs: ["10.2.2.5/24"], gw: null, dns: ["10.2.2.53"]);
+        var snap = new Snapshot(DateTimeOffset.Now, dock, true, true, false, [], [], null, false) { Partial = true };
+        var adv = Advisor.Analyze(snap, null);
+        Assert.NotEmpty(adv);
+        Assert.All(adv, a => Assert.Equal("Ethernet 3", a.Adapter));
+        Assert.Contains(adv, a => a.Title.Contains("gateway", StringComparison.OrdinalIgnoreCase));
+    }
+}

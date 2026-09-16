@@ -13,6 +13,8 @@ public sealed record Advisory(AdvisorySeverity Severity, string Title, string Te
     /// <summary>The one-click repair, and which adapter it targets. Renewable findings are RepairKind.Renew on the adapter itself.</summary>
     public RepairKind Repair { get; init; } = CanRenew ? RepairKind.Renew : RepairKind.None;
     public string? RepairAdapter { get; init; }
+    /// <summary>The adapter the finding is about (set by <see cref="Advisor.Analyze(Snapshot, IReadOnlyList{AdapterInfo}?)"/>).</summary>
+    public string? Adapter { get; init; }
     public override string ToString() => $"{Title}: {Text}";
 }
 
@@ -26,7 +28,10 @@ public static class Advisor
     public static IReadOnlyList<Advisory> Analyze(Snapshot s) => Analyze(s, null);
 
     /// <param name="others">All adapters on the machine, for cross-adapter findings (held addresses, competing gateways).</param>
-    public static IReadOnlyList<Advisory> Analyze(Snapshot s, IReadOnlyList<AdapterInfo>? others)
+    public static IReadOnlyList<Advisory> Analyze(Snapshot s, IReadOnlyList<AdapterInfo>? others) =>
+        s.Adapter is null ? [] : AnalyzeCore(s, others).Select(x => x.Adapter is null ? x with { Adapter = s.Adapter.Name } : x).ToList();
+
+    static List<Advisory> AnalyzeCore(Snapshot s, IReadOnlyList<AdapterInfo>? others)
     {
         var list = new List<Advisory>();
         var a = s.Adapter;

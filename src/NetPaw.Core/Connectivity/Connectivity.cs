@@ -73,7 +73,7 @@ public sealed class NetworkProbe : IProbe
 }
 
 /// <summary>Coarse verdicts an admin acts on. Ordered from worst to best.</summary>
-public enum NetState { Unknown, LinkDown, NoAddress, NoGateway, IntranetOnly, DnsBroken, Online, ChecksOff, VSwitchUplink, CaptivePortal }
+public enum NetState { Unknown, LinkDown, NoAddress, NoGateway, IntranetOnly, DnsBroken, Online, ChecksOff, VSwitchUplink, CaptivePortal, GatewayReachable }
 
 /// <summary>Everything the info toast shows and the monitor compares.</summary>
 public sealed record Snapshot(
@@ -88,6 +88,8 @@ public sealed record Snapshot(
     bool ChecksEnabled,
     ProbeResult? Captive = null)
 {
+    /// <summary>Secondary adapter: only the gateway was pinged, so "no internet" is not a finding here.</summary>
+    public bool Partial { get; init; }
     public bool GatewayOk => Intranet.Any(p => p.Ok);
     public bool InternetOk => Internet.Any(p => p.Ok);
     public bool DnsOk => DnsCheck?.Ok ?? false;
@@ -102,6 +104,7 @@ public sealed record Snapshot(
             if (!HasAddress) return NetState.NoAddress;
             if (!ChecksEnabled) return HasGateway ? NetState.ChecksOff : NetState.NoGateway;
             if (!HasGateway && !GatewayOk) return NetState.NoGateway;
+            if (Partial) return GatewayOk ? NetState.GatewayReachable : NetState.NoGateway;
             if (!GatewayOk && !InternetOk) return NetState.NoGateway;
             if (!InternetOk) return NetState.IntranetOnly;
             if (DnsCheck is not null && !DnsOk) return NetState.DnsBroken;
@@ -121,6 +124,7 @@ public sealed record Snapshot(
         NetState.ChecksOff => "Configured (checks off)",
         NetState.VSwitchUplink => "Hyper-V switch uplink — host address is on the vEthernet adapter",
         NetState.CaptivePortal => "Captive portal — a login page intercepts web traffic",
+        NetState.GatewayReachable => "Gateway answers",
         _ => "Unknown",
     };
 
@@ -166,6 +170,24 @@ public sealed class ConnectivityChecker(IProbe probe)
         if (!string.IsNullOrWhiteSpace(s.DnsCheckHost) && internet.Any(p => p.Ok)) dns = await probe.Resolve(s.DnsCheckHost, s.TimeoutMs * 2, ct);
         if (!string.IsNullOrWhiteSpace(s.CaptiveProbeUrl) && internet.Any(p => p.Ok) && (dns is null || dns.Ok)) captive = await probe.Http(s.CaptiveProbeUrl, s.CaptiveProbeBody, s.TimeoutMs * 3, ct);
         return new Snapshot(now, adapter, link, hasAddr, hasGw, intranet, internet, dns, true, captive);
+    }
+
+    /// <summary>
+    /// The other host-facing adapters (dock while on Wi-Fi, second NIC, vEthernet): link, address and one gateway ping
+    /// each — no internet/DNS/captive probes, so a dual-homed box does not double its probe traffic.
+    /// </summary>
+    public async Task<IReadOnlyList<Snapshot>> CheckSecondaries(IEnumerable<AdapterInfo> adapters, CheckSettings s, CancellationToken ct = default)
+    {
+        var list = new List<Snapshot>();
+        foreach (var a in adapters)
+        {
+            var now = DateTimeOffset.Now;
+            var link = a.Up; var hasAddr = a.HasRealAddress; var hasGw = a.HasGateway;
+            if (!s.Enabled || !link || !hasAddr || !hasGw) { list.Add(new Snapshot(now, a, link, hasAddr, hasGw, [], [], null, s.Enabled) { Partial = true }); continue; }
+            var gw = await probe.Ping(a.Gateways[0], s.TimeoutMs, ct);
+            list.Add(new Snapshot(now, a, link, hasAddr, hasGw, [gw], [], null, true) { Partial = true });
+        }
+        return list;
     }
 }
 
