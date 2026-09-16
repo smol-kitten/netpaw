@@ -41,6 +41,11 @@ sealed class SettingsForm : Form
         var prefix = new NumericUpDown { Minimum = 8, Maximum = 30, Value = s.ReachDefaultPrefix, Width = 70 };
         var flush = new CheckBox { Text = "flush the DNS cache after every apply (ipconfig /flushdns)", Checked = s.FlushDns, AutoSize = true };
         var startup = new CheckBox { Text = "start with Windows (elevated task, no UAC prompt)", Checked = Startup.IsEnabled(), AutoSize = true };
+        var updates = new CheckBox { Text = "look for a newer release once a day (GitHub API, never downloads)", Checked = s.UpdateCheck, AutoSize = true };
+        var updateNow = new Button { Text = "Check now", Width = 90, Height = 24, Margin = new Padding(8, 0, 0, 0) };
+        updateNow.Click += async (_, _) => { updateNow.Enabled = false; try { await app.CheckForUpdates(manual: true); } finally { updateNow.Enabled = true; } };
+        var updatesRow = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = Padding.Empty };
+        updatesRow.Controls.Add(updates); updatesRow.Controls.Add(updateNow);
 
         Row("Work adapter", adapter); adapter.Enabled = !pol.IsSet("WorkAdapter");
         Row("Panel hotkey", hotkey); hotkey.Enabled = !pol.IsSet("PanelHotkey");
@@ -48,6 +53,8 @@ sealed class SettingsForm : Form
         Row("Confirm", confirm); confirm.Enabled = !pol.IsSet("ConfirmBeforeApply");
         if (pol.Any) Row("Policy", new Label { Text = "Greyed values are set by your organisation.", AutoSize = true, ForeColor = Theme.Temp, Font = Theme.Small });
         Row("Notifications", notify);
+        Row("Updates", updatesRow); updates.Enabled = updateNow.Enabled = app.Service.Allowed(Capability.UpdateCheck);
+        if (!app.Service.Allowed(Capability.UpdateCheck)) updates.Text += "  (disabled by policy)";
         Row("Reach mode", secondary);
         Row("Reach default prefix", prefix);
         Row("After apply", flush);
@@ -187,6 +194,7 @@ sealed class SettingsForm : Form
             if (!pol.IsSet("WorkAdapter")) s.WorkAdapter = adapter.SelectedIndex <= 0 ? null : (string)adapter.SelectedItem!;
             if (!pol.IsSet("PanelHotkey")) s.PanelHotkey = hk.ToString();
             if (!pol.IsSet("ConfirmBeforeApply")) s.ConfirmBeforeApply = confirm.Checked;
+            s.UpdateCheck = updates.Checked;
             s.ShowNotifications = notify.Checked;
             s.ReachAsSecondary = secondary.Checked; s.ReachDefaultPrefix = (int)prefix.Value; s.FlushDns = flush.Checked;
             app.Service.SaveSettings();

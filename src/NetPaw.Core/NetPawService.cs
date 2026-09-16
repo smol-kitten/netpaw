@@ -154,6 +154,7 @@ public sealed class NetPawService
         Capability.AutoSwitch => Policy.AllowAutoSwitch,
         Capability.Scan => Policy.AllowScan,
         Capability.Capture => Policy.AllowCapture,
+        Capability.UpdateCheck => Policy.AllowUpdateCheck,
         _ => true,
     };
 

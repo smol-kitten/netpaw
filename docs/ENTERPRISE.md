@@ -73,6 +73,7 @@ Registry: `HKLM\SOFTWARE\Policies\NetPaw`. Values:
 | `AllowAutoSwitch` | DWORD | 0 = profiles never apply themselves on link-up |
 | `AllowScan` | DWORD | 0 = no scan dialog / find-routers (they apply profiles and borrow addresses) |
 | `AllowCapture` | DWORD | 0 = no pktmon capture (LLDP/CDP discovery) |
+| `AllowUpdateCheck` | DWORD | 0 = never contact api.github.com for the daily "newer release" toast (recommended for managed fleets) |
 
 Every `Allow*` defaults to allowed. Denied actions disappear from the panel and menu; `netpaw-cli` exits with code **4**. `netpaw-cli policy` prints the effective policy on a device.
 
