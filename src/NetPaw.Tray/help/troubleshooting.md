@@ -26,3 +26,6 @@ A known Windows quirk after switching static over a DHCP lease. NetPaw verifies 
 
 ## Captive portal
 With checks on, NetPaw fetches the Microsoft connect-test page after DNS works; a login page instead of the expected body shows as *Captive portal — open a browser to sign in*.
+
+## "Profile applied, but the device still does not answer"
+Type `10.0.0.5:443` (or `printer:9100`) into the panel: NetPaw makes one TCP connect and says **open**, **refused** (host is there, nothing listens on that port or its firewall rejects), **timed out** (a firewall drops it or the host is off) or **not reachable** (no route — reach the address first). Nothing is changed, nothing is scanned. CLI: `netpaw-cli check 10.0.0.5:443`.

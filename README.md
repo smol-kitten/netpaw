@@ -89,6 +89,7 @@ logon.
 | save what's configured right now | *Capture current as profile…* |
 | undo temporary addresses | *Remove N temporary addresses* (menu / panel) |
 | see what will run | *Settings → confirm before applying*, or *Preview plan* in the editor |
+| is that port open from here? | type `10.0.0.5:443` (or `nas:22`) in the panel, or `netpaw-cli check 10.0.0.5:443` |
 | see what a change will run | hold **Shift** while picking it (or *Settings → Confirm* for every time), or `netpaw-cli apply <p> -n` |
 | check the link | `Ctrl+Alt+I` — the info card; 📌 keeps it |
 | get told when the network changes | *Settings → Connectivity → check reachability* + *monitor mode* |
@@ -147,6 +148,7 @@ netpaw-cli show <profile>                   print one profile
 netpaw-cli apply <profile> [-a X] [-n]      apply a profile (-n = dry run, print the plan)
 netpaw-cli dhcp [-a X]                      switch the adapter to DHCP
 netpaw-cli reach <ip[/prefix]> [--replace]  make <ip> reachable
+netpaw-cli check <host:port> [--timeout ms] one TCP connect: open / refused / timeout (rc 0/1/2)
 netpaw-cli preset [query]                   list presets
 netpaw-cli preset apply <vendor/model|query>
 netpaw-cli capture <name> [-a X]            save the adapter's live config as a profile

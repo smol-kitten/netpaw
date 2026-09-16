@@ -10,6 +10,15 @@ class FakeProbe : IProbe
     public List<string> Pinged { get; } = [];
     public Task<ProbeResult> Ping(string host, int timeoutMs, CancellationToken ct) { Pinged.Add(host); return Task.FromResult(new ProbeResult(host, Reachable.Contains(host), 3)); }
     public Task<ProbeResult> Resolve(string host, int timeoutMs, CancellationToken ct) => Task.FromResult(new ProbeResult(host, Resolvable.Contains(host), 5));
+    public HashSet<string> OpenPorts { get; } = [];
+    public HashSet<string> RefusedPorts { get; } = [];
+    public HashSet<string> UnreachableHosts { get; } = [];
+    public Task<ProbeResult> Connect(string host, int port, int timeoutMs, CancellationToken ct)
+    {
+        var t = $"{host}:{port}";
+        var detail = OpenPorts.Contains(t) ? "open" : RefusedPorts.Contains(t) ? "refused" : UnreachableHosts.Contains(host) ? "unreachable" : host.EndsWith(".invalid") ? "unresolved" : "timeout";
+        return Task.FromResult(new ProbeResult(t, detail == "open", detail == "timeout" ? timeoutMs : 4, detail));
+    }
 }
 
 public class ConnectivityTests

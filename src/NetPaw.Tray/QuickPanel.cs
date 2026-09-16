@@ -1,3 +1,4 @@
+using NetPaw.Connectivity;
 using NetPaw.Model;
 using NetPaw.Net;
 using NetPaw.Planning;
@@ -103,8 +104,11 @@ sealed class QuickPanel : Form
         var q = _input.Text.Trim();
         var svc = _app.Service; var w = _app.Work;
         var looksLikeIp = q.Length > 0 && char.IsAsciiDigit(q[0]) && q.Contains('.');
+        var isPortCheck = PortCheck.TryParse(q, out var pcHost, out var pcPort);
 
-        if (looksLikeIp && !svc.Allowed(Capability.Reach))
+        if (isPortCheck)
+            _items.Add(new Item($"Check TCP port {pcPort} on {pcHost}", "One connect: open / refused / timeout. Nothing is changed.", Theme.Accent, () => _ = _app.CheckPort(pcHost, pcPort), "check"));
+        else if (looksLikeIp && !svc.Allowed(Capability.Reach))
             _items.Add(new Item("Reach mode is disabled by policy", "Your organisation manages this setting.", Theme.Error, () => { }));
         else if (looksLikeIp)
         {

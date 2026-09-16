@@ -15,6 +15,8 @@ public enum ReachKind
     UsePreset,
     /// <summary>No knowledge: add a temporary address in an assumed subnet around the target.</summary>
     TempAddress,
+    /// <summary>"host:port" — a TCP connect check, no address change.</summary>
+    PortCheck,
     Invalid,
 }
 
@@ -31,6 +33,8 @@ public static class ReachResolver
     public static ReachDecision Resolve(string target, AdapterInfo? adapter, IEnumerable<Profile> profiles, IEnumerable<Preset> presets, int defaultPrefix = 24)
     {
         var t = target.Trim();
+        if (Connectivity.PortCheck.TryParse(t, out var pcHost, out var pcPort))
+            return new ReachDecision(ReachKind.PortCheck, $"{pcHost}:{pcPort}", null, null, null, $"Check whether TCP port {pcPort} on {pcHost} answers from this adapter.");
         if (!IpMath.TryParseCidr(t, out var targetAddr, defaultPrefix))
             return new ReachDecision(ReachKind.Invalid, t, null, null, null, $"'{t}' is not an IPv4 address.");
         var ip = targetAddr.Address;

@@ -27,6 +27,7 @@ const string Usage = """
       netpaw-cli find-routers [-a X] [--force]    borrow an address in each common subnet, ARP the usual gateways, report who answers (--force: ok to drop a DHCP lease)
       netpaw-cli incidents [-n 30]                show the incident log (enable it in settings: repair.incidentLog)
       netpaw-cli reach <ip[/prefix]> [--replace] [-a X] [-n]
+      netpaw-cli check <host:port> [--timeout ms]   one TCP connect: open / refused / timeout (rc 0/1/2, 3 = unresolved)
                                               make <ip> reachable: pick a covering profile, else a preset,
                                               else add a temporary secondary in the assumed /24
       netpaw-cli preset [query]                   list presets (factory default addresses of gear)
@@ -58,6 +59,7 @@ string? Opt(params string[] names) { var i = argv.FindIndex(a => names.Contains(
 var dryRun = Flag("-n", "--dry-run");
 var replace = Flag("--replace");
 var adapterName = Opt("-a", "--adapter");
+var timeoutOpt = Opt("--timeout");
 if (argv.Count == 0 || argv[0] is "-h" or "--help" or "help") { Console.WriteLine(Usage); return 0; }
 
 var svc = NetPawService.CreateDefault();
@@ -125,6 +127,13 @@ try
             if (adv.Count == 0) { Console.WriteLine("no findings"); return 0; }
             foreach (var x in adv) Console.WriteLine($"[{x.Severity}] {x.Title} — {x.Text}{(x.CanRenew ? "  (a DHCP renew may fix this: netpaw-cli renew)" : "")}{(x.Repair != NetPaw.Connectivity.RepairKind.None ? $"  (fix: netpaw-cli {x.Repair.ToString().ToLowerInvariant()} -a \"{x.RepairAdapter}\")" : "")}");
             return adv.Any(x => x.Severity == NetPaw.Connectivity.AdvisorySeverity.Error) ? 1 : 0;
+        }
+        case "check":
+        {
+            if (argv.Count < 2 || !NetPaw.Connectivity.PortCheck.TryParse(argv[1], out var host, out var port)) return Fail("check needs host:port, e.g. 10.0.0.5:443 or nas.corp:22");
+            var r = NetPaw.Connectivity.PortCheck.Run(new NetPaw.Connectivity.NetworkProbe(), host, port, int.TryParse(timeoutOpt, out var t) ? t : 2000).GetAwaiter().GetResult();
+            Console.WriteLine(r.Text);
+            return r.ExitCode;
         }
         case "reach":
         {
