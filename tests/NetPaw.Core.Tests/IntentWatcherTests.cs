@@ -13,17 +13,31 @@ public class IntentWatcherTests
 {
     static readonly DateTimeOffset T0 = new(2026, 9, 16, 14, 0, 0, TimeSpan.Zero);
     static IntentWatcher W() => new(ownPid: 999, pid => pid == 4242 ? "msedge" : null);
-    static TcpEndpoint E(string remote, int port = 80, int pid = 4242) => new(remote, port, pid, "10.10.20.50");
+    static int _lp = 50000;
+    static TcpEndpoint E(string remote, int port = 80, int pid = 4242, int localPort = 0) => new(remote, port, pid, "10.10.20.50", localPort == 0 ? ++_lp : localPort);
 
     [Fact]
     public void HandshakeNoiseIsNotStuckButTwoSamplesAre()
     {
         var w = W();
+        var cf = E("1.1.1.1", 443);
         Assert.Empty(w.Sample([E("192.168.88.1")], T0));                                   // first sight: pending
-        Assert.Empty(w.Sample([E("1.1.1.1", 443)], T0.AddSeconds(2)));                      // the first one completed, a new one appeared
-        var stuck = w.Sample([E("1.1.1.1", 443)], T0.AddSeconds(4));                        // seen twice: stuck
+        Assert.Empty(w.Sample([cf], T0.AddSeconds(2)));                                     // the first one completed, a new one appeared
+        var stuck = w.Sample([cf], T0.AddSeconds(4));                                       // same socket seen twice: stuck
         var (e, since) = Assert.Single(stuck);
         Assert.Equal("1.1.1.1", e.Remote); Assert.Equal(T0.AddSeconds(2), since);
+    }
+
+    [Fact]
+    public void ParallelConnectsToOneHostAreNotStuckOnFirstSight()
+    {
+        // Edge opens 2-6 sockets to the same host:port at once; on the first sample none of them is stuck yet.
+        var w = W();
+        var burst = new[] { E("192.168.88.1", localPort: 61001), E("192.168.88.1", localPort: 61002), E("192.168.88.1", localPort: 61003) };
+        Assert.Empty(w.Sample(burst, T0));
+        var stuck = w.Sample(burst, T0.AddSeconds(2));
+        var (e, since) = Assert.Single(stuck);                                              // one report per remote (cooldown), not three
+        Assert.Equal(T0, since); Assert.Equal(2, new StuckTarget(e.Remote, e.Port, e.Pid, "msedge", StuckKind.OffLinkNoReply, null!, since).SecondsWaiting(T0.AddSeconds(2)));
     }
 
     [Fact]
@@ -41,10 +55,13 @@ public class IntentWatcherTests
         var rows = new[] { E("10.1.1.1"), E("10.1.1.2"), E("10.1.1.3"), E("10.1.1.4") };
         w.Sample(rows, T0);
         Assert.Equal(3, w.Sample(rows, T0.AddSeconds(2)).Count);                            // cap
-        Assert.Empty(w.Sample([E("10.1.1.1", 8080)], T0.AddSeconds(4)));                    // same remote, other port, within cooldown: first sight only
-        Assert.Empty(w.Sample([E("10.1.1.1", 8080)], T0.AddSeconds(6)));                    // still in cooldown
-        Assert.Single(w.Sample([E("10.1.1.1", 8080)], T0.AddMinutes(11)));                  // cooldown over: pending again ... 
-        Assert.Empty(w.Sample([E("10.1.1.1", 8080)], T0.AddMinutes(11).AddSeconds(2)));     // ... and reported once more, not twice
+        var again = E("10.1.1.1", 8080);
+        Assert.Empty(w.Sample([again], T0.AddSeconds(4)));                                  // same remote, other socket: first sight
+        Assert.Empty(w.Sample([again], T0.AddSeconds(6)));                                  // stuck, but the remote is in cooldown
+        var later = E("10.1.1.1", 8080);
+        Assert.Empty(w.Sample([later], T0.AddMinutes(11)));                                 // cooldown over: first sight again ...
+        Assert.Single(w.Sample([later], T0.AddMinutes(11).AddSeconds(2)));                  // ... reported once more
+        Assert.Empty(w.Sample([later], T0.AddMinutes(11).AddSeconds(4)));                   // ... and not twice
     }
 
     [Fact]

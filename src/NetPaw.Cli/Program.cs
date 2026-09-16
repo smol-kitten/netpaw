@@ -153,7 +153,9 @@ try
             svc.Require(Capability.IntentWatch);
             var table = OperatingSystem.IsWindows() ? new NetPaw.Net.IpHelperTcpTable() : (NetPaw.Net.ITcpTable)new NetPaw.Net.NullTcpTable();
             var watcher = new NetPaw.Connectivity.IntentWatcher(Environment.ProcessId, pid => { try { return System.Diagnostics.Process.GetProcessById(pid).ProcessName; } catch (Exception) { return null; } });
-            watcher.Sample(table.SynSent(), DateTimeOffset.Now); Thread.Sleep(2000);
+            var first = table.SynSent();
+            if (Flag("--raw")) { Console.WriteLine($"{first.Count} syn_sent row(s):"); foreach (var r in first) Console.WriteLine($"  {r.Local}:{r.LocalPort} -> {r.Remote}:{r.Port} pid {r.Pid}"); }
+            watcher.Sample(first, DateTimeOffset.Now); Thread.Sleep(2000);
             var now = DateTimeOffset.Now; var stuck = watcher.Sample(table.SynSent(), now);
             if (stuck.Count == 0) { Console.WriteLine("nothing is waiting on an unanswered connection right now"); return 0; }
             var work = svc.ResolveAdapter(adapterName); var arp = new NetPaw.Arp.WindowsArpProvider().ReadCache();

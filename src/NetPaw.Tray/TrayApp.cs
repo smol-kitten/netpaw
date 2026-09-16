@@ -135,6 +135,7 @@ sealed class TrayApp : ApplicationContext
             _intentAdvisories.RemoveAll(x => now - x.At >= IntentWatcher.Cooldown);
             var rows = await Task.Run(_tcpTable.SynSent);
             var stuck = _intent.Sample(rows, now);
+            if (rows.Count > 0) _svc.Store.Verbose("intent", $"sample at {now:HH:mm:ss.fff}: {rows.Count} syn_sent [{string.Join(" ", rows.Select(r => $"{r.Remote}:{r.Port}/{r.LocalPort}#{r.Pid}"))}] stuck={stuck.Count}");
             if (stuck.Count == 0) return;
             var work = Work;
             if (work is null || !work.HasRealAddress) return;                      // no address: the adapter advice already says why nothing works

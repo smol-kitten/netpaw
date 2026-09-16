@@ -5,9 +5,10 @@ using System.Runtime.Versioning;
 namespace NetPaw.Net;
 
 /// <summary>One outbound TCP connection still waiting for its SYN to be answered.</summary>
-public sealed record TcpEndpoint(string Remote, int Port, int Pid, string Local)
+public sealed record TcpEndpoint(string Remote, int Port, int Pid, string Local, int LocalPort = 0)
 {
-    public string Key => $"{Remote}:{Port}:{Pid}";
+    /// <summary>One socket = one key. A browser opens several parallel connects to the same host:port from one PID; they differ by local port only.</summary>
+    public string Key => $"{Remote}:{Port}:{Pid}:{LocalPort}";
 }
 
 /// <summary>The SYN_SENT rows of the TCP table. Injected so the watcher rules are tested without Windows.</summary>
@@ -54,7 +55,7 @@ public sealed class IpHelperTcpTable : ITcpTable
             {
                 var row = Marshal.PtrToStructure<MIB_TCPROW_OWNER_PID>(buf + 4 + i * rowSize);
                 if (row.State != MIB_TCP_STATE_SYN_SENT) continue;
-                list.Add(new TcpEndpoint(new IPAddress(row.RemoteAddr).ToString(), Port(row.RemotePort), (int)row.OwningPid, new IPAddress(row.LocalAddr).ToString()));
+                list.Add(new TcpEndpoint(new IPAddress(row.RemoteAddr).ToString(), Port(row.RemotePort), (int)row.OwningPid, new IPAddress(row.LocalAddr).ToString(), Port(row.LocalPort)));
             }
             return list;
         }
