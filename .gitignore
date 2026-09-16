@@ -481,3 +481,6 @@ $RECYCLE.BIN/
 # Vim temporary swap files
 *.swp
 out/
+
+# ledger export carries internal hosts; public repo keeps pointers only (ACCESS.md at root)
+.claude/ACCESS.md
