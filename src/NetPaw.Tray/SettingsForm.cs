@@ -55,6 +55,10 @@ sealed class SettingsForm : Form
         if (pol.Any) Row("Policy", new Label { Text = "Greyed values are set by your organisation.", AutoSize = true, ForeColor = Theme.Temp, Font = Theme.Small });
         Row("Notifications", notify);
         Row("Updates", updatesRow); updates.Enabled = updateNow.Enabled = app.Service.Allowed(Capability.UpdateCheck);
+        var trayClick = new Theme.DarkComboBox { Width = 160 }; trayClick.Items.AddRange(["quick panel", "main window"]); trayClick.SelectedIndex = s.TrayClick == "main" ? 1 : 0;
+        var trayRow = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = Padding.Empty };
+        trayRow.Controls.Add(trayClick); trayRow.Controls.Add(new Label { Text = "what a click on the tray icon opens (double-click always opens the window)", AutoSize = true, ForeColor = Theme.Muted, Font = Theme.Small, Margin = new Padding(6, 6, 0, 0) });
+        Row("Tray click opens", trayRow);
         var logLevel = new Theme.DarkComboBox { Width = 110 }; logLevel.Items.AddRange(["errors only", "normal", "verbose"]); logLevel.SelectedIndex = (int)s.LogLevel;
         var logRow = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = Padding.Empty };
         logRow.Controls.Add(logLevel); logRow.Controls.Add(new Label { Text = "netpaw.log detail (verbose = every check round)", AutoSize = true, ForeColor = Theme.Muted, Font = Theme.Small, Margin = new Padding(6, 6, 0, 0) });
@@ -221,6 +225,7 @@ sealed class SettingsForm : Form
             if (!pol.IsSet("PanelHotkey")) s.PanelHotkey = hk.ToString();
             if (!pol.IsSet("ConfirmBeforeApply")) s.ConfirmBeforeApply = confirm.Checked;
             s.UpdateCheck = updates.Checked;
+            s.TrayClick = trayClick.SelectedIndex == 1 ? "main" : "panel";
             s.LogLevel = (LogLevel)logLevel.SelectedIndex; app.Service.Store.MinLevel = s.LogLevel;
             s.ShowNotifications = notify.Checked;
             s.ReachAsSecondary = secondary.Checked; s.ReachDefaultPrefix = (int)prefix.Value; s.FlushDns = flush.Checked;

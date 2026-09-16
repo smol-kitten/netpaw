@@ -174,6 +174,8 @@ sealed class QuickPanel : Form
                 _items.Add(new Item("Network info", "Wi-Fi signal, 802.1X, path MTU, per-server DNS and 'X cannot reach Y' advice live on the info card", Theme.Muted, _app.ShowInfo, OpensWindow: true));
             if (Word(q, "scan", "find working"))
                 _items.Add(new Item("Scan for a working profile…", "Try DHCP and your profiles on this port, keep the one that works", Theme.Accent, _app.ShowScan, OpensWindow: true));
+            if (q.Length == 0 || Word(q, "window", "main", "open netpaw", "dashboard"))
+                _items.Add(new Item("Open NetPaw window…", "Overview, profiles, tools, map and log in one resizable window", Theme.Muted, () => _app.ShowMain(), OpensWindow: true));
             if (q.Length == 0 || Word(q, "network info", "status", "info"))
                 _items.Add(new Item("Network info", "Link, address, gateway, DNS, intranet/internet — pin it with 📌", Theme.Muted, _app.ShowInfo, OpensWindow: true));
             if (Word(q, "help"))

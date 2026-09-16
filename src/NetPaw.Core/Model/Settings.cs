@@ -50,11 +50,36 @@ public sealed class InfoCardSettings
 [System.Text.Json.Serialization.JsonConverter(typeof(System.Text.Json.Serialization.JsonStringEnumConverter))]
 public enum LogLevel { Errors, Normal, Verbose }
 
+/// <summary>Where the main window was last, and which page; clamped to the screen on load.</summary>
+public sealed class MainWindowState
+{
+    public int X { get; set; } = -1;
+    public int Y { get; set; } = -1;
+    public int Width { get; set; } = 960;
+    public int Height { get; set; } = 640;
+    public bool Maximized { get; set; }
+    public string LastPage { get; set; } = "Overview";
+    public bool HasPosition => X >= 0 && Y >= 0;
+
+    /// <summary>Keeps at least 200 × 150 px of the window inside the given screen rectangle; a window that lived on a removed monitor comes back centred.</summary>
+    public MainWindowState ClampTo(int screenX, int screenY, int screenWidth, int screenHeight)
+    {
+        var w = Math.Clamp(Width, 640, Math.Max(640, screenWidth)); var h = Math.Clamp(Height, 400, Math.Max(400, screenHeight));
+        var visible = HasPosition && X + 200 <= screenX + screenWidth && Y + 150 <= screenY + screenHeight && X + w >= screenX + 200 && Y + 40 >= screenY;
+        var x = visible ? Math.Clamp(X, screenX, screenX + screenWidth - 200) : screenX + (screenWidth - w) / 2;
+        var y = visible ? Math.Clamp(Y, screenY, screenY + screenHeight - 150) : screenY + (screenHeight - h) / 2;
+        return new MainWindowState { X = x, Y = y, Width = w, Height = h, Maximized = Maximized, LastPage = LastPage };
+    }
+}
+
 public sealed class Settings
 {
     /// <summary>Adapter the tray/CLI act on when a profile does not name one. Null = auto-detect.</summary>
     public string? WorkAdapter { get; set; }
     public string PanelHotkey { get; set; } = "Ctrl+Alt+N";
+    /// <summary>What a left click on the tray icon opens: "panel" (quick panel) or "main" (the main window).</summary>
+    public string TrayClick { get; set; } = "panel";
+    public MainWindowState MainWindow { get; set; } = new();
     public bool ConfirmBeforeApply { get; set; } = false;
     public bool ShowNotifications { get; set; } = true;
     /// <summary>Prefix assumed for reach-mode targets that match no profile/preset.</summary>
