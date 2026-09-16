@@ -1,4 +1,5 @@
 {
+ "ok": true,
  "readme": "README.md",
  "type": "generic",
  "type_detected": "generic",
@@ -7,7 +8,7 @@
  ],
  "type_confident": false,
  "type_override": null,
- "scanned_ts": 1789549160,
+ "scanned_ts": 1789553134,
  "sections": [
   {
    "title": "\ud83d\udcd6 Description",
@@ -18,20 +19,14 @@
   {
    "title": "\ud83d\udce6 Installation",
    "anchor": "-installation",
-   "hash": "3884ec3e4819",
-   "chars": 869
+   "hash": "5b2ec9bb3ec6",
+   "chars": 918
   },
   {
    "title": "\ud83d\ude80 Usage",
    "anchor": "-usage",
-   "hash": "80c3bf3f2429",
-   "chars": 7113
-  },
-  {
-   "title": "\ud83d\ude4c Acknowledgements",
-   "anchor": "-acknowledgements",
-   "hash": "292042e52c3d",
-   "chars": 71
+   "hash": "c7e2dbdcd449",
+   "chars": 440
   },
   {
    "title": "Files",
@@ -62,92 +57,20 @@
    "anchor": "-license",
    "hash": "08432f4de7ad",
    "chars": 188
+  },
+  {
+   "title": "\ud83d\udcda Documentation",
+   "anchor": "-documentation",
+   "hash": "03ab31082830",
+   "chars": 66
   }
  ],
  "changed_since_last": [
-  "-description"
+  "-installation",
+  "-usage",
+  "-documentation"
  ],
  "findings": [
-  {
-   "check": "commands",
-   "sev": "info",
-   "msg": "`netpaw-cli` \u2014 not on PATH here (fine if users install it)"
-  },
-  {
-   "check": "commands",
-   "sev": "info",
-   "msg": "`netpaw-cli` \u2014 not on PATH here (fine if users install it)"
-  },
-  {
-   "check": "commands",
-   "sev": "info",
-   "msg": "`netpaw-cli` \u2014 not on PATH here (fine if users install it)"
-  },
-  {
-   "check": "commands",
-   "sev": "info",
-   "msg": "`netpaw-cli` \u2014 not on PATH here (fine if users install it)"
-  },
-  {
-   "check": "commands",
-   "sev": "info",
-   "msg": "`netpaw-cli` \u2014 not on PATH here (fine if users install it)"
-  },
-  {
-   "check": "commands",
-   "sev": "info",
-   "msg": "`netpaw-cli` \u2014 not on PATH here (fine if users install it)"
-  },
-  {
-   "check": "commands",
-   "sev": "info",
-   "msg": "`netpaw-cli` \u2014 not on PATH here (fine if users install it)"
-  },
-  {
-   "check": "commands",
-   "sev": "info",
-   "msg": "`netpaw-cli` \u2014 not on PATH here (fine if users install it)"
-  },
-  {
-   "check": "commands",
-   "sev": "info",
-   "msg": "`netpaw-cli` \u2014 not on PATH here (fine if users install it)"
-  },
-  {
-   "check": "commands",
-   "sev": "info",
-   "msg": "`netpaw-cli` \u2014 not on PATH here (fine if users install it)"
-  },
-  {
-   "check": "commands",
-   "sev": "info",
-   "msg": "`netpaw-cli` \u2014 not on PATH here (fine if users install it)"
-  },
-  {
-   "check": "commands",
-   "sev": "info",
-   "msg": "`netpaw-cli` \u2014 not on PATH here (fine if users install it)"
-  },
-  {
-   "check": "commands",
-   "sev": "info",
-   "msg": "`netpaw-cli` \u2014 not on PATH here (fine if users install it)"
-  },
-  {
-   "check": "commands",
-   "sev": "info",
-   "msg": "`netpaw-cli` \u2014 not on PATH here (fine if users install it)"
-  },
-  {
-   "check": "commands",
-   "sev": "info",
-   "msg": "`netpaw-cli` \u2014 not on PATH here (fine if users install it)"
-  },
-  {
-   "check": "commands",
-   "sev": "info",
-   "msg": "`netpaw-cli` \u2014 not on PATH here (fine if users install it)"
-  },
   {
    "check": "commands",
    "sev": "info",
@@ -174,5 +97,5 @@
    "msg": "`powershell` \u2014 not on PATH here (fine if users install it)"
   }
  ],
- "verified_ts": 1789507989
+ "verified_ts": 1789553134
 }

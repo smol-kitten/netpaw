@@ -20,10 +20,11 @@ $policy = @{
     AllowScan            = 1
     AllowCapture         = 1
     AllowUpdateCheck     = 0   # managed fleets update through Intune, not a toast
+    AllowIntentWatch     = 1
 }
 $key = 'HKLM:\SOFTWARE\Policies\NetPaw'
 New-Item -Path $key -Force | Out-Null
-foreach ($name in 'WorkAdapter','PanelHotkey','ConfirmBeforeApply','RepoUrls','AllowUserProfiles','AllowUserRepos','AllowReach','AllowTempAddresses','AllowDhcp','AllowUnsignedRepos','AllowTelemetry','AllowAutoSwitch','AllowScan','AllowCapture','AllowUpdateCheck') {
+foreach ($name in 'WorkAdapter','PanelHotkey','ConfirmBeforeApply','RepoUrls','AllowUserProfiles','AllowUserRepos','AllowReach','AllowTempAddresses','AllowDhcp','AllowUnsignedRepos','AllowTelemetry','AllowAutoSwitch','AllowScan','AllowCapture','AllowUpdateCheck','AllowIntentWatch') {
     if ($policy.ContainsKey($name)) {
         $v = $policy[$name]
         $type = if ($v -is [array]) { 'MultiString' } elseif ($v -is [int]) { 'DWord' } else { 'String' }

@@ -141,8 +141,8 @@ sealed class InfoToast : Form
                 reset.LinkClicked += (_, _) => _app.ResetAdapter(_app.LastVerifyAdapter); Theme.Apply(reset); host.Controls.Add(reset);
                 _grid.Controls.Add(host);
             }
-            if (_app.Service.Settings.Repair.DhcpAdvisory)
-                foreach (var adv in _app.Advisories.Where(x => card.ShowAdvice(x.Severity)))
+            var adviceRows = (_app.Service.Settings.Repair.DhcpAdvisory ? _app.Advisories : []).Concat(_app.IntentAdvisories);
+            foreach (var adv in adviceRows.Where(x => card.ShowAdvice(x.Severity)))
                 {
                     var color = adv.Severity switch { AdvisorySeverity.Error => Theme.Error, AdvisorySeverity.Warning => Theme.Temp, _ => Theme.Muted };
                     _grid.Controls.Add(new Label { Text = "Advice", AutoSize = true, ForeColor = color, Font = Theme.Small, Margin = new Padding(0, 3, 0, 3) });
@@ -157,9 +157,9 @@ sealed class InfoToast : Form
                     }
                     else if (adv.Repair != RepairKind.None)
                     {
-                        var text = adv.Repair switch { RepairKind.Release => $"Release lease on {adv.RepairAdapter}", RepairKind.Reset => $"Reset adapter {adv.RepairAdapter}", RepairKind.Prefer => $"Prefer {adv.RepairAdapter} (pin metrics)", _ => adv.Repair.ToString() };
+                        var text = adv.Repair switch { RepairKind.Release => $"Release lease on {adv.RepairAdapter}", RepairKind.Reset => $"Reset adapter {adv.RepairAdapter}", RepairKind.Prefer => $"Prefer {adv.RepairAdapter} (pin metrics)", RepairKind.SetMtu => $"Set MTU {adv.Value} on {adv.RepairAdapter}", RepairKind.DeleteRoute => $"Delete route {adv.Route?.Prefix} via {adv.Route?.Gateway}", RepairKind.Reach => $"Reach {adv.Target} (profile / preset / temporary address)", _ => adv.Repair.ToString() };
                         var fix = new LinkLabel { Text = text, AutoSize = true, Font = Theme.Small, Margin = new Padding(0, 2, 0, 0) };
-                        var captured = adv; fix.LinkClicked += (_, _) => _app.Repair(captured);
+                        var captured = adv; fix.LinkClicked += (_, _) => { if (captured.Repair == RepairKind.Reach && captured.Target is { } target) _app.Reach(target); else _app.Repair(captured); };
                         Theme.Apply(fix);
                         host.Controls.Add(fix);
                     }

@@ -30,6 +30,9 @@ A known Windows quirk after switching static over a DHCP lease. NetPaw verifies 
 ## Captive portal
 With checks on, NetPaw fetches the Microsoft connect-test page after DNS works; a login page instead of the expected body shows as *Captive portal — open a browser to sign in*.
 
+## "Edge says it cannot reach 192.168.88.1"
+NetPaw watches the local TCP table every two seconds (one in-process call, nothing sent). A connection that sits unanswered for two samples becomes an *Advice* row: **msedge cannot reach 192.168.88.1:80 — no reply for 4 s (no reply from beyond the gateway). Profile 'MikroTik lab' covers it** with a *Reach* link (profile, preset or temporary address — whatever the reach resolver picks). *On this subnet but no answer* means the host is down or on another VLAN. One balloon per address per ten minutes. Not visible to the watcher: connections that fail instantly because there is no route at all (a static profile without gateway — the adapter advice covers that), and targets behind a VPN or proxy (you see the tunnel address). Off switch: *Settings → Repair → Intent watcher*; policy `AllowIntentWatch`. CLI: `netpaw-cli stuck`.
+
 ## "Profile applied, but the device still does not answer"
 Type `10.0.0.5:443` (or `printer:9100`) into the panel: NetPaw makes one TCP connect and says **open**, **refused** (host is there, nothing listens on that port or its firewall rejects), **timed out** (a firewall drops it or the host is off) or **not reachable** (no route — reach the address first). Nothing is changed, nothing is scanned. CLI: `netpaw-cli check 10.0.0.5:443`.
 

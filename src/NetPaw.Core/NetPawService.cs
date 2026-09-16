@@ -157,6 +157,7 @@ public sealed class NetPawService
         Capability.Scan => Policy.AllowScan,
         Capability.Capture => Policy.AllowCapture,
         Capability.UpdateCheck => Policy.AllowUpdateCheck,
+        Capability.IntentWatch => Policy.AllowIntentWatch,
         _ => true,
     };
 

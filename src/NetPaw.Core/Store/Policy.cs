@@ -28,14 +28,15 @@ public sealed record Policy(
     bool AllowScan,
     bool AllowCapture,
     bool AllowUpdateCheck,
+    bool AllowIntentWatch,
     IReadOnlySet<string> SetKeys)
 {
-    public static readonly Policy None = new(null, null, null, [], true, true, true, true, true, true, true, true, true, true, true, new HashSet<string>());
+    public static readonly Policy None = new(null, null, null, [], true, true, true, true, true, true, true, true, true, true, true, true, new HashSet<string>());
     public bool IsSet(string key) => SetKeys.Contains(key);
     public bool Any => SetKeys.Count > 0;
 
     public const string KeyPath = @"SOFTWARE\Policies\NetPaw";
-    public static readonly string[] Keys = ["WorkAdapter", "PanelHotkey", "ConfirmBeforeApply", "RepoUrls", "AllowUserProfiles", "AllowUserRepos", "AllowReach", "AllowTempAddresses", "AllowDhcp", "AllowUnsignedRepos", "AllowTelemetry", "AllowAutoSwitch", "AllowScan", "AllowCapture", "AllowUpdateCheck"];
+    public static readonly string[] Keys = ["WorkAdapter", "PanelHotkey", "ConfirmBeforeApply", "RepoUrls", "AllowUserProfiles", "AllowUserRepos", "AllowReach", "AllowTempAddresses", "AllowDhcp", "AllowUnsignedRepos", "AllowTelemetry", "AllowAutoSwitch", "AllowScan", "AllowCapture", "AllowUpdateCheck", "AllowIntentWatch"];
 }
 
 public static class PolicyReader
@@ -48,7 +49,7 @@ public static class PolicyReader
         bool Allow(string k) => B(k) ?? true;
         var urls = src.GetMulti("RepoUrls"); if (urls is not null) set.Add("RepoUrls");
         return new Policy(S("WorkAdapter"), S("PanelHotkey"), B("ConfirmBeforeApply"), urls?.Where(u => !string.IsNullOrWhiteSpace(u)).ToList() ?? [],
-            Allow("AllowUserProfiles"), Allow("AllowUserRepos"), Allow("AllowReach"), Allow("AllowTempAddresses"), Allow("AllowDhcp"), Allow("AllowUnsignedRepos"), Allow("AllowTelemetry"), Allow("AllowAutoSwitch"), Allow("AllowScan"), Allow("AllowCapture"), Allow("AllowUpdateCheck"), set);
+            Allow("AllowUserProfiles"), Allow("AllowUserRepos"), Allow("AllowReach"), Allow("AllowTempAddresses"), Allow("AllowDhcp"), Allow("AllowUnsignedRepos"), Allow("AllowTelemetry"), Allow("AllowAutoSwitch"), Allow("AllowScan"), Allow("AllowCapture"), Allow("AllowUpdateCheck"), Allow("AllowIntentWatch"), set);
     }
 
     public static Policy ReadMachine() => OperatingSystem.IsWindows() ? Read(new RegistryPolicySource()) : Policy.None;
