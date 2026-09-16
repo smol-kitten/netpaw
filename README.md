@@ -54,9 +54,9 @@ MIT licensed. Windows 10/11, .NET 10.
 
 ![scan for a working profile](docs/scan.png)
 
-| network map — ARP neighbours | which switch port am I on? (LLDP via pktmon) |
-|---|---|
-| ![map](docs/map.png) | ![switch](docs/switch.png) |
+| network map — ARP neighbours (right-click → Wake) | which switch port am I on? (LLDP via pktmon) | route table with delete |
+|---|---|---|
+| ![map](docs/map.png) | ![switch](docs/switch.png) | ![routes](docs/routes.png) |
 
 *Screenshots from the Windows 11 test VM; every `netsh` path in this README was verified there.*
 
