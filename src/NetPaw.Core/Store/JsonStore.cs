@@ -46,8 +46,15 @@ public sealed class JsonStore
     /// <summary>Append-only text log; rotates at 5 MB to one .1 backup so a long-running tray never fills a disk.</summary>
     public void Log(string line)
     {
-        try { Rotate(LogFile); File.AppendAllText(LogFile, $"{DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss} {line}{Environment.NewLine}"); } catch (IOException) { }
+        var stamped = $"{DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss} {line}";
+        lock (_recent) { _recent.Enqueue(stamped); while (_recent.Count > RecentLines) _recent.Dequeue(); }
+        try { Rotate(LogFile); File.AppendAllText(LogFile, stamped + Environment.NewLine); } catch (IOException) { }
     }
+
+    public const int RecentLines = 40;
+    readonly Queue<string> _recent = new();
+    /// <summary>The last 40 log lines, for error reports: what the app was doing right before it failed.</summary>
+    public IReadOnlyList<string> Recent { get { lock (_recent) return _recent.ToList(); } }
 
     public const long RotateAtBytes = 5 * 1024 * 1024;
 

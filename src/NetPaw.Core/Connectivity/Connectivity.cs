@@ -220,6 +220,8 @@ public sealed class CheckSettings
     /// <summary>Host resolved to prove DNS works; empty = skip the DNS check.</summary>
     public string DnsCheckHost { get; set; } = "www.msftconnecttest.com";
     public int IntervalSeconds { get; set; } = 30;
+    /// <summary>Back-off ceiling on a stable network (see <see cref="Cadence"/>); the interval doubles up to this.</summary>
+    public int MaxIntervalSeconds { get; set; } = 120;
     /// <summary>NCSI-style probe: this URL must return exactly the expected body; a portal returns its login page. Empty = skip.</summary>
     public string CaptiveProbeUrl { get; set; } = "http://www.msftconnecttest.com/connecttest.txt";
     public string CaptiveProbeBody { get; set; } = "Microsoft Connect Test";

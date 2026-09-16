@@ -16,6 +16,9 @@ The card fades after a few seconds. Click 📌 to keep it; ✕ closes it.
 ## Reachability checks (off by default)
 *Settings → Connectivity → check reachability*. Every interval NetPaw pings the default gateway, your extra intranet hosts, the internet targets (`1.1.1.1`, `9.9.9.9`), and resolves one name to prove DNS. Nothing is probed until you switch it on.
 
+## How often it checks
+The interval you set is the *fast* rate: NetPaw uses it while there is a problem, for five minutes after any change, and always in monitor mode. On a stable network it backs off (30 → 60 → 120 s, the ceiling is *Settings → Connectivity → max interval*). A cable pull or address change triggers a round at once regardless. A round that hangs longer than twice the interval is cancelled by a watchdog and logged; the card header says *last check N min ago* when the newest result is older than three intervals.
+
 ## Monitor mode
 With checks on, *monitor mode* tells you when the state **changes**: internet lost while the intranet still answers, gateway gone, link down, back online. One notification per change; no nagging while nothing changes. A red dot appears on the tray paw while there is a problem.
 
