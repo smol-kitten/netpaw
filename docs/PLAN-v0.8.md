@@ -18,6 +18,12 @@ shared-looking networks, and the monitor watches every host-facing adapter. Ship
 - Six test files define their own `AdapterInfo` builder.
 - No standing rules for scope `netpaw`. Open task t-2d587c (runner2 lacks `zip`) does not touch this work.
 - Ranked gap list: `docs/GAP-ANALYSIS-2026-09-16.md`.
+- Auto-switch is off by default and the first automatic switch asks once. The fingerprint
+  collision therefore only reaches users who opted in and confirmed.
+- NetPaw collects no SSID/BSSID today (`NetworkInterfaceAdapterProvider.cs` only flags
+  `Wireless80211`). `netsh wlan show interfaces` provides both.
+- Git history keeps the old `ACCESS.md` (commit 110b5a0) with internal hosts. The operator
+  accepted this on 2026-09-16 ("not that critical"). No history rewrite.
 
 ## Requirements
 - R1 Every plan the Tray or CLI executes reports the diff when Windows keeps the old config.
@@ -51,6 +57,10 @@ only call sites change. Replace the all-must-match fingerprint with a score so r
 Move the monitor from one adapter to a list with the work adapter first.
 
 ## Steps
+0. Hotfix for v0.7.x (`fix/fingerprint-vrrp`, ships as v0.7.2): `NetworkFingerprint.Matches`
+   returns false when `GatewayMac` is a virtual-router MAC (VRRP `00:00:5e:00:01:xx`, HSRP
+   `00:00:0c:07:ac:xx`, `00:00:0c:9f:fx:xx`) and the DHCP server is missing on either side.
+   Test `VirtualRouterMacAloneNeverMatches`. Help topic `auto-switch.md` names the limit.
 1. Add `RouteDiff` and `MetricDiff` to `ApplyVerifier.Compare` (`Planning/ApplyVerifier.cs`);
    routes compare destination and next hop. The metric compares only when the profile sets one.
 2. Route `Execute` in `TrayApp.cs` through `_svc.ApplyAndVerify` for every plan. Keep `custom`
@@ -58,10 +68,11 @@ Move the monitor from one adapter to a list with the work adapter first.
 3. Make the CLI `dhcp`, `reset`, `release`, `prefer`, `preset apply`, `reach` commands use
    `ApplyAndVerify` (`Cli/Program.cs`). Return 1 with diffs.
 4. Replace `NetworkFingerprint` with a scored record: fields `GatewayMac`, `Subnet`, `DhcpServer`,
-   `DnsSuffix`, `SwitchChassis`, `SwitchPort`, `NeighbourMacs` (top 3). Old JSON loads unchanged
+   `DnsSuffix`, `SwitchChassis`, `SwitchPort`, `NeighbourMacs` (top 3), `Ssid`, `Bssid`
+   (wireless adapters only, read with `netsh wlan show interfaces`). Old JSON loads unchanged
    (new fields null). Add `Score(other)` with weights: chassis+port 5, DHCP server 3, DNS suffix 2,
-   gateway MAC 3 (1 when the MAC is in the VRRP `00:00:5e:00:01`, HSRP `00:00:0c:07:ac`, CARP
-   `00:00:5e:00:01` ranges), subnet 1, neighbour overlap 1 each.
+   gateway MAC 3 (1 when the MAC is in a virtual-router range, see step 0), BSSID 4, SSID 2,
+   subnet 1, neighbour overlap 1 each.
 5. `AutoSwitcher.Decide` applies when the best score ≥ 5 and beats the runner-up by ≥ 3. `Learn`
    records LLDP data when the incident log holds a capture newer than 24 h.
 6. Add `AdapterInfo.HostFacingAll(adapters)` and make the monitor loop
@@ -83,11 +94,20 @@ Move the monitor from one adapter to a list with the work adapter first.
     old-JSON load), multi-adapter advisor, update-checker parsing and policy gate.
 13. Bump `NetPaw.Tray.csproj` to 0.8.0, update README (info card rows, update check, Shift-to-preview),
     help topics `auto-switch.md` and `settings.md`.
-14. PR per milestone: `feat/verify-everywhere` (steps 1–3, 11–12 part), `feat/fingerprint-score`
-    (4–5), `feat/multi-adapter` (6–7), `feat/update-check` (8), `feat/ux-0.8` (9–10, 13).
+14. PR per milestone, each with its acceptance criteria:
+    - `fix/fingerprint-vrrp` (step 0): `VirtualRouterMacAloneNeverMatches` passes, v0.7.2 tagged.
+    - `feat/verify-everywhere` (1–3, 11): tests `VerifierReportsMissingRoute`,
+      `VerifierReportsInterfaceMetric`, `PickPrefersDockOverWifi`, `PickSkipsVSwitchUplink`,
+      `PickIgnoresVpnTunnel`; CLI `dhcp` returns 1 with a diff when the fake adapter keeps static.
+    - `feat/fingerprint-score` (4–5): tests `ScoreVrrpCollisionStaysBelowMargin`,
+      `ScoreLldpBreaksTie`, `ScoreLoadsV07Json`, `DecideNeedsMarginOfThree`.
+    - `feat/multi-adapter` (6–7): test `AdviseNamesTheAdapterWithoutGateway`; info card screenshot.
+    - `feat/update-check` (8): tests `UpdateCheckerParsesTag`, `UpdateCheckerHonoursPolicy`,
+      `UpdateCheckerCachesForADay`; ADMX validates in `gpmc`-style schema check in CI.
+    - `feat/ux-0.8` (9–10, 13): screenshots of dark headers + plan preview in README.
 
 ## Verification
-- `dotnet test tests/NetPaw.Core.Tests` ≥ 160 tests, 0 failed, on Linux CI.
+- `dotnet test tests/NetPaw.Core.Tests` ≥ 160 tests, 0 failed, on Linux CI. The named tests above exist.
 - Windows test VM: apply a profile with a route to an unreachable next hop → the info card
   shows the route diff; `netpaw-cli dhcp` on "Ethernet 2" then `verify` returns 0.
 - Fingerprint: two saved profiles, both learned on `192.168.1.0/24` with gateway `00:00:5e:00:01:01`
