@@ -55,6 +55,8 @@ static class TelemetryHost
 
     public static void Event(string category, string action, string? label = null, double? value = null) => _ = Client?.Event(category, action, label, value);
     public static void Error(Exception ex, string where) => Client?.Error(ex.GetType().FullName ?? "Exception", ex.Message, "error", new() { ["where"] = where }, ex);
+    /// <summary>Error with context (state, adapter, uptime, the last 40 log lines) from <see cref="NetPaw.Diagnostics.Guard.Context"/>.</summary>
+    public static void Error(Exception ex, string where, Dictionary<string, object?> context) => Client?.Error(ex.GetType().FullName ?? "Exception", ex.Message, "error", context, ex);
 }
 #else
 namespace NetPaw.Tray;
@@ -69,5 +71,6 @@ static class TelemetryHost
     public static void Apply(string kind, Planning.ApplyPlan plan, Planning.ApplyOutcome? outcome) { }
     public static void Event(string category, string action, string? label = null, double? value = null) { }
     public static void Error(Exception ex, string where) { }
+    public static void Error(Exception ex, string where, Dictionary<string, object?> context) { }
 }
 #endif

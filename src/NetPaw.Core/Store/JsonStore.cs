@@ -43,11 +43,30 @@ public sealed class JsonStore
     public List<TempAddress> LoadTemp() => Load<List<TempAddress>>(StateFile) ?? [];
     public void SaveTemp(IEnumerable<TempAddress> temp) => Save(StateFile, temp.ToList());
 
+    /// <summary>The most verbose level that still reaches the file (set from Settings.LogLevel).</summary>
+    public LogLevel MinLevel { get; set; } = LogLevel.Normal;
+
+    /// <summary>Categorised line ("check", "apply", "switch", …). Verbose lines only land when the level allows.</summary>
+    public void Log(string category, string text, LogLevel level = LogLevel.Normal)
+    {
+        if (level > MinLevel) return;   // Errors < Normal < Verbose: drop what is more verbose than allowed
+        Log($"{category}: {text}");
+    }
+    public void Verbose(string category, string text) => Log(category, text, LogLevel.Verbose);
+    public void Error(string category, string text) => Log(category, text, LogLevel.Errors);
+
     /// <summary>Append-only text log; rotates at 5 MB to one .1 backup so a long-running tray never fills a disk.</summary>
     public void Log(string line)
     {
-        try { Rotate(LogFile); File.AppendAllText(LogFile, $"{DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss} {line}{Environment.NewLine}"); } catch (IOException) { }
+        var stamped = $"{DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss} {line}";
+        lock (_recent) { _recent.Enqueue(stamped); while (_recent.Count > RecentLines) _recent.Dequeue(); }
+        try { Rotate(LogFile); File.AppendAllText(LogFile, stamped + Environment.NewLine); } catch (IOException) { }
     }
+
+    public const int RecentLines = 40;
+    readonly Queue<string> _recent = new();
+    /// <summary>The last 40 log lines, for error reports: what the app was doing right before it failed.</summary>
+    public IReadOnlyList<string> Recent { get { lock (_recent) return _recent.ToList(); } }
 
     public const long RotateAtBytes = 5 * 1024 * 1024;
 

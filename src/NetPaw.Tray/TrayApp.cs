@@ -83,7 +83,7 @@ sealed class TrayApp : ApplicationContext
         _hotkeys.ShowRequested += () => ShowPanel();
         RegisterHotkeys();
         RefreshState();
-        _checkTimer.Tick += (_, _) => _ = RunCheck();
+        _checkTimer.Tick += (_, _) => { Watchdog(); _ = RunCheck(); };
         _confirm.Tick += (_, _) => { _confirm.Stop(); _ = RunCheck(); };
         ConfigureChecks();
         // Instant reaction to cable pulls / address changes, on top of the periodic probe.
@@ -91,7 +91,7 @@ sealed class TrayApp : ApplicationContext
         NetworkChange.NetworkAddressChanged += (_, _) => OnNetworkEvent();
         _ = RunCheck();
         AskUpdateOptIn();
-        _ = CheckForUpdates();
+        _ = Guarded("update-check", () => CheckForUpdates());
         var leftovers = _svc.TempAddresses;
         if (leftovers.Count > 0)
             Notify("Temporary addresses from a previous session", $"{leftovers.Count} address{(leftovers.Count == 1 ? "" : "es")} NetPaw added earlier {(leftovers.Count == 1 ? "is" : "are")} still tracked ({string.Join(", ", leftovers.Select(t => t.Address.ToString()))}). Remove them from the panel or tray menu if you are done.", ToolTipIcon.Warning, force: true);
@@ -108,8 +108,47 @@ sealed class TrayApp : ApplicationContext
     public void ConfigureChecks()
     {
         var c = _svc.Settings.Checks;
-        _checkTimer.Stop();
+        _checkTimer.Stop(); _currentInterval = 0;
         if (c.Enabled) { _checkTimer.Interval = Math.Clamp(c.IntervalSeconds, 5, 3600) * 1000; _checkTimer.Start(); }
+    }
+
+    // ---- loop health: adaptive cadence, watchdog, guarded background work ------------------------
+    readonly DateTimeOffset _started = DateTimeOffset.Now;
+    DateTimeOffset _tickStarted, _lastChange = DateTimeOffset.Now;
+    CancellationTokenSource? _tickCts;
+    int _currentInterval; long _tick;
+    NetState _lastState = NetState.Unknown; List<string> _lastAdviceTitles = [];
+    /// <summary>Seconds the loop currently waits between rounds (grows on a stable network); the card uses it to call a snapshot stale.</summary>
+    public int CurrentInterval => _currentInterval > 0 ? _currentInterval : Math.Clamp(_svc.Settings.Checks.IntervalSeconds, 5, 3600);
+
+    /// <summary>A round that outlives twice the interval is stuck (a probe ignoring its timeout, a hung netsh): cancel it, log it, let the next one run.</summary>
+    void Watchdog()
+    {
+        if (!_checking || _tickCts is null) return;
+        var age = DateTimeOffset.Now - _tickStarted;
+        if (age <= Cadence.Deadline(CurrentInterval)) return;
+        _svc.Store.Log($"check: watchdog cancelled a round after {(int)age.TotalSeconds} s");
+        TelemetryHost.Event("check", "watchdog", null, age.TotalSeconds);
+        try { _tickCts.Cancel(); } catch (ObjectDisposedException) { }
+        _checking = false; _currentInterval = 0;
+        _checkTimer.Interval = Math.Clamp(_svc.Settings.Checks.IntervalSeconds, 5, 3600) * 1000;
+    }
+
+    /// <summary>Every background task goes through here: failures are logged with the operation name and reported with context; nothing reaches the UI loop.</summary>
+    Task Guarded(string op, Func<Task> work) => Diagnostics.Guard.Run(op, work, _svc.Store.Log, Report);
+    void Report(Exception ex, string op) => TelemetryHost.Error(ex, op, Diagnostics.Guard.Context(op, _snapshot?.State.ToString(), _snapshot?.Adapter?.Name,
+        System.Reflection.Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "0", DateTimeOffset.Now - _started, _svc.Store.Recent));
+
+    /// <summary>After a round: remember what changed and pick the next wait.</summary>
+    void Schedule(Snapshot snap)
+    {
+        var titles = _advisories.Select(a => a.Title).ToList();
+        var changed = snap.State != _lastState || !titles.SequenceEqual(_lastAdviceTitles);
+        if (changed) _lastChange = DateTimeOffset.Now;
+        _lastState = snap.State; _lastAdviceTitles = titles;
+        if (!_svc.Settings.Checks.Enabled) return;
+        _currentInterval = Cadence.Next(Snapshot.IsProblem(snap.State), changed, _lastChange, DateTimeOffset.Now, _currentInterval, _svc.Settings.Checks);
+        if (_checkTimer.Interval != _currentInterval * 1000) { _checkTimer.Interval = _currentInterval * 1000; _svc.Store.Verbose("check", $"next round in {_currentInterval} s"); }
     }
 
     /// <summary>NetworkChange fires on a worker thread, in bursts; hop to the UI thread and let RunCheck coalesce.</summary>
@@ -120,37 +159,47 @@ sealed class TrayApp : ApplicationContext
     }
 
     /// <summary>One probe round on a worker thread; updates icon and toast, and (monitor mode) notifies on transitions.</summary>
-    public async Task RunCheck()
+    public Task RunCheck() => Guarded("check", RunCheckCore);
+
+    async Task RunCheckCore()
     {
         if (_checking) return;
-        _checking = true;
+        _checking = true; _tickStarted = DateTimeOffset.Now;
+        _tickCts?.Dispose(); _tickCts = new CancellationTokenSource(); var ct = _tickCts.Token;
         try
         {
             try { _adapters = _svc.GetAdapters(); } catch (Exception ex) { _svc.Store.Log("adapters: " + ex.Message); }
             var work = Work;
-            var snap = await Task.Run(() => _checker.Check(work, _svc.Settings.Checks));
+            // netsh readers (routes, Wi-Fi, 802.1X) cost a process each: only on link-up, an address change, or every 5th round.
+            _tick++;
+            var addressesChanged = work is not null && (_previous?.Adapter?.Name != work.Name || !(_previous?.Adapter?.Addresses.Select(x => x.ToString()).SequenceEqual(work.Addresses.Select(x => x.ToString())) ?? false));
+            var linkChanged = work is not null && _previous?.Adapter?.Up != work.Up;
+            var readersDue = linkChanged || addressesChanged || _tick % 5 == 1;
+            var snap = await Task.Run(() => _checker.Check(work, _svc.Settings.Checks, ct, readersDue), ct);
+            if (!readersDue && _previous is not null && _previous.Adapter?.Name == snap.Adapter?.Name) snap = snap with { Wlan = _previous.Wlan, Dot1x = _previous.Dot1x, Routes = _previous.Routes };
             if (snap.Adapter is not null && _pathMtu.TryGetValue(snap.Adapter.Name, out var knownMtu)) snap = snap with { PathMtu = knownMtu };
-            if (snap.Link && snap.HasAddress && OperatingSystem.IsWindows()) { try { snap = snap with { Routes = await Task.Run(() => RouteTable.ReadAll(_svc.Runner)) }; } catch (Exception ex) { _svc.Store.Log("routes: " + ex.Message); } }
+            if (readersDue && snap.Link && snap.HasAddress && OperatingSystem.IsWindows()) { try { snap = snap with { Routes = await Task.Run(() => RouteTable.ReadAll(_svc.Runner), ct) }; } catch (Exception ex) { _svc.Store.Log("routes", ex.Message); } }
+            _svc.Store.Verbose("check", $"round {_tick} on {snap.Adapter?.Name ?? "-"}: {snap.State}{(readersDue ? " (readers)" : "")}");
             _previous = _snapshot; _snapshot = snap;
             _advisories = _svc.Settings.Repair.DhcpAdvisory ? Advisor.Analyze(snap, _adapters) : [];
             var secondaries = AdapterSelector.Secondaries(_adapters, work);
-            Secondaries = secondaries.Count == 0 ? [] : await Task.Run(() => _checker.CheckSecondaries(secondaries, _svc.Settings.Checks));
+            Secondaries = secondaries.Count == 0 ? [] : await Task.Run(() => _checker.CheckSecondaries(secondaries, _svc.Settings.Checks, ct), ct);
             // Secondary findings are shown, never auto-repaired: the renew scheduler and the incident log stay on the work adapter.
             SecondaryAdvisories = _svc.Settings.Repair.DhcpAdvisory ? Secondaries.SelectMany(x => Advisor.Analyze(x, null)).Where(x => x.Severity != AdvisorySeverity.Info).ToList() : [];
             // Auto-switch: one decision per link-up (armed again when the link drops), never while busy.
             var linkUp = snap.Link && snap.Adapter is not null && (_previous is null || !_previous.Link || _previous.Adapter?.Name != snap.Adapter.Name);
             if (!snap.Link) { _autoSwitchArmed = true; if (snap.Adapter is not null) _switches.Remove(snap.Adapter.Name); }
             if (linkUp && _svc.Settings.Repair.DiscoverSwitchOnLinkUp && !_discovering && Discovery.PktmonCapture.Available && _svc.Allowed(Capability.Capture) && snap.Adapter is not null)
-                _ = DiscoverSwitch(snap.Adapter.Name);
+                _ = Guarded("switch-discovery", () => DiscoverSwitch(snap.Adapter.Name));
             if (linkUp && _autoSwitchArmed && !_busy && !_autoSwitching && _svc.Allowed(Capability.AutoSwitch) && _svc.Profiles.Any(p => p.AutoSwitch && p.Fingerprint is not null))
             {
                 _autoSwitchArmed = false;
-                _ = AutoSwitch(snap.Adapter!);
+                _ = Guarded("auto-switch", () => AutoSwitch(snap.Adapter!));
             }
             var vpns = VpnDetector.Detect(_adapters);
             foreach (var msg in VpnDetector.Changes(_vpns, vpns))
             {
-                _svc.Store.Log("vpn: " + msg);
+                _svc.Store.Log("vpn", msg);
                 if (_svc.Settings.Repair.VpnNotifications && _previous is not null) Notify("VPN", msg, ToolTipIcon.Info, force: true);
                 if (_svc.Settings.Repair.IncidentLog) (_incidents ??= new IncidentLog(_svc.Store.IncidentsFile)).Append(new Incident(DateTimeOffset.Now, msg.Contains('\'') ? msg.Split('\'')[1] : "vpn", "vpn", "", "", msg, []));
             }
@@ -206,7 +255,7 @@ sealed class TrayApp : ApplicationContext
             if (linkUp && snap.ChecksEnabled && snap.HasAddress && snap.InternetOk && snap.Internet.FirstOrDefault(p => p.Ok) is { } via && !_pathMtu.ContainsKey(snap.Adapter!.Name))
             {
                 var name = snap.Adapter.Name;
-                var m = await Task.Run(() => Mtu.Discover(Probe, via.Target));
+                var m = await Task.Run(() => Mtu.Discover(Probe, via.Target, ct: ct), ct);
                 if (m is not null && _snapshot?.Adapter?.Name == name)
                 {
                     _pathMtu[name] = m; _svc.Store.Log($"path mtu on {name}: {m.Mtu} via {m.Host} ({m.Probes} probes)");
@@ -223,7 +272,7 @@ sealed class TrayApp : ApplicationContext
                 if (pin || _toast is { Visible: true }) { _toast ??= new InfoToast(this); _toast.AutoPin(pin); }
             }
         }
-        finally { _checking = false; }
+        finally { _checking = false; if (_snapshot is { } done && !ct.IsCancellationRequested) Schedule(done); }
     }
 
     /// <summary>ipconfig /renew on the work adapter; automatic runs count against the per-incident limit.</summary>
@@ -265,7 +314,7 @@ sealed class TrayApp : ApplicationContext
         {
             // Give DHCP a moment; a lease makes identification a single ARP.
             await Task.Delay(4000);
-            if (_busy) { _svc.Store.Log("auto-switch skipped: a manual change is running"); return; }
+            if (_busy) { _svc.Store.Log("auto-switch", "skipped: a manual change is running"); return; }
             var live = _svc.GetAdapters().FirstOrDefault(a => a.Name == adapter.Name); if (live is null || !live.Up) return;
             _busy = true; RefreshState(); // deciding may borrow addresses: hold the gate so a click cannot interleave
             AutoSwitcher.Decision d;
@@ -298,7 +347,7 @@ sealed class TrayApp : ApplicationContext
         {
             var mac = _adapters.FirstOrDefault(a => a.Name == adapter)?.Mac;
             var (found, err) = await Task.Run(() => new Discovery.PktmonCapture().Listen(adapter, mac, Math.Clamp(_svc.Settings.Repair.DiscoverSeconds, 10, 120), null, _svc.Store.Log));
-            if (err is not null) { _svc.Store.Log("switch discovery: " + err); return; }
+            if (err is not null) { _svc.Store.Log("switch", err); return; }
             SetSwitchNeighbors(adapter, found);
             if (found.Count > 0)
             {
@@ -363,7 +412,7 @@ sealed class TrayApp : ApplicationContext
             _balloonAction = () => Process.Start(new ProcessStartInfo(info.Url) { UseShellExecute = true });
             Notify($"NetPaw {info.Version} is available", (info.Headline is null ? "" : info.Headline + " — ") + "click to open the release page.", ToolTipIcon.Info, force: true);
         }
-        catch (Exception ex) { _svc.Store.Log("update check: " + ex.Message); if (manual) Notify("Update check failed", ex.Message, ToolTipIcon.Warning, force: true); }
+        catch (Exception ex) { _svc.Store.Error("update", ex.Message); if (manual) Notify("Update check failed", ex.Message, ToolTipIcon.Warning, force: true); }
     }
 
     public void UndoAutoSwitch()
@@ -606,7 +655,7 @@ sealed class TrayApp : ApplicationContext
         var w = Work; if (w is null) { Notify("No adapter", "Pick a work adapter first.", ToolTipIcon.Warning); return; }
         if (!_svc.Allowed(Capability.Reach)) { Denied(Capability.Reach); return; }
         var d = _svc.ResolveReach(target, w);
-        if (d.Kind == ReachKind.PortCheck && PortCheck.TryParse(d.Target, out var h, out var p)) { _ = CheckPort(h, p); return; }
+        if (d.Kind == ReachKind.PortCheck && PortCheck.TryParse(d.Target, out var h, out var p)) { _ = Guarded("port-check", () => CheckPort(h, p)); return; }
         if (d.Kind is ReachKind.TempAddress or ReachKind.UsePreset && !_svc.Allowed(Capability.TempAddresses)) { Denied(Capability.TempAddresses); return; }
         switch (d.Kind)
         {
@@ -713,7 +762,7 @@ sealed class TrayApp : ApplicationContext
             var outcome = t.IsFaulted ? null : t.Result;
             if (outcome is null)
             {
-                _svc.Store.Log("apply crashed: " + t.Exception);
+                _svc.Store.Error("apply", "crashed: " + t.Exception);
                 if (t.Exception is not null) TelemetryHost.Error(t.Exception.GetBaseException(), "apply");
                 var msg = t.Exception?.GetBaseException().Message ?? "unknown";
                 Status?.Invoke(msg, "error"); Notify("NetPaw error", msg, ToolTipIcon.Error);

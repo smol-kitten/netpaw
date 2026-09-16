@@ -81,7 +81,8 @@ sealed class InfoToast : Form
         var a = s?.Adapter;
         _title.Text = a is null ? "No adapter" : a.Name + (a.SpeedText.Length > 0 ? "  ·  " + a.SpeedText : "");
         var state = s?.State ?? NetState.Unknown;
-        _state.Text = Snapshot.Describe(state) + (s is null ? "" : $"   ·   {s.At:HH:mm:ss}");
+        var stale = s is not null && s.ChecksEnabled && Cadence.Stale(s.At, DateTimeOffset.Now, _app.CurrentInterval);
+        _state.Text = Snapshot.Describe(state) + (s is null ? "" : stale ? $"   ·   last check {(int)(DateTimeOffset.Now - s.At).TotalMinutes} min ago" : $"   ·   {s.At:HH:mm:ss}");
         _state.ForeColor = Snapshot.IsProblem(state) ? Theme.Error : state is NetState.Online ? Theme.Static : Theme.Muted;
         void Row(string k, string v, bool? ok = null)
         {
