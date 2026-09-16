@@ -37,8 +37,7 @@ no new dependencies, no elevation needed for the watcher.
   (0 hides the setting and stops the watcher). Nothing leaves the machine. the log line is verbose level.
 - R6 CLI `netpaw-cli stuck` prints the current stuck targets with the classification and the
   recommendation (one sample of 4 s).
-- R7 Must not: run when checks are off?: no: the watcher is independent of probes (it sends nothing);
-  it runs whenever the setting is on. Must not spawn a process per sample. Must not act by itself
+- R7 The watcher is independent of the probes (it sends nothing). It runs whenever the setting is on. Must not spawn a process per sample. Must not act by itself
   (no automatic apply). Must not read the table more often than every 2 s.
 
 ## Design details
