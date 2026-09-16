@@ -78,7 +78,7 @@ Grab a zip from [Releases](../../releases):
 | zip | needs | size |
 |---|---|---|
 | `netpaw-win-x64.zip` | [.NET 10 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/10.0) | ~1.5 MB |
-| `netpaw-win-x64-standalone.zip` | nothing | ~110 MB |
+| `netpaw-win-x64-standalone.zip` | nothing | ~85 MB (tray 49 MB + CLI 38 MB, compressed single files) |
 | `NetPaw-<version>.msi` | [.NET 10 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/10.0) | ~1 MB, per-machine, for Intune/GPO |
 | `NetPaw-<version>-telemetry.msi` | same | same, **plus crash reports and anonymous usage counts** — opt-in by choosing this download; see [docs/TELEMETRY.md](docs/TELEMETRY.md) |
 

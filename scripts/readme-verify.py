@@ -17,11 +17,11 @@ CLAIMS = [
  },
  {
   "line": 81,
-  "text": "| `netpaw-win-x64-standalone.zip` | nothing | ~110 MB |",
+  "text": "| `netpaw-win-x64-standalone.zip` | nothing | ~85 MB (tray 49 MB + CLI 38 MB, compressed single files) |",
   "kind": "size",
   "check": {
    "pattern": "out/netpaw-win-x64-standalone.zip",
-   "max_mb": 120.0
+   "max_mb": 100.0
   },
   "id": "c3"
  },
