@@ -1,0 +1,27 @@
+# README claims check: every number/file/link the README asserts is verified by scripts/readme-verify.py
+# (generated from .claude/readme-claims.json by `pawkit readmecheck extract --write`). Runs on PRs that
+# touch the README, docs or the build, and on release tags. Self-hosted runner: python3 + dotnet only.
+name: readme-verify
+on:
+  pull_request:
+    paths: ["README.md", "docs/**", "scripts/readme-verify.py", ".claude/readme-claims.json", "src/**", "**/*.csproj"]
+  push:
+    tags: ["v*"]
+jobs:
+  readme-verify:
+    runs-on: [self-hosted]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with: { dotnet-version: "10.0.x" }
+      - name: Publish and zip (size claims need the artifacts)
+        run: |
+          dotnet publish src/NetPaw.Tray -c Release -r win-x64 --self-contained false -o out/netpaw-win-x64
+          dotnet publish src/NetPaw.Cli  -c Release -r win-x64 --self-contained false -o out/netpaw-win-x64
+          dotnet publish src/NetPaw.Tray -c Release -r win-x64 --self-contained true -p:IncludeNativeLibrariesForSelfExtract=true -o out/netpaw-win-x64-standalone
+          dotnet publish src/NetPaw.Cli  -c Release -r win-x64 --self-contained true -o out/netpaw-win-x64-standalone
+          cd out && rm -f */*.pdb
+          python3 -c "import shutil; shutil.make_archive('netpaw-win-x64', 'zip', '.', 'netpaw-win-x64'); shutil.make_archive('netpaw-win-x64-standalone', 'zip', '.', 'netpaw-win-x64-standalone')"
+          ls -la *.zip
+      - name: Verify README claims
+        run: README_VERIFY_OFFLINE=1 python3 scripts/readme-verify.py
