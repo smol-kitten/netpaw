@@ -39,6 +39,8 @@ public sealed class ApplyOutcome
     public bool Success => Results.All(r => r.Ok || !r.Step.Critical);
     public IEnumerable<StepResult> Failures => Results.Where(r => !r.Ok);
     public bool Aborted { get; set; }
+    /// <summary>Filled by ApplyAndVerify: what the adapter still does not match after the apply.</summary>
+    public IReadOnlyList<string> VerifyDiffs { get; set; } = [];
 }
 
 public static class PlanExecutor

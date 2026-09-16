@@ -13,11 +13,21 @@ sealed class SettingsForm : Form
     {
         var s = app.Service.Settings; var pol = app.Service.Policy;
         Text = "NetPaw — settings"; StartPosition = FormStartPosition.CenterScreen; FormBorderStyle = FormBorderStyle.FixedDialog;
-        MinimizeBox = false; MaximizeBox = false; ShowInTaskbar = false; ClientSize = new Size(700, 890);
+        MinimizeBox = false; MaximizeBox = false; ShowInTaskbar = false; ClientSize = new Size(700, 520);
 
-        var grid = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, Padding = new Padding(14), AutoSize = true, AutoScroll = true };
-        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 150)); grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        void Row(string label, Control c) { grid.Controls.Add(new Label { Text = label, Anchor = AnchorStyles.Left, AutoSize = true, Margin = new Padding(0, 8, 0, 8) }); c.Anchor = AnchorStyles.Left | AnchorStyles.Right; c.Margin = new Padding(0, 5, 0, 5); grid.Controls.Add(c); }
+        // Tabs keep the dialog at a laptop-friendly height (the one-column version had grown to 890 px).
+        var tabs = new TabControl { Dock = DockStyle.Fill };
+        TableLayoutPanel Tab(string title)
+        {
+            var page = new TabPage(title) { BackColor = Theme.Bg, Padding = new Padding(4) };
+            var g = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, Padding = new Padding(10), AutoSize = true, AutoScroll = true };
+            g.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 150)); g.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            page.Controls.Add(g); tabs.TabPages.Add(page); return g;
+        }
+        var gGeneral = Tab("General"); var gConn = Tab("Connectivity"); var gRepair = Tab("Repair"); var gRepos = Tab("Repositories"); var gTelemetry = TelemetryHost.IsTelemetryBuild ? Tab("Telemetry") : null;
+        var grid = gGeneral;
+        void RowIn(TableLayoutPanel g, string label, Control c) { g.Controls.Add(new Label { Text = label, Anchor = AnchorStyles.Left, AutoSize = true, Margin = new Padding(0, 8, 0, 8) }); c.Anchor = AnchorStyles.Left | AnchorStyles.Right; c.Margin = new Padding(0, 5, 0, 5); g.Controls.Add(c); }
+        void Row(string label, Control c) => RowIn(grid, label, c);
 
         var adapter = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList };
         adapter.Items.Add("(auto-detect)");
@@ -43,6 +53,7 @@ sealed class SettingsForm : Form
         Row("After apply", flush);
         Row("Startup", startup);
         // ---- connectivity -------------------------------------------------------------------
+        grid = gConn;
         var ck = s.Checks;
         var checksOn = new CheckBox { Text = "check reachability (gateway, intranet, internet, DNS)", Checked = ck.Enabled, AutoSize = true };
         var interval = new NumericUpDown { Minimum = 5, Maximum = 3600, Value = Math.Clamp(ck.IntervalSeconds, 5, 3600), Width = 70 };
@@ -62,6 +73,7 @@ sealed class SettingsForm : Form
         Row("DNS check host", dnsHost);
         Row("Monitor", monitor);
         Row("Sticky alert", sticky);
+        grid = gRepair;
         var rp = s.Repair;
         var advisory = new CheckBox { Text = "DHCP/static advisory on the info card and in alerts (missing gateway/DNS, silent gateway, failing DNS)", Checked = rp.DhcpAdvisory, AutoSize = true, MaximumSize = new Size(520, 0) };
         var autoRenew = new CheckBox { Text = "auto-renew the DHCP lease when an advisory says a renew could help", Checked = rp.AutoRenew, AutoSize = true };
@@ -85,6 +97,7 @@ sealed class SettingsForm : Form
         CheckBox? telemetry = null;
         if (TelemetryHost.IsTelemetryBuild)
         {
+            grid = gTelemetry!;
             telemetry = new CheckBox { Text = "send crash reports and anonymous usage counts to telemetry.catboy.systems", Checked = s.TelemetryEnabled, AutoSize = true, Enabled = !pol.IsSet("AllowTelemetry") };
             var what = new LinkLabel { Text = "what is sent (docs/TELEMETRY.md)", AutoSize = true, Font = Theme.Small };
             what.LinkClicked += (_, _) => Process.Start(new ProcessStartInfo("https://github.com/smol-kitten/netpaw/blob/main/docs/TELEMETRY.md") { UseShellExecute = true });
@@ -108,11 +121,13 @@ sealed class SettingsForm : Form
             };
         }
 
+        grid = gGeneral;
         var folder = new Button { Text = "Open config folder", Width = 150, Height = 28 };
         folder.Click += (_, _) => Process.Start(new ProcessStartInfo(app.Service.Store.Directory) { UseShellExecute = true });
         Row("Files", folder);
 
         // ---- repositories -------------------------------------------------------------------
+        grid = gRepos;
         var repos = new ListBox { Height = 96, DrawMode = DrawMode.OwnerDrawFixed, ItemHeight = 30, IntegralHeight = false, BorderStyle = BorderStyle.FixedSingle };
         repos.DrawItem += (_, e) =>
         {
@@ -180,7 +195,7 @@ sealed class SettingsForm : Form
             app.RegisterHotkeys(); app.ConfigureChecks(); app.RefreshState(); _ = app.RunCheck();
             DialogResult = DialogResult.OK; Close();
         };
-        Controls.Add(grid); Controls.Add(bar);
+        Controls.Add(tabs); Controls.Add(bar);
         AcceptButton = ok; CancelButton = cancel;
         Theme.Apply(this); Theme.Primary(ok);
         KeyPreview = true; KeyDown += (_, e) => { if (e.KeyCode == Keys.F1) { app.ShowHelp("settings"); e.Handled = true; } };

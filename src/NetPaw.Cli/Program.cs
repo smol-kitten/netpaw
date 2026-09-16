@@ -24,7 +24,7 @@ const string Usage = """
       netpaw-cli scan [--all] [--repos] [--no-dhcp] [-a X]  try DHCP + your profiles (--repos: community/repo profiles too) until one works; --all ranks; restores unless --keep
       netpaw-cli arp [--check|--sweep] [-a X]     ARP neighbours bundled per network (passive); --check re-ARPs them; --sweep asks the whole subnet
       netpaw-cli switch [--seconds N] [-a X]      which switch/port am I on? LLDP/CDP via pktmon (passive, default 35 s)
-      netpaw-cli find-routers [-a X]              borrow an address in each common subnet, ARP the usual gateways, report who answers
+      netpaw-cli find-routers [-a X] [--force]    borrow an address in each common subnet, ARP the usual gateways, report who answers (--force: ok to drop a DHCP lease)
       netpaw-cli incidents [-n 30]                show the incident log (enable it in settings: repair.incidentLog)
       netpaw-cli reach <ip[/prefix]> [--replace] [-a X] [-n]
                                               make <ip> reachable: pick a covering profile, else a preset,
@@ -97,11 +97,16 @@ try
         case "apply":
         {
             var p = Need(svc, argv, 1);
-            var adapter = adapterName is not null ? svc.ResolveAdapter(adapterName) : svc.ResolveAdapter(p);
-            return Run(svc, svc.PlanProfile(p, adapter), dryRun);
+            var adapter = adapterName is not null ? svc.ResolveAdapter(adapterName) : svc.AdapterFor(p);
+            var plan = svc.PlanProfile(p, adapter);
+            if (dryRun || !IsElevated()) return Run(svc, plan, dryRun);
+            var o = svc.ApplyAndVerify(plan);
+            var rc = Report(plan, o, false);
+            if (o.VerifyDiffs.Count > 0) { Console.WriteLine("verify: Windows did not fully take the change — " + string.Join("; ", o.VerifyDiffs) + "\n        try: netpaw-cli reset -a \"" + plan.Adapter + "\""); return 1; }
+            return rc;
         }
         case "dhcp":
-            return Run(svc, ApplyPlanner.PlanDhcp(svc.ResolveAdapter(adapterName), svc.Settings.FlushDns), dryRun);
+            return Run(svc, ApplyPlanner.PlanDhcp(svc.ResolveAdapter(adapterName)), dryRun);
         case "renew":
             return Run(svc, NetPaw.Connectivity.Advisor.PlanRenew(svc.ResolveAdapter(adapterName)), dryRun);
         case "release": return Run(svc, NetPaw.Connectivity.Advisor.PlanRelease(svc.ResolveAdapter(adapterName)), dryRun);
@@ -110,7 +115,7 @@ try
         case "verify":
         {
             var p = Need(svc, argv, 1);
-            var live = adapterName is not null ? svc.ResolveAdapter(adapterName) : svc.ResolveAdapter(p);
+            var live = adapterName is not null ? svc.ResolveAdapter(adapterName) : svc.AdapterFor(p);
             var diffs = ApplyVerifier.Compare(p, live);
             Console.WriteLine(diffs.Count == 0 ? $"{live.Name} matches '{p.Name}'" : string.Join("\n", diffs.Select(d => "- " + d)));
             return diffs.Count == 0 ? 0 : 1;
@@ -270,6 +275,7 @@ try
                         pack.Entries.Add(new PackEntry { Id = id, Vendor = pr.Vendor, Model = pr.Model, Kind = "preset", Ip = pr.Ip, Prefix = pr.Prefix, HostIp = pr.HostIp, Note = pr.Note, Url = pr.Url });
                     }
                     pack.Entries = pack.Entries.OrderBy(e => e.Kind == "profile").ThenBy(e => e.Vendor).ThenBy(e => e.Model).ToList();
+                    pack.RawEntries = null; // the model is now the source of truth; hashes and the later signature cover what Serialize writes
                     PackJson.StampHashes(pack); pack.Signature = null;
                     File.WriteAllText(argv[3], PackJson.Serialize(pack) + "\n");
                     Console.WriteLine($"{argv[3]}: {pack.Entries.Count} entries (unsigned — run pack sign)");
@@ -297,6 +303,7 @@ try
         {
             var all = Flag("--all"); var keep = Flag("--keep"); var noDhcp = Flag("--no-dhcp"); var repos = Flag("--repos");
             var adapter = svc.ResolveAdapter(adapterName);
+            svc.Require(Capability.Scan);
             if (!IsElevated()) return Fail("scan applies profiles; run from an elevated prompt");
             var original = svc.Capture("scan-original", adapter);
             var checks = new NetPaw.Connectivity.CheckSettings { Enabled = true, InternetTargets = svc.Settings.Checks.InternetTargets, DnsCheckHost = svc.Settings.Checks.DnsCheckHost };
@@ -347,10 +354,11 @@ try
         {
             var secs = int.TryParse(Opt("--seconds"), out var sec) ? sec : 35;
             var adapter = svc.ResolveAdapter(adapterName);
+            svc.Require(Capability.Capture);
             if (!NetPaw.Discovery.PktmonCapture.Available) return Fail("pktmon is not available on this Windows version");
             if (!IsElevated()) return Fail("pktmon needs an elevated prompt");
             Console.Error.WriteLine($"listening for LLDP/CDP on {adapter.Name} for {secs} s…");
-            var (found, err) = new NetPaw.Discovery.PktmonCapture().Listen(adapter.Name, secs, null, svc.Store.Log).GetAwaiter().GetResult();
+            var (found, err) = new NetPaw.Discovery.PktmonCapture().Listen(adapter.Name, adapter.Mac, secs, null, svc.Store.Log).GetAwaiter().GetResult();
             if (err is not null) return Fail(err);
             if (found.Count == 0) { Console.WriteLine("no LLDP/CDP announcement seen"); return 1; }
             foreach (var n in found)
@@ -364,14 +372,13 @@ try
         case "find-routers":
         {
             var adapter = svc.ResolveAdapter(adapterName);
-            svc.Require(Capability.TempAddresses);
+            svc.Require(Capability.TempAddresses); svc.Require(Capability.Scan);
             if (!IsElevated()) return Fail("find-routers adds temporary addresses; run from an elevated prompt");
             var arp = new NetPaw.Arp.WindowsArpProvider();
-            var restores = new Dictionary<string, Action>();
-            var finder = new NetPaw.Arp.RouterFinder(
-                async (addr, ct) => { var (ok, restore) = svc.Borrow(adapter.Name, addr); if (ok) { restores[addr.ToString()] = restore; await Task.Delay(300, ct); } return ok; },
-                (addr, _) => { if (restores.Remove(addr.ToString(), out var r)) r(); return Task.CompletedTask; },
-                arp);
+            var force = Flag("--force");
+            if (NetPawService.BorrowDropsLease(adapter) && !force) return Fail($"{adapter.Name} has a working DHCP lease; probing replaces it per subnet (connection drops). Apply a static profile first, or pass --force to accept the disruption.");
+            var (add, remove) = svc.Borrower(adapter, force);
+            var finder = new NetPaw.Arp.RouterFinder(add, remove, arp);
             var cands = NetPaw.Arp.RouterFinder.Candidates(svc.Presets);
             Console.Error.WriteLine($"probing {cands.Count} common subnets on {adapter.Name}…");
             var prog = new Progress<(int Index, int Total, NetPaw.Arp.RouterCandidate Candidate, NetPaw.Arp.RouterHit? Hit)>(p => { if (p.Hit is { } h) Console.WriteLine($"  {h.Candidate.Cidr,-18} {h.Ip,-16} {h.Mac,-18} {h.Ms,4} ms  {string.Join(", ", h.Vendors)}"); });
@@ -427,7 +434,8 @@ try
                 {
                     "WorkAdapter" => pol.WorkAdapter, "PanelHotkey" => pol.PanelHotkey, "ConfirmBeforeApply" => pol.ConfirmBeforeApply?.ToString(),
                     "RepoUrls" => string.Join(" ", pol.RepoUrls), "AllowUserProfiles" => pol.AllowUserProfiles.ToString(), "AllowUserRepos" => pol.AllowUserRepos.ToString(),
-                    "AllowReach" => pol.AllowReach.ToString(), "AllowTempAddresses" => pol.AllowTempAddresses.ToString(), "AllowDhcp" => pol.AllowDhcp.ToString(), _ => pol.AllowUnsignedRepos.ToString(),
+                    "AllowReach" => pol.AllowReach.ToString(), "AllowTempAddresses" => pol.AllowTempAddresses.ToString(), "AllowDhcp" => pol.AllowDhcp.ToString(), "AllowUnsignedRepos" => pol.AllowUnsignedRepos.ToString(),
+                    "AllowTelemetry" => pol.AllowTelemetry.ToString(), "AllowAutoSwitch" => pol.AllowAutoSwitch.ToString(), "AllowScan" => pol.AllowScan.ToString(), _ => pol.AllowCapture.ToString(),
                 };
                 Console.WriteLine($"{k,-20} {v,-40} {(pol.IsSet(k) ? "(policy)" : "(default)")}");
             }

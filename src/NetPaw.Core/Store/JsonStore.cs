@@ -42,9 +42,23 @@ public sealed class JsonStore
     public List<TempAddress> LoadTemp() => Load<List<TempAddress>>(StateFile) ?? [];
     public void SaveTemp(IEnumerable<TempAddress> temp) => Save(StateFile, temp.ToList());
 
+    /// <summary>Append-only text log; rotates at 5 MB to one .1 backup so a long-running tray never fills a disk.</summary>
     public void Log(string line)
     {
-        try { File.AppendAllText(LogFile, $"{DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss} {line}{Environment.NewLine}"); } catch (IOException) { }
+        try { Rotate(LogFile); File.AppendAllText(LogFile, $"{DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss} {line}{Environment.NewLine}"); } catch (IOException) { }
+    }
+
+    public const long RotateAtBytes = 5 * 1024 * 1024;
+
+    public static void Rotate(string file)
+    {
+        try
+        {
+            var fi = new FileInfo(file);
+            if (!fi.Exists || fi.Length < RotateAtBytes) return;
+            File.Move(file, file + ".1", overwrite: true);
+        }
+        catch (IOException) { }
     }
 
     T? Load<T>(string file) where T : class

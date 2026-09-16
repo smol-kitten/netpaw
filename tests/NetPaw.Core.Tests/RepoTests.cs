@@ -91,6 +91,23 @@ public class PackFormatTests
     }
 
     [Fact]
+    public void BuildOnAnExistingIndexWritesTheNewEntries()
+    {
+        var key = PackSigner.Generate();
+        var p = Sample(); PackSigner.Sign(p, key.PrivateKeyPem);
+        var parsed = PackJson.Parse(PackJson.Serialize(p));
+        parsed.Entries.RemoveAll(e => e.Id == "lab");
+        parsed.Entries.Add(new PackEntry { Id = "new", Vendor = "New", Model = "Box", Kind = "preset", Ip = "10.5.0.1" });
+        parsed.RawEntries = null;                       // what `pack build` does: the model is the source of truth again
+        PackJson.StampHashes(parsed); parsed.Signature = null;
+        var written = PackJson.Serialize(parsed);
+        Assert.Contains("\"new\"", written); Assert.DoesNotContain("\"lab\"", written);
+        var back = PackJson.Parse(written);
+        Assert.Empty(PackJson.VerifyHashes(back));
+        Assert.DoesNotContain("autoSwitch", written);   // default-valued auto-switch fields are never emitted (0.5.x clients hash the model)
+    }
+
+    [Fact]
     public void ShippedCommunityPackStillVerifies()
     {
         var dir = AppContext.BaseDirectory;

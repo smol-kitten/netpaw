@@ -15,7 +15,7 @@
     <PublishSingleFile>true</PublishSingleFile>
     <SelfContained>false</SelfContained>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
-    <Version>0.7.0</Version>
+    <Version>0.7.1</Version>
     <Product>NetPaw</Product>
     <Company>smol-kitten</Company>
     <Copyright>MIT</Copyright>

@@ -42,8 +42,6 @@ static class Frame
 /// <summary>IEEE 802.1AB LLDP: TLV list after the Ethernet header. Only the TLVs an admin wants are decoded.</summary>
 public static class LldpDecoder
 {
-    public static bool IsLldp(ReadOnlySpan<byte> frame) => Frame.Header(frame).EtherType == Frame.LldpEtherType;
-
     public static SwitchNeighbor? Decode(ReadOnlySpan<byte> frame, DateTimeOffset? at = null)
     {
         var (et, off) = Frame.Header(frame);
@@ -156,21 +154,20 @@ public static class PcapNg
     public static List<(DateTimeOffset At, byte[] Frame)> Frames(byte[] file)
     {
         var list = new List<(DateTimeOffset, byte[])>();
-        var p = 0; var little = true; var tsResolution = 1_000_000L; // microseconds by default
+        var p = 0; var little = true;
+        uint U32(int at) => little ? BinaryPrimitives.ReadUInt32LittleEndian(file.AsSpan(at)) : BinaryPrimitives.ReadUInt32BigEndian(file.AsSpan(at));
         while (p + 12 <= file.Length)
         {
-            var type = little ? BinaryPrimitives.ReadUInt32LittleEndian(file.AsSpan(p)) : BinaryPrimitives.ReadUInt32BigEndian(file.AsSpan(p));
-            if (type == 0x0A0D0D0A) { little = BinaryPrimitives.ReadUInt32LittleEndian(file.AsSpan(p + 8)) == 0x1A2B3C4D; }
-            var len = (int)(little ? BinaryPrimitives.ReadUInt32LittleEndian(file.AsSpan(p + 4)) : BinaryPrimitives.ReadUInt32BigEndian(file.AsSpan(p + 4)));
+            var type = U32(p);
+            if (type == 0x0A0D0D0A) little = BinaryPrimitives.ReadUInt32LittleEndian(file.AsSpan(p + 8)) == 0x1A2B3C4D;
+            var len = (int)U32(p + 4);
             if (len < 12 || p + len > file.Length) break;
             if (type == 0x00000006 && len >= 32)
             {
-                var hi = little ? BinaryPrimitives.ReadUInt32LittleEndian(file.AsSpan(p + 12)) : BinaryPrimitives.ReadUInt32BigEndian(file.AsSpan(p + 12));
-                var lo = little ? BinaryPrimitives.ReadUInt32LittleEndian(file.AsSpan(p + 16)) : BinaryPrimitives.ReadUInt32BigEndian(file.AsSpan(p + 16));
-                var cap = (int)(little ? BinaryPrimitives.ReadUInt32LittleEndian(file.AsSpan(p + 20)) : BinaryPrimitives.ReadUInt32BigEndian(file.AsSpan(p + 20)));
-                var ts = ((long)hi << 32) | lo;
+                var ts = ((long)U32(p + 12) << 32) | U32(p + 16); // pktmon writes microseconds (default if_tsresol); options are not parsed
+                var cap = (int)U32(p + 20);
                 if (cap >= 0 && p + 28 + cap <= file.Length)
-                    list.Add((DateTimeOffset.FromUnixTimeMilliseconds(ts / (tsResolution / 1000)), file.AsSpan(p + 28, cap).ToArray()));
+                    list.Add((DateTimeOffset.FromUnixTimeMilliseconds(ts / 1000), file.AsSpan(p + 28, cap).ToArray()));
             }
             p += len;
         }

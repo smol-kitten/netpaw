@@ -158,8 +158,9 @@ public class CaptivePortalTests
 {
     sealed class PortalProbe : FakeProbe, IProbe
     {
-        public bool Portal;
-        public Task<ProbeResult> Http(string url, string expectedBody, int timeoutMs, CancellationToken ct) => Task.FromResult(new ProbeResult(url, !Portal, 5, Portal ? "redirected: http://portal/login" : null));
+        public bool Portal, Blocked;
+        // Mirrors NetworkProbe.Http: only a redirect / foreign 2xx body is a portal; blocked ports and errors are inconclusive (Ok = true).
+        public Task<ProbeResult> Http(string url, string expectedBody, int timeoutMs, CancellationToken ct) => Task.FromResult(new ProbeResult(url, !Portal, 5, Portal ? "redirected: http://portal/login" : Blocked ? "inconclusive: connection refused" : null));
     }
 
     [Fact]
@@ -171,6 +172,8 @@ public class CaptivePortalTests
         Assert.Equal(NetState.CaptivePortal, snap.State); Assert.True(Snapshot.IsProblem(snap.State));
         probe.Portal = false;
         Assert.Equal(NetState.Online, (await new ConnectivityChecker(probe).Check(Fx.Adapter(gw: "10.0.0.1"), s)).State);
+        probe.Portal = false; probe.Blocked = true;
+        Assert.Equal(NetState.Online, (await new ConnectivityChecker(probe).Check(Fx.Adapter(gw: "10.0.0.1"), s)).State);  // blocked port 80 is not a portal
         s.CaptiveProbeUrl = ""; probe.Portal = true;
         Assert.Equal(NetState.Online, (await new ConnectivityChecker(probe).Check(Fx.Adapter(gw: "10.0.0.1"), s)).State);
         probe.Reachable.Remove("1.1.1.1");

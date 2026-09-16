@@ -26,6 +26,7 @@ public sealed class IncidentLog(string file)
         lock (_lock)
         {
             System.IO.Directory.CreateDirectory(Path.GetDirectoryName(File)!);
+            Store.JsonStore.Rotate(File);
             System.IO.File.AppendAllText(File, JsonSerializer.Serialize(i, Json) + Environment.NewLine);
         }
     }

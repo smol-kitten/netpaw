@@ -212,6 +212,45 @@ public class PresetPrecedenceTests
     }
 }
 
+public class BorrowTests
+{
+    static (NetPawService, FakeRunner) Make(params Adapters.AdapterInfo[] adapters)
+    {
+        var dir = Directory.CreateTempSubdirectory().FullName; var r = new FakeRunner();
+        return (new NetPawService(new JsonStore(dir), new FakeAdapters(adapters), new FakeVlan(false), r, new MachineStore(Path.Combine(dir, "profiles.d")), () => Policy.None), r);
+    }
+
+    [Fact]
+    public void StaticAdapterBorrowsASecondaryAndReturnsIt()
+    {
+        var (svc, r) = Make(Fx.Adapter(gw: "192.168.1.1"));
+        Assert.True(svc.Borrow("Ethernet", IpAddr.Parse("10.5.0.250/24")));
+        Assert.Contains(r.Ran, s => s.Arguments.Contains("add address") && s.Arguments.Contains("10.5.0.250"));
+        svc.Return("Ethernet", IpAddr.Parse("10.5.0.250/24"));
+        Assert.Contains(r.Ran, s => s.Arguments.Contains("delete address") && s.Arguments.Contains("10.5.0.250"));
+        svc.Return("Ethernet", IpAddr.Parse("10.5.0.250/24"));   // idempotent
+    }
+
+    [Fact]
+    public void WorkingLeaseIsNeverDroppedUnlessAccepted()
+    {
+        var leased = Fx.Adapter(dhcp: true, addrs: ["10.5.10.20/8"], gw: "10.0.0.1");
+        var (svc, r) = Make(leased);
+        Assert.True(NetPawService.BorrowDropsLease(leased));
+        Assert.False(svc.Borrow("Ethernet", IpAddr.Parse("192.168.88.250/24")));
+        Assert.Empty(r.Ran);
+        Assert.True(svc.Borrow("Ethernet", IpAddr.Parse("192.168.88.250/24"), allowLeaseDrop: true));
+        Assert.Contains(r.Ran, s => s.Arguments.Contains("source=static") && s.Arguments.Contains("192.168.88.250"));
+        svc.Return("Ethernet", IpAddr.Parse("192.168.88.250/24"));
+        Assert.Contains(r.Ran, s => s.Arguments.Contains("source=dhcp"));
+        // a lease-less DHCP adapter (169.254) is fair game without the flag
+        var apipa = Fx.Adapter(dhcp: true, addrs: ["169.254.3.3/16"]);
+        var (svc2, _) = Make(apipa);
+        Assert.False(NetPawService.BorrowDropsLease(apipa));
+        Assert.True(svc2.Borrow("Ethernet", IpAddr.Parse("192.168.88.250/24")));
+    }
+}
+
 public class MacBindingTests
 {
     static NetPawService Make(params Adapters.AdapterInfo[] adapters)
@@ -227,19 +266,19 @@ public class MacBindingTests
         var dock = Fx.Adapter("Ethernet 3", addrs: ["10.5.0.9/24"]) with { Mac = "AA:BB:CC:00:00:99" };
         var svc = Make(eth, dock);
         var p = Fx.Static("dock"); p.Adapter = "Ethernet"; p.AdapterMac = "aa:bb:cc:00:00:99";   // renamed dock NIC: MAC says Ethernet 3
-        Assert.Equal("Ethernet 3", svc.ResolveAdapter(p).Name);
+        Assert.Equal("Ethernet 3", svc.AdapterFor(p).Name);
         p.AdapterMac = "AA:BB:CC:FF:FF:FF";                                                      // MAC gone, name still there
-        Assert.Equal("Ethernet", svc.ResolveAdapter(p).Name);
+        Assert.Equal("Ethernet", svc.AdapterFor(p).Name);
         p.Adapter = "Ethernet 9";                                                                // neither present: refuse, never silently reconfigure another NIC
-        Assert.Throws<InvalidOperationException>(() => svc.ResolveAdapter(p));
+        Assert.Throws<InvalidOperationException>(() => svc.AdapterFor(p));
         p.Adapter = null; p.AdapterMac = null;
-        Assert.Equal("Ethernet", svc.ResolveAdapter(p).Name);                                      // unbound: work adapter
+        Assert.Equal("Ethernet", svc.AdapterFor(p).Name);                                      // unbound: work adapter
         // Hyper-V: vEthernet shares the uplink's MAC; never resolve onto the uplink
         var uplink = Fx.Adapter("Ethernet", addrs: []) with { Mac = "AA:BB:CC:00:00:77", VSwitchUplink = true };
         var veth = Fx.Adapter("vEthernet (External)", gw: "10.0.0.1") with { Mac = "AA:BB:CC:00:00:77", IsPhysical = false, HyperVVirtual = true };
         var hv = Make(uplink, veth);
         var hp = Fx.Static("hv"); hp.Adapter = "vEthernet (External)"; hp.AdapterMac = "AA:BB:CC:00:00:77";
-        Assert.Equal("vEthernet (External)", hv.ResolveAdapter(hp).Name);
+        Assert.Equal("vEthernet (External)", hv.AdapterFor(hp).Name);
         var cap = svc.Capture("c", dock);
         Assert.Equal("AA:BB:CC:00:00:99", cap.AdapterMac);
         Assert.Equal("Ethernet 3", svc.PlanProfile(cap).Adapter);

@@ -315,7 +315,7 @@ sealed class ProfileEditorForm : Form
     void Preview()
     {
         var p = _current?.Managed == true ? _current : ReadFields(); if (p is null) return;
-        try { PlanPreviewForm.ShowReadOnly(_app.Service.PlanProfile(p, _app.Service.ResolveAdapter(p, _adapters)), "Preview only — nothing is applied from here."); }
+        try { PlanPreviewForm.ShowReadOnly(_app.Service.PlanProfile(p, _app.Service.AdapterFor(p, _adapters)), "Preview only — nothing is applied from here."); }
         catch (InvalidOperationException ex) { _identity.SetError("adapter", ex.Message); }
     }
 }

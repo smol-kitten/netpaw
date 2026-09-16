@@ -150,11 +150,27 @@ public sealed class NetPawService
         Capability.Dhcp => Policy.AllowDhcp,
         Capability.UnsignedRepos => Policy.AllowUnsignedRepos,
         Capability.Telemetry => Policy.AllowTelemetry,
+        Capability.AutoSwitch => Policy.AllowAutoSwitch,
+        Capability.Scan => Policy.AllowScan,
+        Capability.Capture => Policy.AllowCapture,
         _ => true,
     };
 
     public void Require(Capability c) { if (!Allowed(c)) throw new DeniedByPolicyException(c); }
     public void SaveSettings() => Store.SaveSettings(Settings);
+
+    /// <summary>Auto-switch confirmation lives in settings.json (per machine), so it also works for managed profiles, which are never written back.</summary>
+    public bool AutoSwitchConfirmed(Profile p) => p.AutoSwitchConfirmed || Settings.AutoSwitchConfirmedIds.Contains(p.Id);
+    public void ConfirmAutoSwitch(Profile p)
+    {
+        if (!Settings.AutoSwitchConfirmedIds.Contains(p.Id)) { Settings.AutoSwitchConfirmedIds.Add(p.Id); SaveSettings(); }
+        if (!p.Managed && Allowed(Capability.UserProfiles)) { p.AutoSwitchConfirmed = true; SaveProfiles(); }
+    }
+    public void DeclineAutoSwitch(Profile p)
+    {
+        Settings.AutoSwitchDeclinedIds.Add(p.Id); SaveSettings();
+        if (!p.Managed && Allowed(Capability.UserProfiles)) { p.AutoSwitch = false; SaveProfiles(); }
+    }
 
     /// <summary>Stable random install id (created once, stored in settings.json).</summary>
     public string InstallId()
@@ -169,7 +185,7 @@ public sealed class NetPawService
         AdapterSelector.Pick(adapters ?? GetAdapters(), Settings.WorkAdapter);
 
     /// <summary>Profile → adapter: the remembered MAC wins (survives renames and dock port changes), then the name, then the work adapter.</summary>
-    public AdapterInfo ResolveAdapter(Profile p, IReadOnlyList<AdapterInfo>? adapters = null)
+    public AdapterInfo AdapterFor(Profile p, IReadOnlyList<AdapterInfo>? adapters = null)
     {
         adapters ??= GetAdapters();
         // A Hyper-V host vEthernet shares the physical NIC's MAC: never resolve onto the address-less uplink.
@@ -178,7 +194,7 @@ public sealed class NetPawService
         if (p.Adapter is not null && adapters.Any(a => string.Equals(a.Name, p.Adapter, StringComparison.OrdinalIgnoreCase))) return ResolveAdapter(p.Adapter, adapters);
         if (p.Adapter is not null || p.AdapterMac is { Length: > 0 })
             throw new InvalidOperationException($"Adapter '{p.Adapter ?? p.AdapterMac}' for profile '{p.Name}' is not present (unplugged dock or USB NIC?). Pick another adapter in the editor or apply with -a.");
-        return ResolveAdapter((string?)null, adapters);
+        return ResolveAdapter(null, adapters);
     }
 
     public AdapterInfo ResolveAdapter(string? name, IReadOnlyList<AdapterInfo>? adapters = null)
@@ -198,13 +214,18 @@ public sealed class NetPawService
 
     public ApplyPlan PlanProfile(Profile p, AdapterInfo? adapter = null)
     {
-        adapter ??= ResolveAdapter(p);
+        adapter ??= AdapterFor(p);
         var vlan = p.VlanId is null ? null : QueryVlan(adapter.Name);
-        return ApplyPlanner.Plan(p, adapter, vlan, Settings.FlushDns);
+        var plan = ApplyPlanner.Plan(p, adapter, vlan);
+        plan.Profile = p;
+        return plan;
     }
 
     public ApplyOutcome Apply(ApplyPlan plan)
     {
+        // Any plan that touches the resolver set gets one flush at the end — renew, reset, borrow-return included.
+        if (Settings.FlushDns && plan.ChangesDns && !plan.Steps.Any(s => s.Arguments == "/flushdns"))
+            plan.Steps.Add(new Step("Flush DNS cache", "ipconfig", "/flushdns", Critical: false));
         var outcome = PlanExecutor.Execute(plan, Runner, Store.Log);
         // A full "set address" wipes every address on the adapter, so forget temp addresses we tracked there.
         if (plan.Steps.Any(s => s.Arguments.Contains(" set address ")))
@@ -214,10 +235,30 @@ public sealed class NetPawService
 
     public ApplyOutcome ApplyProfile(Profile p, AdapterInfo? adapter = null) => Apply(PlanProfile(p, adapter));
 
+    /// <summary>Apply, wait for Windows to settle, re-read the adapter and report what it did not take. One code path for tray and CLI.</summary>
+    public ApplyOutcome ApplyAndVerify(ApplyPlan plan, int settleMs = 2500)
+    {
+        var outcome = Apply(plan);
+        if (!outcome.Success || plan.Profile is null) return outcome;
+        Thread.Sleep(settleMs);
+        var live = GetAdapters().FirstOrDefault(a => a.Name == plan.Adapter);
+        var diffs = live is null ? ["adapter disappeared"] : ApplyVerifier.Compare(plan.Profile, live);
+        if (diffs.Count > 0)
+        {
+            // Windows drops the old lease's default route a few seconds after a static apply: confirm before alarming.
+            Thread.Sleep(4000);
+            live = GetAdapters().FirstOrDefault(a => a.Name == plan.Adapter);
+            diffs = live is null ? ["adapter disappeared"] : ApplyVerifier.Compare(plan.Profile, live);
+        }
+        outcome.VerifyDiffs = diffs;
+        if (outcome.VerifyDiffs.Count > 0) Store.Log($"verify '{plan.Title}' on {plan.Adapter}: " + string.Join("; ", outcome.VerifyDiffs));
+        return outcome;
+    }
+
     public ApplyOutcome ApplyDhcp(AdapterInfo? adapter = null)
     {
         Require(Capability.Dhcp);
-        return Apply(ApplyPlanner.PlanDhcp(adapter ?? ResolveAdapter((string?)null), Settings.FlushDns));
+        return Apply(ApplyPlanner.PlanDhcp(adapter ?? ResolveAdapter(null)));
     }
 
     public ReachDecision ResolveReach(string target, AdapterInfo? adapter = null)
@@ -230,7 +271,7 @@ public sealed class NetPawService
     /// <summary>Executes a reach decision. Temp addresses go on as secondaries by default; "replace" builds a full temp profile instead.</summary>
     public (ApplyPlan Plan, ApplyOutcome? Outcome) Reach(ReachDecision d, AdapterInfo? adapter = null, bool dryRun = false, bool? replacePrimary = null)
     {
-        adapter ??= ResolveAdapter((string?)null);
+        adapter ??= ResolveAdapter(null);
         Require(Capability.Reach);
         if (d.Kind is ReachKind.TempAddress or ReachKind.UsePreset) Require(Capability.TempAddresses);
         var replace = replacePrimary ?? !Settings.ReachAsSecondary;
@@ -281,7 +322,7 @@ public sealed class NetPawService
 
     public (ApplyPlan Plan, ApplyOutcome? Outcome) ApplyPreset(Preset preset, AdapterInfo? adapter = null, bool dryRun = false, bool? replacePrimary = null)
     {
-        adapter ??= ResolveAdapter((string?)null);
+        adapter ??= ResolveAdapter(null);
         var d = ResolvePreset(preset, adapter);
         if (d.Kind == ReachKind.AlreadyReachable) return (new ApplyPlan { Title = preset.ToString(), Adapter = adapter.Name }, null);
         return Reach(d, adapter, dryRun, replacePrimary);
@@ -292,21 +333,55 @@ public sealed class NetPawService
     /// temporary static replacement on a DHCP adapter (netsh cannot add a secondary next to a lease).
     /// The returned action puts things back (delete the secondary / return to DHCP).
     /// </summary>
-    public (bool Ok, Action Restore) Borrow(string adapterName, IpAddr addr)
+    readonly Dictionary<string, Action> _borrowed = new(StringComparer.OrdinalIgnoreCase);
+
+    public bool Borrow(string adapterName, IpAddr addr, bool allowLeaseDrop = false) => Borrow(GetAdapters().FirstOrDefault(a => a.Name == adapterName), addr, allowLeaseDrop);
+
+    /// <summary>
+    /// Same, with an adapter snapshot the caller already holds. On a DHCP adapter that HAS a working lease
+    /// a borrow means replacing the lease (netsh cannot add a static secondary next to it) — refused unless
+    /// the caller explicitly accepted that disruption; a lease-less DHCP adapter (169.254) is fair game.
+    /// </summary>
+    public bool Borrow(AdapterInfo? live, IpAddr addr, bool allowLeaseDrop = false)
     {
-        var live = GetAdapters().FirstOrDefault(a => a.Name == adapterName);
-        if (live is null) return (false, () => { });
+        if (live is null) return false;
+        if (live.Dhcp && live.HasRealAddress && !allowLeaseDrop) return false;
+        var key = live.Name + "|" + addr;
+        lock (_borrowed) { if (_borrowed.ContainsKey(key)) return true; }
+        Action restore;
+        bool ok;
         if (live.Dhcp)
         {
-            var tmp = new Profile { Name = "borrow " + addr, Adapter = adapterName, Addresses = [addr], Temporary = true };
-            var o = Apply(ApplyPlanner.Plan(tmp, live));
-            return (o.Success, () => Apply(ApplyPlanner.PlanDhcp(live)));
+            var tmp = new Profile { Name = "borrow " + addr, Adapter = live.Name, Addresses = [addr], Temporary = true };
+            ok = Apply(ApplyPlanner.Plan(tmp, live)).Success;
+            restore = () => Apply(ApplyPlanner.PlanDhcp(live));
         }
-        var plan = ApplyPlanner.PlanAddSecondary(live, addr, "borrow");
-        if (plan.IsEmpty) return (false, () => { });
-        var ok = Apply(plan).Success;
-        return (ok, () => Apply(ApplyPlanner.PlanRemoveAddresses(adapterName, [addr], "return")));
+        else
+        {
+            var plan = ApplyPlanner.PlanAddSecondary(live, addr, "borrow");
+            if (plan.IsEmpty) return false;
+            ok = Apply(plan).Success;
+            restore = () => Apply(ApplyPlanner.PlanRemoveAddresses(live.Name, [addr], "return"));
+        }
+        if (ok) lock (_borrowed) _borrowed[key] = restore;
+        return ok;
     }
+
+    /// <summary>Puts a borrowed address back (delete the secondary / return to DHCP). Idempotent.</summary>
+    public void Return(string adapterName, IpAddr addr)
+    {
+        Action? restore;
+        lock (_borrowed) _borrowed.Remove(adapterName + "|" + addr, out restore);
+        restore?.Invoke();
+    }
+
+    /// <summary>The (addTemp, removeTemp) pair RouterFinder and AutoSwitcher take, backed by the ledger; work runs off the caller's thread.</summary>
+    public (Func<IpAddr, CancellationToken, Task<bool>> Add, Func<IpAddr, CancellationToken, Task> Remove) Borrower(AdapterInfo live, bool allowLeaseDrop = false, int settleMs = 300) =>
+        (async (addr, ct) => { var ok = await Task.Run(() => Borrow(live, addr, allowLeaseDrop), ct); if (ok) await Task.Delay(settleMs, ct); return ok; },
+         (addr, _) => Task.Run(() => Return(live.Name, addr)));
+
+    /// <summary>True when a borrow on this adapter would have to replace a working DHCP lease (ask the user first).</summary>
+    public static bool BorrowDropsLease(AdapterInfo live) => live.Dhcp && live.HasRealAddress;
 
     public IReadOnlyList<TempAddress> TempAddresses => Store.LoadTemp();
 
