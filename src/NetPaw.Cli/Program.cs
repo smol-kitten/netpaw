@@ -27,6 +27,7 @@ const string Usage = """
       netpaw-cli find-routers [-a X] [--force]    borrow an address in each common subnet, ARP the usual gateways, report who answers (--force: ok to drop a DHCP lease)
       netpaw-cli incidents [-n 30]                show the incident log (enable it in settings: repair.incidentLog)
       netpaw-cli reach <ip[/prefix]> [--replace] [-a X] [-n]
+      netpaw-cli trace <host> [--max N]             traceroute (ICMP TTL, no elevation); rc 1 when the target never answers
       netpaw-cli check <host:port> [--timeout ms]   one TCP connect: open / refused / timeout (rc 0/1/2, 3 = unresolved)
                                               make <ip> reachable: pick a covering profile, else a preset,
                                               else add a temporary secondary in the assumed /24
@@ -134,6 +135,15 @@ try
             var r = NetPaw.Connectivity.PortCheck.Run(new NetPaw.Connectivity.NetworkProbe(), host, port, int.TryParse(timeoutOpt, out var t) ? t : 2000).GetAwaiter().GetResult();
             Console.WriteLine(r.Text);
             return r.ExitCode;
+        }
+        case "trace":
+        {
+            if (argv.Count < 2) return Fail("trace needs a host or address");
+            var max = int.TryParse(Opt("--max"), out var m) ? m : 30;
+            var r = NetPaw.Connectivity.Trace.Run(new NetPaw.Connectivity.NetworkProbe(), argv[1], max,
+                progress: new Progress<NetPaw.Connectivity.Hop>(h => Console.WriteLine($"{h.Ttl,3}  {h.Address ?? "*",-18} {h.MsText}"))).GetAwaiter().GetResult();
+            Console.WriteLine(r.Summary);
+            return r.Reached ? 0 : 1;
         }
         case "reach":
         {

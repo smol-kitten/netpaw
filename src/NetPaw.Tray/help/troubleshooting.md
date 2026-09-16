@@ -29,3 +29,9 @@ With checks on, NetPaw fetches the Microsoft connect-test page after DNS works; 
 
 ## "Profile applied, but the device still does not answer"
 Type `10.0.0.5:443` (or `printer:9100`) into the panel: NetPaw makes one TCP connect and says **open**, **refused** (host is there, nothing listens on that port or its firewall rejects), **timed out** (a firewall drops it or the host is off) or **not reachable** (no route — reach the address first). Nothing is changed, nothing is scanned. CLI: `netpaw-cli check 10.0.0.5:443`.
+
+## "Internet ✗" — where does it stop?
+With checks on, the info card offers **Trace route to 1.1.1.1** whenever internet or the gateway is ✗. Each hop gets three ICMP probes; the window says *path stops after hop 4 (10.0.0.1)* — that hop is the last box that still forwarded. Silence right at hop 1 means ICMP is blocked or there is no route. CLI: `netpaw-cli trace 1.1.1.1`.
+
+## Names resolve slowly or not at all
+With checks on, NetPaw asks each configured DNS server directly. The DNS row shows `10.0.0.53 ✗, 10.0.0.54 ✓ 3 ms` and the advice names the dead one — a dead *first* server delays every lookup by its timeout before Windows falls back. Fix it in the profile, or on the DHCP server.
