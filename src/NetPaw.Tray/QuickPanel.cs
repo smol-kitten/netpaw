@@ -135,7 +135,7 @@ sealed class QuickPanel : Form
                 var badgeColor = current ? Theme.Static : p.Managed ? Theme.Temp : Theme.Accent;
                 _items.Add(new Item(p.Name, p.Summary() + (p.Hotkey is null ? "" : "   " + p.Hotkey), p.Dhcp ? Theme.Dhcp : Theme.Static, () => _app.ApplyProfile(p), null, p, Badge: badge, BadgeColor: badgeColor));
             }
-            if ((q.Length == 0 || Fuzzy("dhcp", q)) && svc.Allowed(Capability.Dhcp))
+            if ((q.Length == 0 || Word(q, "dhcp")) && svc.Allowed(Capability.Dhcp))
                 _items.Add(new Item("DHCP now", $"Let {w?.Name ?? "the adapter"} take a lease", Theme.Dhcp, _app.ApplyDhcp, Badge: w?.Dhcp == true ? "current" : null, BadgeColor: Theme.Static));
             if (q.Length > 0)
                 foreach (var rp in svc.RepoProfiles.Where(p => Fuzzy(p.Name, q) || p.Summary().Contains(q, StringComparison.OrdinalIgnoreCase)).Take(6))
@@ -144,21 +144,21 @@ sealed class QuickPanel : Form
                 foreach (var pr in PresetLibrary.Search(svc.Presets, q).Take(8))
                     _items.Add(new Item($"{pr.Vendor} {pr.Model}", $"{pr.Ip}/{pr.Prefix}{(pr.Note is null ? "" : "   " + pr.Note)}", Theme.Temp, () => _app.ApplyPreset(pr), Badge: pr.Source, BadgeColor: Theme.Accent));
             var temps = svc.TempAddresses;
-            if (temps.Count > 0 && (q.Length == 0 || Fuzzy("temporary", q) || Fuzzy("clear", q)))
+            if (temps.Count > 0 && (q.Length == 0 || Word(q, "temporary", "clear", "remove")))
                 _items.Add(new Item($"Remove {temps.Count} temporary address{(temps.Count == 1 ? "" : "es")}", string.Join(", ", temps.Select(t => t.Address.ToString())), Theme.Temp, _app.ClearTemp));
-            if (q.Length == 0 || Fuzzy("manage profiles", q) || Fuzzy("edit", q))
+            if (q.Length == 0 || Word(q, "manage profiles", "edit", "profiles"))
                 _items.Add(new Item("Manage profiles…", "Create, edit, hotkeys, routes, VLAN", Theme.Muted, () => _app.ShowEditor(), OpensWindow: true));
-            if (w is { Dhcp: true } && (q.Length == 0 || Fuzzy("renew", q)))
+            if (w is { Dhcp: true } && (q.Length == 0 || Word(q, "renew", "lease")))
                 _items.Add(new Item("Renew DHCP lease", $"ipconfig /renew on {w.Name}" + (_app.Advisories.FirstOrDefault(a => a.CanRenew) is { } adv ? "   ·   " + adv.Title : ""), Theme.Dhcp, () => _app.Renew(manual: true)));
-            if (q.Length > 0 && (Fuzzy("arp", q) || Fuzzy("map", q) || Fuzzy("find router", q) || Fuzzy("neighbours", q)))
+            if (Word(q, "arp", "map", "network map", "find router", "neighbours", "switch", "lldp"))
                 _items.Add(new Item("Network map…", "ARP neighbours per network, active re-check/sweep, find routers on this cable", Theme.Accent, _app.ShowMap, OpensWindow: true));
-            if (q.Length > 0 && (Fuzzy("scan", q) || Fuzzy("find working", q)))
+            if (Word(q, "scan", "find working"))
                 _items.Add(new Item("Scan for a working profile…", "Try DHCP and your profiles on this port, keep the one that works", Theme.Accent, _app.ShowScan, OpensWindow: true));
-            if (q.Length == 0 || Fuzzy("network info", q) || Fuzzy("status", q))
+            if (q.Length == 0 || Word(q, "network info", "status", "info"))
                 _items.Add(new Item("Network info", "Link, address, gateway, DNS, intranet/internet — pin it with 📌", Theme.Muted, _app.ShowInfo, OpensWindow: true));
-            if (q.Length > 0 && Fuzzy("help", q))
+            if (Word(q, "help"))
                 _items.Add(new Item("Help  (F1)", "Topics for every view", Theme.Muted, () => _app.ShowHelp("overview"), OpensWindow: true));
-            if (q.Length > 0 && Fuzzy("settings", q))
+            if (Word(q, "settings", "options"))
                 _items.Add(new Item("Settings…", "Work adapter, hotkey, confirm, startup", Theme.Muted, _app.ShowSettings, OpensWindow: true));
         }
         _list.BeginUpdate();
@@ -176,6 +176,9 @@ sealed class QuickPanel : Form
         var wanted = _header.Height + 48 + _footer.Height + _status.Height + rows * _list.ItemHeight + 8;
         if (ClientSize.Height != wanted) { ClientSize = new Size(ClientSize.Width, wanted); ApplyRegion(); }
     }
+
+    /// <summary>Action rows match by substring only — subsequence matching made "map" open "Manage profiles".</summary>
+    static bool Word(string q, params string[] keywords) => q.Length > 0 && keywords.Any(k => k.Contains(q, StringComparison.OrdinalIgnoreCase));
 
     static bool Fuzzy(string text, string q)
     {

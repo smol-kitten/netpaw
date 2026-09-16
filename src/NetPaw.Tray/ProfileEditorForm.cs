@@ -23,10 +23,15 @@ sealed class ProfileEditorForm : Form
     readonly CheckBox _setVlan = new() { Text = "set VLAN id", AutoSize = true };
     readonly NumericUpDown _vlan = new() { Minimum = 0, Maximum = 4094, Width = 64 };
     readonly Label _vlanInfo = new() { AutoSize = true, ForeColor = Theme.Muted, Font = Theme.Small };
+    readonly Label _macInfo = new() { AutoSize = true, ForeColor = Theme.Muted, Font = Theme.Small };
+    readonly CheckBox _autoSwitch = new() { Text = "auto-switch when this network is recognised", AutoSize = true };
+    readonly Button _learn = new() { Text = "Learn from current network", Width = 190, Height = 26 };
+    readonly Label _fpInfo = new() { AutoSize = true, ForeColor = Theme.Muted, Font = Theme.Small, MaximumSize = new Size(520, 0) };
     readonly Label _managedNote = new() { AutoSize = true, ForeColor = Theme.Temp, Font = Theme.Small, Visible = false, Dock = DockStyle.Top, Padding = new Padding(0, Theme.Spacing.S, 0, 0) };
     readonly Button _save, _apply, _preview, _delete;
     readonly IReadOnlyList<AdapterInfo> _adapters;
     Profile? _current;
+    NetworkFingerprint? _learnedFp;
     bool _loading;
 
     public ProfileEditorForm(TrayApp app)
@@ -47,12 +52,13 @@ sealed class ProfileEditorForm : Form
 
         // right: sections (docked Top in reverse order inside a scrolling panel)
         _adapter.Items.Add("(work adapter)"); foreach (var a in _adapters) _adapter.Items.Add(a.Name);
-        _adapter.SelectedIndexChanged += (_, _) => UpdateVlanInfo();
+        _adapter.SelectedIndexChanged += (_, _) => { UpdateVlanInfo(); UpdateMacInfo(); };
         _dhcp.CheckedChanged += (_, _) => ToggleStatic();
         _setVlan.CheckedChanged += (_, _) => _vlan.Enabled = _setVlan.Checked;
 
         _identity.Row("Name", _name, "name");
-        _identity.Row("Adapter", _adapter, "adapter", hint: "\"work adapter\" = the one selected in the tray menu");
+        _identity.Row("Adapter", Inline(_adapter, _macInfo), "adapter", hint: "\"work adapter\" = the one selected in the tray menu. A named adapter is remembered by MAC, so renames and dock ports do not break the profile.");
+        _adapter.Width = 300;
         _identity.Row("Hotkey", _hotkey, "hotkey", hint: "global, needs a modifier — e.g. Ctrl+Alt+1", width: 200);
 
         _ipv4.Row("Mode", Inline(_dhcp, _static), "mode");
@@ -66,6 +72,20 @@ sealed class ProfileEditorForm : Form
         _advanced.Row("VLAN", Inline(_setVlan, _vlan, _vlanInfo), "vlan");
         _advanced.Row("Routes", _routes, "routes", hint: "one per line: 10.0.0.0/8 via 192.168.1.1 metric 10   (via/metric optional)");
         _advanced.Row("Note", _note, "note");
+        var autoBox = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.TopDown, WrapContents = false, Margin = Padding.Empty };
+        autoBox.Controls.Add(Inline(_autoSwitch, _learn)); autoBox.Controls.Add(_fpInfo);
+        _advanced.Row("Auto-switch", autoBox, "autoswitch", hint: "Fingerprint = gateway MAC + subnet (+ DHCP server). On link-up NetPaw applies the one profile whose fingerprint matches; the first time it asks.");
+        _learn.Click += async (_, _) =>
+        {
+            var name = _adapter.SelectedIndex <= 0 ? _app.Work?.Name : (string)_adapter.SelectedItem!;
+            var live = name is null ? null : _adapters.FirstOrDefault(a => a.Name == name);
+            if (live is null) { _fpInfo.Text = "pick an adapter first"; return; }
+            _learn.Enabled = false; _fpInfo.Text = "learning…";
+            var fp = await _app.LearnFingerprint(live);
+            _learn.Enabled = true;
+            if (fp is null) { _fpInfo.Text = $"{live.Name} has no address+gateway to learn from — apply the profile on the real network, then learn."; return; }
+            _learnedFp = fp; _fpInfo.Text = "learned: " + fp; _autoSwitch.Checked = true;
+        };
 
         var scroll = new Panel { Dock = DockStyle.Fill, AutoScroll = true, Padding = new Padding(Theme.Spacing.L, 0, Theme.Spacing.L, 0) };
         scroll.Controls.Add(_advanced); scroll.Controls.Add(_ipv4); scroll.Controls.Add(_identity); scroll.Controls.Add(_managedNote);
@@ -182,11 +202,12 @@ sealed class ProfileEditorForm : Form
         _setVlan.Checked = p.VlanId is not null; _vlan.Value = p.VlanId ?? 0; _vlan.Enabled = _setVlan.Checked;
         _routes.Text = string.Join(Environment.NewLine, p.Routes.Select(r => r.ToString()));
         _hotkey.Text = p.Hotkey ?? ""; _note.Text = p.Note ?? "";
-        _advanced.Collapsed = p.InterfaceMetric is null && p.VlanId is null && p.Routes.Count == 0 && p.Note is null;
+        _learnedFp = p.Fingerprint; _autoSwitch.Checked = p.AutoSwitch; _fpInfo.Text = p.Fingerprint is null ? "no fingerprint yet" : "fingerprint: " + p.Fingerprint + (p.AutoSwitchConfirmed ? "  (confirmed)" : "");
+        _advanced.Collapsed = p.InterfaceMetric is null && p.VlanId is null && p.Routes.Count == 0 && p.Note is null && !p.AutoSwitch;
         foreach (var s in new[] { _identity, _ipv4, _advanced }) s.ClearErrors();
         _loading = false;
         SetReadOnly(p.Managed, p.Source);
-        ToggleStatic(); UpdateVlanInfo();
+        ToggleStatic(); UpdateVlanInfo(); UpdateMacInfo();
     }
 
     void SetReadOnly(bool managed, string? source)
@@ -196,7 +217,7 @@ sealed class ProfileEditorForm : Form
         _managedNote.Text = managed ? $"Managed profile (deployed by your organisation{(source is null ? "" : ", " + source)}). You can apply or copy it, not change it."
                           : locked ? "Your organisation allows only managed profiles on this machine." : "";
         managed = managed || locked;
-        foreach (var c in new Control[] { _name, _adapter, _dhcp, _static, _addresses, _gateway, _gwMetric, _dns, _suffix, _ifMetric, _setVlan, _vlan, _routes, _hotkey, _note })
+        foreach (var c in new Control[] { _name, _adapter, _dhcp, _static, _addresses, _gateway, _gwMetric, _dns, _suffix, _ifMetric, _setVlan, _vlan, _routes, _hotkey, _note, _autoSwitch, _learn })
             c.Enabled = !managed;
         _save.Enabled = !managed; _delete.Enabled = !managed;
         _apply.Text = managed ? "Apply  (Ctrl+Enter)" : "Save && apply  (Ctrl+Enter)";
@@ -207,6 +228,13 @@ sealed class ProfileEditorForm : Form
         if (_current?.Managed == true) return;
         var on = _static.Checked;
         foreach (var c in new Control[] { _addresses, _gateway, _gwMetric, _dns, _suffix }) c.Enabled = on;
+    }
+
+    void UpdateMacInfo()
+    {
+        var name = _adapter.SelectedIndex <= 0 ? null : (string)_adapter.SelectedItem!;
+        var live = name is null ? null : _adapters.FirstOrDefault(a => a.Name == name);
+        _macInfo.Text = live is null ? (_current?.AdapterMac is { Length: > 0 } m ? $"bound to {m} (not present now)" : "") : $"bound to {live.Mac}";
     }
 
     void UpdateVlanInfo()
@@ -228,6 +256,7 @@ sealed class ProfileEditorForm : Form
         p.Name = _name.Text.Trim();
         if (p.Name.Length == 0) Err(_identity, "name", "Name is required.");
         p.Adapter = _adapter.SelectedIndex <= 0 ? null : (string)_adapter.SelectedItem!;
+        p.AdapterMac = p.Adapter is null ? null : _adapters.FirstOrDefault(a => a.Name == p.Adapter)?.Mac ?? p.AdapterMac;
         p.Dhcp = _dhcp.Checked;
         p.Addresses = [];
         var badAddr = new List<string>();
@@ -255,6 +284,9 @@ sealed class ProfileEditorForm : Form
         else if (p.Hotkey is not null && _app.Service.Profiles.Any(o => o.Id != p.Id && string.Equals(o.Hotkey, p.Hotkey, StringComparison.OrdinalIgnoreCase)))
             Err(_identity, "hotkey", $"{p.Hotkey} is already used by another profile.");
         p.Note = string.IsNullOrWhiteSpace(_note.Text) ? null : _note.Text.Trim();
+        p.Fingerprint = _learnedFp; p.AutoSwitch = _autoSwitch.Checked && _learnedFp is not null;
+        if (_autoSwitch.Checked && _learnedFp is null) Err(_advanced, "autoswitch", "Learn a fingerprint first (apply the profile on its network, then click Learn).");
+        if (!ReferenceEquals(_learnedFp, _current?.Fingerprint)) p.AutoSwitchConfirmed = false;
         return ok ? p : null;
     }
 
@@ -283,7 +315,7 @@ sealed class ProfileEditorForm : Form
     void Preview()
     {
         var p = _current?.Managed == true ? _current : ReadFields(); if (p is null) return;
-        try { PlanPreviewForm.ShowReadOnly(_app.Service.PlanProfile(p, _app.Service.ResolveAdapter(p.Adapter, _adapters)), "Preview only — nothing is applied from here."); }
+        try { PlanPreviewForm.ShowReadOnly(_app.Service.PlanProfile(p, _app.Service.ResolveAdapter(p, _adapters)), "Preview only — nothing is applied from here."); }
         catch (InvalidOperationException ex) { _identity.SetError("adapter", ex.Message); }
     }
 }

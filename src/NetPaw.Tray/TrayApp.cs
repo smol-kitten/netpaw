@@ -6,6 +6,7 @@ using NetPaw.Hotkeys;
 using NetPaw.Model;
 using NetPaw.Planning;
 using NetPaw.Reach;
+using NetPaw.Scan;
 
 namespace NetPaw.Tray;
 
@@ -27,6 +28,13 @@ sealed class TrayApp : ApplicationContext
     readonly RenewScheduler _renew = new();
     IReadOnlyList<Advisory> _advisories = [];
     IReadOnlyList<VpnInfo> _vpns = [];
+    readonly Dictionary<string, IReadOnlyList<Discovery.SwitchNeighbor>> _switches = new(StringComparer.OrdinalIgnoreCase);
+    bool _discovering;
+    public IReadOnlyList<Discovery.SwitchNeighbor> SwitchNeighbors(string adapter) => _switches.TryGetValue(adapter, out var l) ? l : [];
+    public void SetSwitchNeighbors(string adapter, IReadOnlyList<Discovery.SwitchNeighbor> list) { _switches[adapter] = list; _toast?.Render(_snapshot); }
+    readonly Arp.WindowsArpProvider _arp = new();
+    bool _autoSwitchArmed = true, _autoSwitching;
+    Profile? _autoSwitchUndo;
     public IReadOnlyList<VpnInfo> Vpns => _vpns;
     IReadOnlyList<string> _loggedAdvisories = [];
     DateTime? _advisoriesSince;
@@ -107,12 +115,22 @@ sealed class TrayApp : ApplicationContext
             var work = Work;
             var snap = await Task.Run(() => _checker.Check(work, _svc.Settings.Checks));
             _previous = _snapshot; _snapshot = snap;
-            _advisories = _svc.Settings.Repair.DhcpAdvisory ? Advisor.Analyze(snap) : [];
+            _advisories = _svc.Settings.Repair.DhcpAdvisory ? Advisor.Analyze(snap, _adapters) : [];
+            // Auto-switch: one decision per link-up (armed again when the link drops), never while busy.
+            var linkUp = snap.Link && snap.Adapter is not null && (_previous is null || !_previous.Link || _previous.Adapter?.Name != snap.Adapter.Name);
+            if (!snap.Link) { _autoSwitchArmed = true; if (snap.Adapter is not null) _switches.Remove(snap.Adapter.Name); }
+            if (linkUp && _svc.Settings.Repair.DiscoverSwitchOnLinkUp && !_discovering && Discovery.PktmonCapture.Available && snap.Adapter is not null)
+                _ = DiscoverSwitch(snap.Adapter.Name);
+            if (linkUp && _autoSwitchArmed && !_busy && !_autoSwitching && _svc.Profiles.Any(p => p.AutoSwitch && p.Fingerprint is not null))
+            {
+                _autoSwitchArmed = false;
+                _ = AutoSwitch(snap.Adapter!);
+            }
             var vpns = VpnDetector.Detect(_adapters);
             foreach (var msg in VpnDetector.Changes(_vpns, vpns))
             {
                 _svc.Store.Log("vpn: " + msg);
-                if (_svc.Settings.Repair.VpnNotifications && _vpns.Count + vpns.Count > 0 && _snapshot is not null) Notify("VPN", msg, ToolTipIcon.Info, force: true);
+                if (_svc.Settings.Repair.VpnNotifications && _previous is not null) Notify("VPN", msg, ToolTipIcon.Info, force: true);
                 if (_svc.Settings.Repair.IncidentLog) (_incidents ??= new IncidentLog(_svc.Store.IncidentsFile)).Append(new Incident(DateTimeOffset.Now, msg.Contains('\'') ? msg.Split('\'')[1] : "vpn", "vpn", "", "", msg, []));
             }
             _vpns = vpns;
@@ -191,6 +209,71 @@ sealed class TrayApp : ApplicationContext
         using var f = new ScanForm(this, w);
         f.ShowDialog();
         RefreshState(); _ = RunCheck();
+    }
+
+    readonly Dictionary<string, Action> _borrowed = [];
+    AutoSwitcher MakeSwitcher(string adapterName) => new(_arp,
+        async (addr, ct) => { var (ok, restore) = await Task.Run(() => _svc.Borrow(adapterName, addr), ct); if (ok) { _borrowed[addr.ToString()] = restore; await Task.Delay(300, ct); } return ok; },
+        async (addr, _) => { if (_borrowed.Remove(addr.ToString(), out var r)) await Task.Run(r); });
+
+    async Task AutoSwitch(AdapterInfo adapter)
+    {
+        _autoSwitching = true;
+        try
+        {
+            // Give DHCP a moment; a lease makes identification a single ARP.
+            await Task.Delay(4000);
+            var live = _svc.GetAdapters().FirstOrDefault(a => a.Name == adapter.Name); if (live is null || !live.Up) return;
+            var d = await MakeSwitcher(live.Name).Decide(live, _svc.Profiles);
+            _svc.Store.Log($"auto-switch on {live.Name}: {d.Reason}");
+            if (d.Profile is null) return;
+            var p = d.Profile;
+            if (!p.AutoSwitchConfirmed)
+            {
+                var ok = MessageBox.Show($"NetPaw recognised this network ({d.Observed}) as profile '{p.Name}'.\n\nApply it automatically now and every time this network is detected on {live.Name}?\n\n(You can turn auto-switch off per profile in the editor.)",
+                    "NetPaw — auto-switch", MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes;
+                if (!ok) { p.AutoSwitch = false; _svc.SaveProfiles(); Notify("Auto-switch off", $"'{p.Name}' will not switch automatically.", ToolTipIcon.Info); return; }
+                p.AutoSwitchConfirmed = true; _svc.SaveProfiles();
+            }
+            _autoSwitchUndo = _svc.Capture("before auto-switch", live);
+            if (_svc.Settings.Repair.IncidentLog) (_incidents ??= new IncidentLog(_svc.Store.IncidentsFile)).Append(new Incident(DateTimeOffset.Now, live.Name, "auto-switch", "", p.Name, d.Reason, []));
+            TelemetryHost.Event("apply", "auto-switch", p.Dhcp ? "dhcp" : "static");
+            ApplyProfileVerified(p, live);
+            Status?.Invoke($"Auto-switched to '{p.Name}' ({d.Reason}). Undo: tray menu.", "ok");
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or OperationCanceledException) { _svc.Store.Log("auto-switch failed: " + ex.Message); }
+        finally { _autoSwitching = false; }
+    }
+
+    async Task DiscoverSwitch(string adapter)
+    {
+        _discovering = true;
+        try
+        {
+            var (found, err) = await new Discovery.PktmonCapture().Listen(adapter, Math.Clamp(_svc.Settings.Repair.DiscoverSeconds, 10, 120), null, _svc.Store.Log);
+            if (err is not null) { _svc.Store.Log("switch discovery: " + err); return; }
+            SetSwitchNeighbors(adapter, found);
+            if (found.Count > 0)
+            {
+                Status?.Invoke($"Connected to {found[0].Headline}", "ok");
+                if (_svc.Settings.Repair.IncidentLog) (_incidents ??= new IncidentLog(_svc.Store.IncidentsFile)).Append(new Incident(DateTimeOffset.Now, adapter, "switch", "", found[0].Protocol, found[0].Headline, []));
+            }
+        }
+        finally { _discovering = false; }
+    }
+
+    public void UndoAutoSwitch()
+    {
+        if (_autoSwitchUndo is null) return;
+        var p = _autoSwitchUndo; _autoSwitchUndo = null; _autoSwitchArmed = false;
+        Execute(_svc.PlanProfile(p, _svc.ResolveAdapter(p, _adapters)), subtitle: "Undo the last automatic switch.");
+    }
+
+    /// <summary>Editor helper: learn the fingerprint of whatever the adapter runs now.</summary>
+    public async Task<NetworkFingerprint?> LearnFingerprint(AdapterInfo adapter)
+    {
+        var live = _svc.GetAdapters().FirstOrDefault(a => a.Name == adapter.Name) ?? adapter;
+        return await MakeSwitcher(live.Name).Learn(live);
     }
 
     public void ShowMap()
@@ -279,6 +362,10 @@ sealed class TrayApp : ApplicationContext
             _menu.Items.Add(new ToolStripMenuItem("DHCP now", Icons.Dot(Theme.Dhcp), (_, _) => ApplyDhcp()) { Checked = w?.Dhcp == true });
         if (w is { Dhcp: true })
             _menu.Items.Add(new ToolStripMenuItem("Renew DHCP lease", null, (_, _) => Renew(manual: true)));
+        if (w is not null)
+            _menu.Items.Add(new ToolStripMenuItem("Reset adapter (disable → enable)", null, (_, _) => ResetAdapter()));
+        if (_autoSwitchUndo is not null)
+            _menu.Items.Add(new ToolStripMenuItem("Undo last auto-switch", Icons.Dot(Theme.Temp), (_, _) => UndoAutoSwitch()));
         if (_svc.Allowed(Capability.Reach))
             _menu.Items.Add(new ToolStripMenuItem("Reach IP…", null, (_, _) => ShowPanel()) { ShortcutKeyDisplayString = _svc.Settings.PanelHotkey });
 
@@ -335,7 +422,7 @@ sealed class TrayApp : ApplicationContext
 
     public void ApplyProfile(Profile p)
     {
-        try { Execute(_svc.PlanProfile(p, _svc.ResolveAdapter(p.Adapter, _adapters))); }
+        try { ApplyProfileVerified(p, _svc.ResolveAdapter(p, _adapters)); }
         catch (InvalidOperationException ex) { Status?.Invoke(ex.Message, "error"); Notify("Cannot apply " + p.Name, ex.Message, ToolTipIcon.Error); }
     }
 
@@ -343,7 +430,7 @@ sealed class TrayApp : ApplicationContext
     {
         var w = Work; if (w is null) { Notify("No adapter", "Pick a work adapter first.", ToolTipIcon.Warning); return; }
         if (!_svc.Allowed(Capability.Dhcp)) { Denied(Capability.Dhcp); return; }
-        Execute(ApplyPlanner.PlanDhcp(w));
+        Execute(ApplyPlanner.PlanDhcp(w, _svc.Settings.FlushDns));
     }
 
     void Denied(Capability c) { var msg = new DeniedByPolicyException(c).Message; Status?.Invoke(msg, "error"); Notify("Not allowed", msg, ToolTipIcon.Warning); }
@@ -393,8 +480,59 @@ sealed class TrayApp : ApplicationContext
         Notify("Profile saved", $"{p.Name}: {p.Summary()}", ToolTipIcon.Info);
     }
 
+    Profile? _verifyProfile; string? _verifyAdapter;
+    public IReadOnlyList<string> LastVerifyDiffs { get; private set; } = [];
+
+    /// <summary>Two seconds after a successful profile apply, re-read the adapter and compare; a mismatch is a status warning with a Reset action.</summary>
+    void ScheduleVerify(Profile p, string adapter)
+    {
+        _verifyProfile = p; _verifyAdapter = adapter;
+        var t = new System.Windows.Forms.Timer { Interval = 2500 };
+        t.Tick += (_, _) =>
+        {
+            t.Dispose();
+            if (_verifyProfile is null || _verifyAdapter is null) return;
+            var live = _svc.GetAdapters().FirstOrDefault(a => a.Name == _verifyAdapter);
+            LastVerifyDiffs = live is null ? ["adapter disappeared"] : ApplyVerifier.Compare(_verifyProfile, live);
+            if (LastVerifyDiffs.Count > 0)
+            {
+                var text = $"Windows did not fully take '{_verifyProfile.Name}' on {_verifyAdapter}: {string.Join("; ", LastVerifyDiffs)}. Network info → Reset adapter usually clears it.";
+                _svc.Store.Log("verify: " + text);
+                Status?.Invoke(text, "warn"); Notify("Apply not fully effective", text, ToolTipIcon.Warning, force: true);
+                TelemetryHost.Event("apply", "verify-mismatch", _verifyProfile.Dhcp ? "dhcp" : "static", LastVerifyDiffs.Count);
+            }
+            _verifyProfile = null; _verifyAdapter = null;
+            _ = RunCheck();
+        };
+        t.Start();
+    }
+
+    public void ApplyProfileVerified(Profile p, AdapterInfo adapter) { LastVerifyDiffs = []; Execute(_svc.PlanProfile(p, adapter), after: () => ScheduleVerify(p, adapter.Name)); }
+
+    /// <summary>Repair actions from advisories: Release/Reset on the named adapter, Prefer the work adapter.</summary>
+    public void Repair(Advisory adv)
+    {
+        var target = _adapters.FirstOrDefault(a => a.Name == adv.RepairAdapter); if (target is null) return;
+        var plan = adv.Repair switch
+        {
+            RepairKind.Release => Advisor.PlanRelease(target),
+            RepairKind.Reset => ApplyPlanner.PlanResetAdapter(target),
+            RepairKind.Prefer => Advisor.PlanPrefer(target, _adapters),
+            _ => null,
+        };
+        if (plan is null) return;
+        TelemetryHost.Event("repair", adv.Repair.ToString().ToLowerInvariant(), adv.Title);
+        Execute(plan, subtitle: adv.Title + " — " + adv.Text);
+    }
+
+    public void ResetAdapter()
+    {
+        var w = Work; if (w is null) return;
+        Execute(ApplyPlanner.PlanResetAdapter(w), subtitle: "Disable → enable. The documented cure for 'static applied but Windows still shows DHCP / two gateways'.");
+    }
+
     /// <summary>Runs a plan on a worker thread (netsh can take a couple of seconds), optionally after a preview.</summary>
-    public void Execute(ApplyPlan plan, Func<ApplyOutcome>? custom = null, string? subtitle = null)
+    public void Execute(ApplyPlan plan, Func<ApplyOutcome>? custom = null, string? subtitle = null, Action? after = null)
     {
         if (_busy) { Notify("Busy", "Another change is still running.", ToolTipIcon.Warning); return; }
         if (plan.IsEmpty)
@@ -406,10 +544,10 @@ sealed class TrayApp : ApplicationContext
         if (_svc.Settings.ConfirmBeforeApply || plan.Warnings.Count > 0)
             if (!PlanPreviewForm.Confirm(plan, subtitle)) { Status?.Invoke("Cancelled.", "warn"); return; }
         var kind = plan.Title == "DHCP" ? "dhcp" : plan.Title.StartsWith("reach ") ? "reach" : subtitle is not null ? "preset" : "profile";
-        RunInBackground($"Applying {plan.Title}", () => { ApplyOutcome? o = null; try { o = (custom ?? (() => _svc.Apply(plan)))(); return o; } finally { TelemetryHost.Apply(kind, plan, o); TelemetryHost.Export(_svc, o is { Success: true } ? "info" : "error", $"apply {kind} '{plan.Title}' on {plan.Adapter}: {(o is null ? "crashed" : o.Success ? "ok" : "failed")}", new() { ["adapter"] = plan.Adapter, ["kind"] = kind, ["profile"] = plan.Title, ["steps"] = plan.Steps.Count, ["result"] = o is null ? "crashed" : o.Success ? "ok" : "failed" }, isIncident: false); } }, $"{plan.Title} → {plan.Adapter}");
+        RunInBackground($"Applying {plan.Title}", () => { ApplyOutcome? o = null; try { o = (custom ?? (() => _svc.Apply(plan)))(); return o; } finally { TelemetryHost.Apply(kind, plan, o); TelemetryHost.Export(_svc, o is { Success: true } ? "info" : "error", $"apply {kind} '{plan.Title}' on {plan.Adapter}: {(o is null ? "crashed" : o.Success ? "ok" : "failed")}", new() { ["adapter"] = plan.Adapter, ["kind"] = kind, ["profile"] = plan.Title, ["steps"] = plan.Steps.Count, ["result"] = o is null ? "crashed" : o.Success ? "ok" : "failed" }, isIncident: false); } }, $"{plan.Title} → {plan.Adapter}", after);
     }
 
-    void RunInBackground(string title, Func<ApplyOutcome> work, string doneText)
+    void RunInBackground(string title, Func<ApplyOutcome> work, string doneText, Action? after = null)
     {
         _busy = true; RefreshState();
         Status?.Invoke(title + "…", "busy");
@@ -426,6 +564,7 @@ sealed class TrayApp : ApplicationContext
             }
             else if (outcome.Success)
             {
+                after?.Invoke();
                 var soft = outcome.Failures.ToList();
                 var text = soft.Count == 0 ? "Done." : "Done, with warnings: " + string.Join("; ", soft.Select(f => f.Step.Description + ": " + f.Output));
                 Status?.Invoke(doneText + " — " + text, soft.Count == 0 ? "ok" : "warn");

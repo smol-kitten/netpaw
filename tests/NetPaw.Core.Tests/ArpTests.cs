@@ -39,6 +39,7 @@ public class ArpTableTests
         Assert.Equal(5, e.Count);
         Assert.Equal(("192.168.1.1", "00-11-22-33-44-55", "dynamic", "192.168.1.10"), (e[0].Ip, e[0].Mac, e[0].Kind, e[0].Adapter));
         Assert.Equal("static", e[1].Kind); Assert.True(e[1].IsBroadcastOrMulticast); Assert.True(e[2].IsBroadcastOrMulticast);
+        Assert.False(new ArpEntry("10.0.1.255", "00-11-22-33-44-66", "dynamic", null).IsBroadcastOrMulticast);   // a real host in a /23
         Assert.Equal("10.5.0.20", e[4].Adapter);
     }
 

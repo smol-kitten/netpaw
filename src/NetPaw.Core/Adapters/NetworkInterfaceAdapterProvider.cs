@@ -35,8 +35,10 @@ public sealed class NetworkInterfaceAdapterProvider : IAdapterProvider
             var isPhysical = nic.NetworkInterfaceType is NetworkInterfaceType.Ethernet or NetworkInterfaceType.Wireless80211 or NetworkInterfaceType.GigabitEthernet or NetworkInterfaceType.FastEthernetT or NetworkInterfaceType.FastEthernetFx
                              && !VirtualHints.Any(h => desc.Contains(h, StringComparison.OrdinalIgnoreCase) || nic.Name.Contains(h, StringComparison.OrdinalIgnoreCase));
             var hyperV = desc.Contains("Hyper-V Virtual Ethernet Adapter", StringComparison.OrdinalIgnoreCase) || nic.Name.StartsWith("vEthernet", StringComparison.OrdinalIgnoreCase);
+            IReadOnlyList<string> dhcpServers = [];
+            try { dhcpServers = props.DhcpServerAddresses.Where(a => a.AddressFamily == AddressFamily.InterNetwork).Select(a => a.ToString()).ToList(); } catch (PlatformNotSupportedException) { }
             list.Add(new AdapterInfo(nic.Name, desc, nic.Id, index, nic.OperationalStatus == OperationalStatus.Up, isPhysical, dhcp, addrs, gws, dns,
-                string.Join(":", nic.GetPhysicalAddress().GetAddressBytes().Select(b => b.ToString("X2"))), SafeSpeed(nic)) { HyperVVirtual = hyperV });
+                string.Join(":", nic.GetPhysicalAddress().GetAddressBytes().Select(b => b.ToString("X2"))), SafeSpeed(nic)) { HyperVVirtual = hyperV, DhcpServers = dhcpServers });
         }
         return AdapterSelector.TagVSwitchUplinks(list.OrderByDescending(a => a.IsPhysical).ThenByDescending(a => a.HyperVVirtual).ThenByDescending(a => a.Up).ThenBy(a => a.Name).ToList());
     }

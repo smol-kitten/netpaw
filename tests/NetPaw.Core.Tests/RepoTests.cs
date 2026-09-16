@@ -67,11 +67,39 @@ public class PackFormatTests
         var back = PackJson.Parse(json);
         Assert.True(PackSigner.Verify(back, key.PublicKeyBase64));
         Assert.Empty(PackJson.VerifyHashes(back));
-        back.Entries[0].Ip = "10.0.0.1";                       // tamper
-        Assert.Single(PackJson.VerifyHashes(back));
-        Assert.False(PackSigner.Verify(back, key.PublicKeyBase64));
+        var tampered = PackJson.Parse(json.Replace("192.168.88.1", "10.0.0.1"));   // tamper the published file
+        Assert.Single(PackJson.VerifyHashes(tampered));
+        Assert.False(PackSigner.Verify(tampered, key.PublicKeyBase64));
         Assert.False(PackSigner.Verify(p, PackSigner.Generate().PublicKeyBase64)); // wrong key
         Assert.False(PackSigner.Verify(p, "not-base64"));
+    }
+
+    [Fact]
+    public void HashesAndSignatureAreOverThePublishedJsonNotTheModel()
+    {
+        var key = PackSigner.Generate();
+        var p = Sample(); PackSigner.Sign(p, key.PrivateKeyPem);
+        var json = PackJson.Serialize(p);
+        // A future NetPaw with more Profile fields parses the same file: must still verify.
+        var back = PackJson.Parse(json);
+        Assert.Empty(PackJson.VerifyHashes(back)); Assert.True(PackSigner.Verify(back, key.PublicKeyBase64));
+        // An unknown extra field in the file is part of what was signed: keep it when re-serializing, and it changes the hash if edited.
+        var edited = json.Replace("\"note\": \"admin\"", "\"note\": \"admin\", \"extra\": 1");
+        var withExtra = PackJson.Parse(edited);
+        Assert.Single(PackJson.VerifyHashes(withExtra));
+        Assert.Contains("\"extra\"", PackJson.Serialize(withExtra));
+    }
+
+    [Fact]
+    public void ShippedCommunityPackStillVerifies()
+    {
+        var dir = AppContext.BaseDirectory;
+        string? path = null;
+        for (var d = new DirectoryInfo(dir); d is not null; d = d.Parent) { var c = Path.Combine(d.FullName, "packs", "community", "index.json"); if (File.Exists(c)) { path = c; break; } }
+        if (path is null) return; // not in the repo tree (packaged test run)
+        var pack = PackJson.Parse(File.ReadAllText(path));
+        Assert.Empty(PackJson.VerifyHashes(pack));
+        Assert.True(PackSigner.Verify(pack, File.ReadAllText(Path.Combine(Path.GetDirectoryName(path)!, "public.txt")).Trim()));
     }
 
     [Fact]

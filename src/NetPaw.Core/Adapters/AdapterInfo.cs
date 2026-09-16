@@ -18,6 +18,8 @@ public sealed record AdapterInfo(
 {
     /// <summary>A Hyper-V "vEthernet (…)" adapter: the host's own foot on an external virtual switch. Host-facing, so it is a valid work adapter.</summary>
     public bool HyperVVirtual { get; init; }
+    /// <summary>DHCP server that handed out the lease (Windows reports it); empty for static.</summary>
+    public IReadOnlyList<string> DhcpServers { get; init; } = [];
     /// <summary>A physical NIC bound to an external Hyper-V switch: it carries the switch and has no host address by design. Not a fault.</summary>
     public bool VSwitchUplink { get; init; }
     /// <summary>Adapters an admin actually configures: physical NICs and Hyper-V host vEthernet adapters.</summary>

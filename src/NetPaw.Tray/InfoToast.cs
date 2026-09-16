@@ -104,8 +104,18 @@ sealed class InfoToast : Form
             var temps = _app.Service.TempAddresses.Count;
             if (temps > 0) Row("Temporary", $"{temps} address{(temps == 1 ? "" : "es")} added by NetPaw");
             foreach (var v in _app.Vpns) Row("VPN", $"{v.Kind} '{v.Adapter}' — {v.Mode}", v.Up ? true : null);
+            foreach (var sw in _app.SwitchNeighbors(a.Name)) Row("Switch", sw.Headline + (sw.PortDescription is null ? "" : "  ·  " + sw.PortDescription) + (sw.ManagementAddress is null ? "" : "  ·  " + sw.ManagementAddress), true);
+            if (_app.LastVerifyDiffs.Count > 0)
+            {
+                _grid.Controls.Add(new Label { Text = "Verify", AutoSize = true, ForeColor = Theme.Temp, Font = Theme.Small, Margin = new Padding(0, 3, 0, 3) });
+                var host = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.TopDown, WrapContents = false, Margin = new Padding(0, 3, 0, 3) };
+                host.Controls.Add(new Label { Text = "Last apply not fully effective: " + string.Join("; ", _app.LastVerifyDiffs), AutoSize = true, MaximumSize = new Size(230, 0), ForeColor = Theme.Temp, Font = Theme.Small, Margin = Padding.Empty });
+                var reset = new LinkLabel { Text = "Reset adapter (disable → enable)", AutoSize = true, Font = Theme.Small, Margin = new Padding(0, 2, 0, 0) };
+                reset.LinkClicked += (_, _) => _app.ResetAdapter(); Theme.Apply(reset); host.Controls.Add(reset);
+                _grid.Controls.Add(host);
+            }
             if (_app.Service.Settings.Repair.DhcpAdvisory)
-                foreach (var adv in Advisor.Analyze(s))
+                foreach (var adv in _app.Advisories)
                 {
                     var color = adv.Severity switch { AdvisorySeverity.Error => Theme.Error, AdvisorySeverity.Warning => Theme.Temp, _ => Theme.Muted };
                     _grid.Controls.Add(new Label { Text = "Advice", AutoSize = true, ForeColor = color, Font = Theme.Small, Margin = new Padding(0, 3, 0, 3) });
@@ -117,6 +127,14 @@ sealed class InfoToast : Form
                         renew.LinkClicked += (_, _) => _app.Renew(manual: true);
                         Theme.Apply(renew);
                         host.Controls.Add(renew);
+                    }
+                    if (adv.Repair != RepairKind.None)
+                    {
+                        var text = adv.Repair switch { RepairKind.Release => $"Release lease on {adv.RepairAdapter}", RepairKind.Reset => $"Reset adapter {adv.RepairAdapter}", RepairKind.Prefer => $"Prefer {adv.RepairAdapter} (pin metrics)", _ => adv.Repair.ToString() };
+                        var fix = new LinkLabel { Text = text, AutoSize = true, Font = Theme.Small, Margin = new Padding(0, 2, 0, 0) };
+                        var captured = adv; fix.LinkClicked += (_, _) => _app.Repair(captured);
+                        Theme.Apply(fix);
+                        host.Controls.Add(fix);
                     }
                     _grid.Controls.Add(host);
                 }

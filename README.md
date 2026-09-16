@@ -27,6 +27,13 @@ keystroke instead of a trip through *Control Panel → Network → Adapter → P
 - **Auto-repair** (opt-in) — when the advisory says a fresh lease could help, NetPaw runs `ipconfig /renew` itself: bounded attempts per incident, spaced, DHCP adapters only, every attempt logged.
 - **Incident log** (opt-in) — timestamps of every state change and configuration finding in `incidents.jsonl`, for "when did the WAN drop?" and tickets.
 - **Scan for a working profile** — tries DHCP then your profiles on the port, measures each, stops at the first fully working one or ranks them all; restores your config unless you keep a winner.
+- **Network map** — ARP neighbours bundled per subnet (passive), active re-check or subnet sweep, and *find routers*: borrow an address in each common/vendor subnet, ARP the usual gateways, report who answers with vendor hints.
+- **Auto-switch** (opt-in per profile) — learn a network's fingerprint (gateway MAC + subnet + DHCP server); on link-up NetPaw applies the one matching profile. Asks once, undo in the menu, never on ambiguity.
+- **Verify after apply** — re-reads the adapter 2 s later; the Windows "static applied but still shows DHCP / two gateways" state is caught and *Reset adapter* clears it. Dock problems ("old NIC still holds the lease") and "two default gateways" get one-click fixes (Release / Prefer).
+- **VPN status** — WireGuard, OpenVPN, Windows native, Tailscale, ZeroTier: up/down, full vs split tunnel, change notifications.
+- **Which switch port am I on?** — LLDP/CDP via Windows' built-in `pktmon` (no driver, nothing sent): switch name, port, VLAN, management address. Optional after every link-up.
+- **Captive-portal detection** with checks on.
+- **Telemetry build extras** — OTLP/HTTP logs and RFC 5424 syslog to your own collector (incidents / actions).
 - **F1 help** on every view.
 - **CLI twin** (`netpaw-cli.exe`) for scripts and remote sessions. Same profiles, same logic.
 - **Enterprise-ready** — MSI for Intune/GPO, read-only managed profiles from `%ProgramData%`, registry policy with ADMX (pin the adapter/hotkey, deny reach/DHCP/user profiles). See [docs/ENTERPRISE.md](docs/ENTERPRISE.md).
@@ -45,6 +52,10 @@ MIT licensed. Windows 10/11, .NET 10.
 | ![info](docs/info.png) | ![alert](docs/alert.png) | ![advice](docs/advice.png) | ![help](docs/help.png) |
 
 ![scan for a working profile](docs/scan.png)
+
+| network map — ARP neighbours | which switch port am I on? (LLDP via pktmon) |
+|---|---|
+| ![map](docs/map.png) | ![switch](docs/switch.png) |
 
 *Screenshots from the Windows 11 test VM; every `netsh` path in this README was verified there.*
 
@@ -83,6 +94,9 @@ logon.
 | see what's wrong with the config | info card *Advice* rows, or `netpaw-cli advise` |
 | find a profile that works on this port | *Scan for a working profile…* (menu / `scan` in the panel), or `netpaw-cli scan [--all] [--keep]` |
 | when did it break? | *Settings → Incident log*, then *Open incident log* or `netpaw-cli incidents` |
+| who is on this cable? | *Network map…* (menu / `map` in the panel) → Neighbours, Re-check, Sweep, Find routers; `netpaw-cli arp`, `find-routers` |
+| switch automatically on a known network | editor → Advanced → *Learn from current network* + *auto-switch* |
+| Windows didn't take the change | info card → *Reset adapter*; `netpaw-cli verify <profile>`, `reset`, `release`, `prefer` |
 | help | `F1` anywhere; opens on the current view |
 
 The tray paw is **blue** on DHCP, **green** on static, **orange** while temporary addresses are
@@ -143,6 +157,9 @@ netpaw-cli export <file> [--managed]    write profiles as JSON (--managed = depl
 netpaw-cli import <file>                add profiles from JSON
 netpaw-cli policy                       show the effective machine policy
 netpaw-cli repo [add|remove|sync|search] online profile repositories
+netpaw-cli arp [--check|--sweep] / find-routers / switch [--seconds N]   network map + LLDP/CDP
+netpaw-cli advise / renew / release / reset / prefer / verify <profile>   diagnosis + repairs
+netpaw-cli scan [--all] [--repos] [--keep] / incidents [-n N]
 netpaw-cli pack keygen|build|sign|verify author and sign a pack
 ```
 

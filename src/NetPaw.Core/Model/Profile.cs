@@ -4,12 +4,24 @@ namespace NetPaw.Model;
 /// A network profile. The first address is the primary; the rest are added as secondaries
 /// (Windows "multiple IP addresses on one adapter"), so one profile can sit in several subnets.
 /// </summary>
+/// <summary>What identifies a wired network without any config on it: the gateway's MAC (unique per box, VRRP aside), the DHCP server, the subnet.</summary>
+public sealed record NetworkFingerprint(string GatewayMac, string? DhcpServer, string Subnet)
+{
+    /// <summary>Every field present on both sides must match; a missing DHCP server on one side is not a mismatch.</summary>
+    public bool Matches(NetworkFingerprint other) =>
+        string.Equals(GatewayMac, other.GatewayMac, StringComparison.OrdinalIgnoreCase) && Subnet == other.Subnet
+        && (DhcpServer is null || other.DhcpServer is null || DhcpServer == other.DhcpServer);
+    public override string ToString() => $"gw {GatewayMac} · {Subnet}{(DhcpServer is null ? "" : " · dhcp " + DhcpServer)}";
+}
+
 public sealed class Profile
 {
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
     public string Name { get; set; } = "";
     /// <summary>Adapter name (alias) or null = the configured work adapter.</summary>
     public string? Adapter { get; set; }
+    /// <summary>MAC of that adapter, so the binding survives "Ethernet" → "Ethernet 3" after a dock/driver change. Resolved before the name.</summary>
+    public string? AdapterMac { get; set; }
     public bool Dhcp { get; set; }
     public List<IpAddr> Addresses { get; set; } = [];
     public string? Gateway { get; set; }
@@ -25,6 +37,11 @@ public sealed class Profile
     public string? Note { get; set; }
     /// <summary>Created by reach-mode / presets; listed separately and safe to purge.</summary>
     public bool Temporary { get; set; }
+    /// <summary>Network fingerprint learned while this profile was applied; used by auto-switch.</summary>
+    public NetworkFingerprint? Fingerprint { get; set; }
+    /// <summary>Apply automatically when the fingerprint matches on link-up. Off by default; the first automatic switch asks once.</summary>
+    public bool AutoSwitch { get; set; }
+    public bool AutoSwitchConfirmed { get; set; }
     /// <summary>Deployed machine-wide (profiles.d / policy): visible and applicable, never editable from the UI. Not persisted in the user file.</summary>
     [System.Text.Json.Serialization.JsonIgnore] public bool Managed { get; set; }
     /// <summary>Where the profile came from when not the user's own file: "managed", a repo name, … Not persisted.</summary>

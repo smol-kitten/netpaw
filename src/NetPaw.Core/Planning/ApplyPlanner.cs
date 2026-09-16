@@ -12,7 +12,7 @@ public static class ApplyPlanner
 {
     static string Q(string adapter) => "\"" + adapter + "\"";
 
-    public static ApplyPlan Plan(Profile p, AdapterInfo adapter, VlanInfo? vlan = null)
+    public static ApplyPlan Plan(Profile p, AdapterInfo adapter, VlanInfo? vlan = null, bool flushDns = false)
     {
         var plan = new ApplyPlan { Title = p.Name, Adapter = adapter.Name };
         var n = Q(adapter.Name);
@@ -70,6 +70,18 @@ public static class ApplyPlanner
             }
             else plan.Warnings.Add($"Profile wants VLAN {vid} but the driver of '{adapter.Name}' exposes no VlanID property — skipped. Use a driver/vNIC that supports 802.1Q tagging.");
         }
+        // Names cached from the previous network are the classic "it says online but nothing resolves" after a switch.
+        if (flushDns) plan.Steps.Add(new Step("Flush DNS cache", "ipconfig", "/flushdns", Critical: false));
+        return plan;
+    }
+
+    /// <summary>Disable → enable: the documented cure for the Windows "static applied but ipconfig still shows DHCP / two gateways" state. Never automatic.</summary>
+    public static ApplyPlan PlanResetAdapter(AdapterInfo adapter)
+    {
+        var plan = new ApplyPlan { Title = "reset adapter", Adapter = adapter.Name };
+        if (adapter.HasGateway) plan.Warnings.Add($"{adapter.Name} carries the default route: the link drops for a few seconds and remote sessions over it will stall.");
+        plan.Steps.Add(Step.Netsh("Disable adapter", $"interface set interface {Q(adapter.Name)} admin=disable"));
+        plan.Steps.Add(Step.Netsh("Enable adapter", $"interface set interface {Q(adapter.Name)} admin=enable"));
         return plan;
     }
 
@@ -96,8 +108,8 @@ public static class ApplyPlanner
     }
 
     /// <summary>Quick "DHCP now" without a profile.</summary>
-    public static ApplyPlan PlanDhcp(AdapterInfo adapter) =>
-        Plan(new Profile { Name = "DHCP", Dhcp = true }, adapter);
+    public static ApplyPlan PlanDhcp(AdapterInfo adapter, bool flushDns = false) =>
+        Plan(new Profile { Name = "DHCP", Dhcp = true }, adapter, null, flushDns);
 
     /// <summary>Best-effort "is this profile what the adapter currently runs" for the ✓ in menus.</summary>
     public static bool Matches(Profile p, AdapterInfo adapter)

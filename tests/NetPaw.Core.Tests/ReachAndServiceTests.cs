@@ -211,3 +211,37 @@ public class PresetPrecedenceTests
         Assert.DoesNotMatch(@"-\d{4}$", "Ethernet 2");
     }
 }
+
+public class MacBindingTests
+{
+    static NetPawService Make(params Adapters.AdapterInfo[] adapters)
+    {
+        var dir = Directory.CreateTempSubdirectory().FullName;
+        return new NetPawService(new JsonStore(dir), new FakeAdapters(adapters), new FakeVlan(false), new FakeRunner(), new MachineStore(Path.Combine(dir, "profiles.d")), () => Policy.None);
+    }
+
+    [Fact]
+    public void MacWinsOverNameThenNameThenWorkAdapter()
+    {
+        var eth = Fx.Adapter("Ethernet", gw: "192.168.1.1") with { Mac = "AA:BB:CC:00:00:01" };
+        var dock = Fx.Adapter("Ethernet 3", addrs: ["10.5.0.9/24"]) with { Mac = "AA:BB:CC:00:00:99" };
+        var svc = Make(eth, dock);
+        var p = Fx.Static("dock"); p.Adapter = "Ethernet"; p.AdapterMac = "aa:bb:cc:00:00:99";   // renamed dock NIC: MAC says Ethernet 3
+        Assert.Equal("Ethernet 3", svc.ResolveAdapter(p).Name);
+        p.AdapterMac = "AA:BB:CC:FF:FF:FF";                                                      // MAC gone, name still there
+        Assert.Equal("Ethernet", svc.ResolveAdapter(p).Name);
+        p.Adapter = "Ethernet 9";                                                                // neither present: refuse, never silently reconfigure another NIC
+        Assert.Throws<InvalidOperationException>(() => svc.ResolveAdapter(p));
+        p.Adapter = null; p.AdapterMac = null;
+        Assert.Equal("Ethernet", svc.ResolveAdapter(p).Name);                                      // unbound: work adapter
+        // Hyper-V: vEthernet shares the uplink's MAC; never resolve onto the uplink
+        var uplink = Fx.Adapter("Ethernet", addrs: []) with { Mac = "AA:BB:CC:00:00:77", VSwitchUplink = true };
+        var veth = Fx.Adapter("vEthernet (External)", gw: "10.0.0.1") with { Mac = "AA:BB:CC:00:00:77", IsPhysical = false, HyperVVirtual = true };
+        var hv = Make(uplink, veth);
+        var hp = Fx.Static("hv"); hp.Adapter = "vEthernet (External)"; hp.AdapterMac = "AA:BB:CC:00:00:77";
+        Assert.Equal("vEthernet (External)", hv.ResolveAdapter(hp).Name);
+        var cap = svc.Capture("c", dock);
+        Assert.Equal("AA:BB:CC:00:00:99", cap.AdapterMac);
+        Assert.Equal("Ethernet 3", svc.PlanProfile(cap).Adapter);
+    }
+}

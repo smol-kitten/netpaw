@@ -3,7 +3,7 @@ using Xunit;
 
 namespace NetPaw.Tests;
 
-sealed class FakeProbe : IProbe
+class FakeProbe : IProbe
 {
     public HashSet<string> Reachable { get; } = [];
     public HashSet<string> Resolvable { get; } = [];
@@ -227,5 +227,56 @@ public class VpnTests
         Assert.Empty(VpnDetector.Changes(after, after));
         var gone = VpnDetector.Changes(after, VpnDetector.Detect([A("wg0", "WireGuard Tunnel", false, null, null)]));
         Assert.Equal(2, gone.Count); Assert.Contains(gone, m => m.Contains("adapter gone"));
+    }
+}
+
+public class V07AdvisorTests
+{
+    static NetPaw.Adapters.AdapterInfo Nic(string name, bool up, bool dhcp, string[]? addrs, string? gw) =>
+        new(name, "x", "{" + name + "}", 1, up, true, dhcp, (addrs ?? []).Select(NetPaw.Model.IpAddr.Parse).ToList(), gw is null ? [] : [gw], [], "AA");
+
+    [Fact]
+    public async Task DockingStationHeldAddress()
+    {
+        var oldNic = Nic("Ethernet", up: false, dhcp: true, ["10.0.0.5/24"], "10.0.0.1");      // undocked, still holds the lease
+        var dockNic = Nic("Ethernet 3", up: true, dhcp: true, ["169.254.7.7/16"], null);
+        var snap = await new ConnectivityChecker(new FakeProbe()).Check(dockNic, new CheckSettings());
+        var adv = Advisor.Analyze(snap, [oldNic, dockNic]);
+        var held = Assert.Single(adv, a => a.Title == "Address held by another adapter");
+        Assert.Equal("Ethernet", held.RepairAdapter); Assert.Equal(RepairKind.Release, held.Repair);
+        Assert.Contains("10.0.0.5/24", held.Text);
+        Assert.Equal("ipconfig /release \"Ethernet\"", Advisor.PlanRelease(oldNic).Steps.Single().CommandLine);
+        Assert.Contains(adv, a => a.Title == "No DHCP lease");                                   // the plain finding is still there
+        Assert.DoesNotContain(Advisor.Analyze(snap, [dockNic]), a => a.Repair == RepairKind.Release);
+        var healthyWifi = Nic("Wi-Fi", up: true, dhcp: true, ["192.168.1.20/24"], "192.168.1.1");   // an up adapter with its own lease is not a "holder"
+        Assert.DoesNotContain(Advisor.Analyze(snap, [healthyWifi, dockNic]), a => a.Repair == RepairKind.Release);
+    }
+
+    [Fact]
+    public async Task TwoDefaultGatewaysAndPrefer()
+    {
+        var eth = Nic("Ethernet", true, false, ["10.0.0.5/24"], "10.0.0.1");
+        var wifi = Nic("Wi-Fi", true, true, ["192.168.1.20/24"], "192.168.1.1");
+        var snap = await new ConnectivityChecker(new FakeProbe()).Check(eth, new CheckSettings());
+        var adv = Assert.Single(Advisor.Analyze(snap, [eth, wifi]), a => a.Title == "Two default gateways");
+        Assert.Equal(RepairKind.Prefer, adv.Repair); Assert.Contains("Wi-Fi (192.168.1.1)", adv.Text);
+        var plan = Advisor.PlanPrefer(eth, [eth, wifi]);
+        Assert.Equal(["netsh interface ipv4 set interface \"Ethernet\" metric=10", "netsh interface ipv4 set interface \"Wi-Fi\" metric=50"], plan.Steps.Select(s => s.CommandLine));
+        Assert.Empty(Advisor.Analyze(snap, [eth]).Where(a => a.Title == "Two default gateways"));
+    }
+
+    [Fact]
+    public void VerifierSpotsTheTechNetBugShape()
+    {
+        var p = Fx.Static("lab", "10.2.0.250", "10.2.1.158/23"); p.Dns = ["10.2.0.53"];
+        var ok = Fx.Adapter(addrs: ["10.2.1.158/23"], gw: "10.2.0.250") with { Dns = ["10.2.0.53"] };
+        Assert.Empty(NetPaw.Planning.ApplyVerifier.Compare(p, ok));
+        var bug = ok with { Dhcp = true, Gateways = ["10.2.0.250", "192.168.1.254"], Dns = [] };
+        var diffs = NetPaw.Planning.ApplyVerifier.Compare(p, bug);
+        Assert.Contains(diffs, d => d.Contains("still reports DHCP"));
+        Assert.Contains(diffs, d => d.StartsWith("two default gateways"));
+        Assert.Contains(diffs, d => d.StartsWith("DNS is empty"));
+        Assert.Empty(NetPaw.Planning.ApplyVerifier.Compare(new NetPaw.Model.Profile { Dhcp = true }, Fx.Adapter(dhcp: true)));
+        Assert.Single(NetPaw.Planning.ApplyVerifier.Compare(new NetPaw.Model.Profile { Dhcp = true }, Fx.Adapter(dhcp: false)));
     }
 }

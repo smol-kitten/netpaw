@@ -1,6 +1,7 @@
 using NetPaw.Connectivity;
 using NetPaw.Model;
 using NetPaw.Scan;
+using NetPaw.Arp;
 using Xunit;
 
 namespace NetPaw.Tests;
@@ -100,5 +101,79 @@ public class NetworkScannerTests
         var scanner = new NetworkScanner((p, _) => { n++; cts.Cancel(); return Task.FromResult(Snap()); });
         await Assert.ThrowsAsync<OperationCanceledException>(() => scanner.Run([Fx.Static("a"), Fx.Static("b")], ScanMode.RankAll, ct: cts.Token));
         Assert.Equal(1, n);
+    }
+}
+
+public class AutoSwitchTests
+{
+    static NetPaw.Adapters.AdapterInfo Live(string[]? addrs, string? gw, string? dhcp = null) =>
+        new("Ethernet", "x", "{e}", 1, true, true, dhcp is not null, (addrs ?? []).Select(IpAddr.Parse).ToList(), gw is null ? [] : [gw], [], "AA:AA") { DhcpServers = dhcp is null ? [] : [dhcp] };
+
+    static Profile Auto(string name, string fpMac, string subnet, string? dhcp = null, string[]? addrs = null, string? gw = null, bool dhcpProfile = false)
+    {
+        var p = dhcpProfile ? new Profile { Name = name, Dhcp = true } : Fx.Static(name, gw ?? "10.0.0.1", addrs ?? ["10.0.0.5/24"]);
+        p.AutoSwitch = true; p.Fingerprint = new NetworkFingerprint(fpMac, dhcp, subnet);
+        return p;
+    }
+
+    [Fact]
+    public async Task LearnsAndMatchesExactlyOne()
+    {
+        var arp = new FakeArp(new() { ["192.168.1.1"] = "aa-bb-cc-dd-ee-01" });
+        var sw = new AutoSwitcher(arp, (_, _) => Task.FromResult(true), (_, _) => Task.CompletedTask);
+        var live = Live(["192.168.1.20/24"], "192.168.1.1", "192.168.1.1");
+        var fp = await sw.Learn(live);
+        Assert.Equal(new NetworkFingerprint("aa-bb-cc-dd-ee-01", "192.168.1.1", "192.168.1.0/24"), fp);
+        var office = Auto("office", "aa-bb-cc-dd-ee-01", "192.168.1.0/24", dhcpProfile: false, addrs: ["192.168.1.77/24"], gw: "192.168.1.1");
+        var other = Auto("other", "aa-bb-cc-dd-ee-02", "192.168.1.0/24");
+        var off = Auto("off", "aa-bb-cc-dd-ee-01", "192.168.1.0/24"); off.AutoSwitch = false;
+        var d = await sw.Decide(live, [office, other, off]);
+        Assert.Equal("office", d.Profile!.Name);
+        Assert.Null((await sw.Decide(live, [office, Auto("dup", "aa-bb-cc-dd-ee-01", "192.168.1.0/24")])).Profile);   // ambiguous
+        Assert.Null((await sw.Decide(live, [other])).Profile);                                                         // no match
+        Assert.Null((await sw.Decide(live, [])).Profile);
+        var already = Auto("already", "aa-bb-cc-dd-ee-01", "192.168.1.0/24", dhcp: null, dhcpProfile: true);         // DHCP profile matches the DHCP state → already applied
+        Assert.Contains("already applied", (await sw.Decide(live, [already])).Reason);
+        var wrongDhcp = Auto("wrongdhcp", "aa-bb-cc-dd-ee-01", "192.168.1.0/24", dhcp: "192.168.1.9");
+        Assert.Null((await sw.Decide(live, [wrongDhcp])).Profile);                                                     // DHCP server differs → no match
+    }
+
+    [Fact]
+    public async Task StaticNetworkWithoutLeaseIsIdentifiedByBorrowingTheProfileAddress()
+    {
+        var arp = new FakeArp(new() { ["10.9.0.1"] = "de-ad-be-ef-00-01" });
+        var added = new List<string>(); var removed = new List<string>();
+        var sw = new AutoSwitcher(arp, (a, _) => { added.Add(a.ToString()); return Task.FromResult(true); }, (a, _) => { removed.Add(a.ToString()); return Task.CompletedTask; });
+        var live = Live(["169.254.3.3/16"], null);                                                                    // link up, no lease
+        var lab = Auto("lab", "de-ad-be-ef-00-01", "10.9.0.0/24", addrs: ["10.9.0.50/24"], gw: "10.9.0.1");
+        var home = Auto("home", "de-ad-be-ef-00-09", "192.168.1.0/24", addrs: ["192.168.1.50/24"], gw: "192.168.1.1");
+        var d = await sw.Decide(live, [home, lab]);
+        Assert.Equal("lab", d.Profile!.Name);
+        Assert.Equal(added, removed); Assert.Equal(2, added.Count);                                                    // borrowed both, returned both
+        Assert.Contains(arp.Probed, p => p.Ip == "10.9.0.1" && p.Src == "10.9.0.50");
+    }
+}
+
+public class CaptivePortalTests
+{
+    sealed class PortalProbe : FakeProbe, IProbe
+    {
+        public bool Portal;
+        public Task<ProbeResult> Http(string url, string expectedBody, int timeoutMs, CancellationToken ct) => Task.FromResult(new ProbeResult(url, !Portal, 5, Portal ? "redirected: http://portal/login" : null));
+    }
+
+    [Fact]
+    public async Task PortalStateOnlyWhenEverythingElseWorks()
+    {
+        var probe = new PortalProbe { Portal = true }; probe.Reachable.UnionWith(["10.0.0.1", "1.1.1.1"]); probe.Resolvable.Add("www.msftconnecttest.com");
+        var s = new CheckSettings { Enabled = true, InternetTargets = ["1.1.1.1"], DnsCheckHost = "www.msftconnecttest.com" };
+        var snap = await new ConnectivityChecker(probe).Check(Fx.Adapter(gw: "10.0.0.1"), s);
+        Assert.Equal(NetState.CaptivePortal, snap.State); Assert.True(Snapshot.IsProblem(snap.State));
+        probe.Portal = false;
+        Assert.Equal(NetState.Online, (await new ConnectivityChecker(probe).Check(Fx.Adapter(gw: "10.0.0.1"), s)).State);
+        s.CaptiveProbeUrl = ""; probe.Portal = true;
+        Assert.Equal(NetState.Online, (await new ConnectivityChecker(probe).Check(Fx.Adapter(gw: "10.0.0.1"), s)).State);
+        probe.Reachable.Remove("1.1.1.1");
+        Assert.Equal(NetState.IntranetOnly, (await new ConnectivityChecker(probe).Check(Fx.Adapter(gw: "10.0.0.1"), s)).State);  // no HTTP probe without internet
     }
 }

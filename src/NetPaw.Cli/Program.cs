@@ -16,9 +16,14 @@ const string Usage = """
       netpaw-cli apply <profile> [-a X] [-n]      apply a profile (-n = dry run, print the plan)
       netpaw-cli dhcp [-a X] [-n]                 switch the adapter to DHCP
       netpaw-cli renew [-a X] [-n]                ipconfig /renew on the adapter (DHCP only)
+      netpaw-cli release [-a X] [-n]              ipconfig /release on the adapter (the dock's old NIC still holding the address)
+      netpaw-cli reset [-a X] [-n]                disable → enable the adapter (cures 'static applied but still shows DHCP / two gateways')
+      netpaw-cli prefer [-a X] [-n]               pin interface metrics so this adapter carries the default route
+      netpaw-cli verify <profile> [-a X]          compare the live adapter against a profile (what did Windows not take?)
       netpaw-cli advise [-a X]                    DHCP/static configuration advisory (what is missing, what a renew would fix)
       netpaw-cli scan [--all] [--repos] [--no-dhcp] [-a X]  try DHCP + your profiles (--repos: community/repo profiles too) until one works; --all ranks; restores unless --keep
       netpaw-cli arp [--check|--sweep] [-a X]     ARP neighbours bundled per network (passive); --check re-ARPs them; --sweep asks the whole subnet
+      netpaw-cli switch [--seconds N] [-a X]      which switch/port am I on? LLDP/CDP via pktmon (passive, default 35 s)
       netpaw-cli find-routers [-a X]              borrow an address in each common subnet, ARP the usual gateways, report who answers
       netpaw-cli incidents [-n 30]                show the incident log (enable it in settings: repair.incidentLog)
       netpaw-cli reach <ip[/prefix]> [--replace] [-a X] [-n]
@@ -92,21 +97,32 @@ try
         case "apply":
         {
             var p = Need(svc, argv, 1);
-            var adapter = svc.ResolveAdapter(adapterName ?? p.Adapter);
+            var adapter = adapterName is not null ? svc.ResolveAdapter(adapterName) : svc.ResolveAdapter(p);
             return Run(svc, svc.PlanProfile(p, adapter), dryRun);
         }
         case "dhcp":
-            return Run(svc, ApplyPlanner.PlanDhcp(svc.ResolveAdapter(adapterName)), dryRun);
+            return Run(svc, ApplyPlanner.PlanDhcp(svc.ResolveAdapter(adapterName), svc.Settings.FlushDns), dryRun);
         case "renew":
             return Run(svc, NetPaw.Connectivity.Advisor.PlanRenew(svc.ResolveAdapter(adapterName)), dryRun);
+        case "release": return Run(svc, NetPaw.Connectivity.Advisor.PlanRelease(svc.ResolveAdapter(adapterName)), dryRun);
+        case "reset": return Run(svc, ApplyPlanner.PlanResetAdapter(svc.ResolveAdapter(adapterName)), dryRun);
+        case "prefer": { var all = svc.GetAdapters(); return Run(svc, NetPaw.Connectivity.Advisor.PlanPrefer(svc.ResolveAdapter(adapterName, all), all), dryRun); }
+        case "verify":
+        {
+            var p = Need(svc, argv, 1);
+            var live = adapterName is not null ? svc.ResolveAdapter(adapterName) : svc.ResolveAdapter(p);
+            var diffs = ApplyVerifier.Compare(p, live);
+            Console.WriteLine(diffs.Count == 0 ? $"{live.Name} matches '{p.Name}'" : string.Join("\n", diffs.Select(d => "- " + d)));
+            return diffs.Count == 0 ? 0 : 1;
+        }
         case "advise":
         {
             var adapter = svc.ResolveAdapter(adapterName);
             var snap = new NetPaw.Connectivity.ConnectivityChecker(new NetPaw.Connectivity.NetworkProbe()).Check(adapter, svc.Settings.Checks).GetAwaiter().GetResult();
             Console.WriteLine($"{adapter.Name}: {NetPaw.Connectivity.Snapshot.Describe(snap.State)}");
-            var adv = NetPaw.Connectivity.Advisor.Analyze(snap);
+            var adv = NetPaw.Connectivity.Advisor.Analyze(snap, svc.GetAdapters());
             if (adv.Count == 0) { Console.WriteLine("no findings"); return 0; }
-            foreach (var x in adv) Console.WriteLine($"[{x.Severity}] {x.Title} — {x.Text}{(x.CanRenew ? "  (a DHCP renew may fix this: netpaw-cli renew)" : "")}");
+            foreach (var x in adv) Console.WriteLine($"[{x.Severity}] {x.Title} — {x.Text}{(x.CanRenew ? "  (a DHCP renew may fix this: netpaw-cli renew)" : "")}{(x.Repair != NetPaw.Connectivity.RepairKind.None ? $"  (fix: netpaw-cli {x.Repair.ToString().ToLowerInvariant()} -a \"{x.RepairAdapter}\")" : "")}");
             return adv.Any(x => x.Severity == NetPaw.Connectivity.AdvisorySeverity.Error) ? 1 : 0;
         }
         case "reach":
@@ -327,15 +343,34 @@ try
             }
             return 0;
         }
+        case "switch":
+        {
+            var secs = int.TryParse(Opt("--seconds"), out var sec) ? sec : 35;
+            var adapter = svc.ResolveAdapter(adapterName);
+            if (!NetPaw.Discovery.PktmonCapture.Available) return Fail("pktmon is not available on this Windows version");
+            if (!IsElevated()) return Fail("pktmon needs an elevated prompt");
+            Console.Error.WriteLine($"listening for LLDP/CDP on {adapter.Name} for {secs} s…");
+            var (found, err) = new NetPaw.Discovery.PktmonCapture().Listen(adapter.Name, secs, null, svc.Store.Log).GetAwaiter().GetResult();
+            if (err is not null) return Fail(err);
+            if (found.Count == 0) { Console.WriteLine("no LLDP/CDP announcement seen"); return 1; }
+            foreach (var n in found)
+            {
+                Console.WriteLine($"{n.Protocol}: {n.Headline}");
+                foreach (var (k, v) in new[] { ("port description", n.PortDescription), ("management", n.ManagementAddress), ("system", n.SystemDescription), ("capabilities", string.Join(", ", n.Capabilities)), ("chassis", n.ChassisId) })
+                    if (!string.IsNullOrEmpty(v)) Console.WriteLine($"  {k,-18} {v}");
+            }
+            return 0;
+        }
         case "find-routers":
         {
             var adapter = svc.ResolveAdapter(adapterName);
             svc.Require(Capability.TempAddresses);
             if (!IsElevated()) return Fail("find-routers adds temporary addresses; run from an elevated prompt");
             var arp = new NetPaw.Arp.WindowsArpProvider();
+            var restores = new Dictionary<string, Action>();
             var finder = new NetPaw.Arp.RouterFinder(
-                async (addr, ct) => { var live = svc.GetAdapters().First(a => a.Name == adapter.Name); var plan = ApplyPlanner.PlanAddSecondary(live, addr, "find routers"); if (plan.IsEmpty) return false; var o = svc.Apply(plan); await Task.Delay(300, ct); return o.Success; },
-                (addr, _) => { svc.Apply(ApplyPlanner.PlanRemoveAddresses(adapter.Name, [addr], "find routers")); return Task.CompletedTask; },
+                async (addr, ct) => { var (ok, restore) = svc.Borrow(adapter.Name, addr); if (ok) { restores[addr.ToString()] = restore; await Task.Delay(300, ct); } return ok; },
+                (addr, _) => { if (restores.Remove(addr.ToString(), out var r)) r(); return Task.CompletedTask; },
                 arp);
             var cands = NetPaw.Arp.RouterFinder.Candidates(svc.Presets);
             Console.Error.WriteLine($"probing {cands.Count} common subnets on {adapter.Name}…");

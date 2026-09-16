@@ -6,8 +6,13 @@ namespace NetPaw.Connectivity;
 public enum AdvisorySeverity { Info, Warning, Error }
 
 /// <summary>A plain-language finding about the current configuration and whether a DHCP renew could fix it.</summary>
+public enum RepairKind { None, Renew, Release, Reset, Prefer }
+
 public sealed record Advisory(AdvisorySeverity Severity, string Title, string Text, bool CanRenew)
 {
+    /// <summary>A one-click repair other than renew, and which adapter it targets.</summary>
+    public RepairKind Repair { get; init; } = RepairKind.None;
+    public string? RepairAdapter { get; init; }
     public override string ToString() => $"{Title}: {Text}";
 }
 
@@ -18,11 +23,15 @@ public sealed record Advisory(AdvisorySeverity Severity, string Title, string Te
 /// </summary>
 public static class Advisor
 {
-    public static IReadOnlyList<Advisory> Analyze(Snapshot s)
+    public static IReadOnlyList<Advisory> Analyze(Snapshot s) => Analyze(s, null);
+
+    /// <param name="others">All adapters on the machine, for cross-adapter findings (held addresses, competing gateways).</param>
+    public static IReadOnlyList<Advisory> Analyze(Snapshot s, IReadOnlyList<AdapterInfo>? others)
     {
         var list = new List<Advisory>();
         var a = s.Adapter;
         if (a is null || !s.Link) return list;
+        if (others is not null) list.AddRange(CrossAdapter(a, s, others));
         if (a.VSwitchUplink)
         {
             list.Add(new(AdvisorySeverity.Info, "Bound to a Hyper-V virtual switch", $"{a.Name} carries the external switch and has no host address by design. Configure the host on its vEthernet adapter instead — pick it as the work adapter (tray menu → Work adapter).", CanRenew: false));
@@ -56,6 +65,53 @@ public static class Advisor
         return list;
     }
 
+    /// <summary>
+    /// The dock problem: the old NIC (now unplugged) still holds the address the DHCP server wants to
+    /// offer the new NIC, so Windows refuses the lease and the new NIC ends up on 169.254. And the
+    /// "both up" problem: two adapters with default gateways — Windows picks by metric, often the wrong one.
+    /// </summary>
+    static IEnumerable<Advisory> CrossAdapter(AdapterInfo a, Snapshot s, IReadOnlyList<AdapterInfo> all)
+    {
+        var others = all.Where(o => o.Name != a.Name && o.HostFacing).ToList();
+        if (a.Dhcp && !s.HasAddress)
+        {
+            var holder = others.FirstOrDefault(o => !o.Up && o.Addresses.Any(x => !x.Address.StartsWith("169.254.")));
+            if (holder is not null)
+                yield return new Advisory(AdvisorySeverity.Warning, "Address held by another adapter",
+                    $"{holder.Name}{(holder.Up ? "" : " (disconnected)")} still holds {string.Join(", ", holder.Addresses.Select(x => x.ToString()))}. Windows refuses a DHCP offer for an address another adapter still owns — release it there or reset that adapter.", CanRenew: false)
+                    { RepairAdapter = holder.Name, Repair = holder.Dhcp ? RepairKind.Release : RepairKind.Reset };
+        }
+        if (a.HasGateway)
+        {
+            var rivals = others.Where(o => o.Up && o.HasGateway).ToList();
+            if (rivals.Count > 0)
+            {
+                var names = string.Join(", ", rivals.Select(r => $"{r.Name} ({r.Gateways[0]})"));
+                yield return new Advisory(AdvisorySeverity.Info, "Two default gateways",
+                    $"{a.Name} ({a.Gateways[0]}) and {names} both offer a default route. Windows sends off-link traffic to the lowest interface metric — usually the faster link, not necessarily the one you want. 'Prefer' pins the metrics.", CanRenew: false)
+                    { RepairAdapter = a.Name, Repair = RepairKind.Prefer };
+            }
+        }
+    }
+
+    /// <summary>`ipconfig /release "<adapter>"` on the adapter that still owns the address.</summary>
+    public static ApplyPlan PlanRelease(AdapterInfo adapter)
+    {
+        var plan = new ApplyPlan { Title = "release DHCP lease", Adapter = adapter.Name };
+        plan.Steps.Add(new Step("Release DHCP lease", "ipconfig", $"/release \"{adapter.Name}\""));
+        return plan;
+    }
+
+    /// <summary>Interface metric 10 on the preferred adapter, 50 on every other adapter that has a gateway — explicit instead of "automatic metric".</summary>
+    public static ApplyPlan PlanPrefer(AdapterInfo preferred, IEnumerable<AdapterInfo> all)
+    {
+        var plan = new ApplyPlan { Title = $"prefer {preferred.Name}", Adapter = preferred.Name };
+        plan.Steps.Add(Step.Netsh($"Metric 10 on {preferred.Name}", $"interface ipv4 set interface \"{preferred.Name}\" metric=10"));
+        foreach (var o in all.Where(o => o.Name != preferred.Name && o.HasGateway))
+            plan.Steps.Add(Step.Netsh($"Metric 50 on {o.Name}", $"interface ipv4 set interface \"{o.Name}\" metric=50", critical: false));
+        return plan;
+    }
+
     /// <summary>`ipconfig /renew "<adapter>"` — release+renew is deliberately avoided: it drops the address even when the server is gone.</summary>
     public static ApplyPlan PlanRenew(AdapterInfo adapter)
     {
@@ -81,6 +137,9 @@ public sealed class RepairSettings
     public bool ScanIncludeDhcp { get; set; } = true;
     /// <summary>Notify when a VPN comes up/down or switches between full and split tunnel.</summary>
     public bool VpnNotifications { get; set; } = true;
+    /// <summary>Listen for LLDP/CDP (pktmon, passive) after every link-up so the card can say which switch port you are on. Off by default: it is a ~35 s capture.</summary>
+    public bool DiscoverSwitchOnLinkUp { get; set; }
+    public int DiscoverSeconds { get; set; } = 35;
 }
 
 /// <summary>Decides when an automatic renew is due: bounded per incident, spaced by the interval, never while healthy.</summary>

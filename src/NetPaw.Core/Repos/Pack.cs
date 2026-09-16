@@ -21,6 +21,8 @@ public sealed class Pack
     public string? Homepage { get; set; }
     public List<PackEntry> Entries { get; set; } = [];
     public PackSignature? Signature { get; set; }
+    /// <summary>The entries exactly as they appear in the file. Hashes and the signature are computed over THIS, never over the re-serialized model — otherwise every new Profile field would invalidate every published pack.</summary>
+    [JsonIgnore] public JsonArray? RawEntries { get; set; }
 }
 
 public sealed class PackEntry
@@ -60,8 +62,27 @@ public static class PackJson
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull, ReadCommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true,
     };
 
-    public static Pack Parse(string json) => JsonSerializer.Deserialize<Pack>(json, Options) ?? throw new JsonException("empty pack");
-    public static string Serialize(Pack pack) => JsonSerializer.Serialize(pack, Options);
+    public static Pack Parse(string json)
+    {
+        var pack = JsonSerializer.Deserialize<Pack>(json, Options) ?? throw new JsonException("empty pack");
+        pack.RawEntries = JsonNode.Parse(json)?["entries"] as JsonArray;
+        return pack;
+    }
+
+    /// <summary>Writes the pack; entries come from the raw nodes when present so what is signed is what is written.</summary>
+    public static string Serialize(Pack pack)
+    {
+        var node = JsonSerializer.SerializeToNode(pack, Options)!.AsObject();
+        if (pack.RawEntries is not null) node["entries"] = JsonNode.Parse(pack.RawEntries.ToJsonString());
+        return node.ToJsonString(Options);
+    }
+
+    /// <summary>Raw node of an entry (by id), or the serialized model when the pack was built in memory.</summary>
+    static JsonObject NodeOf(Pack p, PackEntry e)
+    {
+        var raw = p.RawEntries?.OfType<JsonObject>().FirstOrDefault(n => n["id"]?.GetValue<string>() == e.Id);
+        return raw ?? JsonSerializer.SerializeToNode(e, Options)!.AsObject();
+    }
 
     /// <summary>Canonical form: object keys sorted ordinally, no whitespace, UTF-8. Stable across serializers, so signatures survive re-formatting.</summary>
     public static byte[] Canonical(JsonNode? node)
@@ -91,30 +112,40 @@ public static class PackJson
         }
     }
 
-    public static JsonNode? EntryNode(PackEntry e)
+    public static string EntryHash(Pack p, PackEntry e)
     {
-        var node = JsonSerializer.SerializeToNode(e, Options)!.AsObject();
+        var node = JsonNode.Parse(NodeOf(p, e).ToJsonString())!.AsObject();
         node.Remove("sha256");
-        return node;
+        return Convert.ToHexStringLower(SHA256.HashData(Canonical(node)));
     }
 
-    public static string EntryHash(PackEntry e) => Convert.ToHexStringLower(SHA256.HashData(Canonical(EntryNode(e))));
+    /// <summary>Kept for in-memory packs (tests, pack build): hash of the model entry alone.</summary>
+    public static string EntryHash(PackEntry e) => EntryHash(new Pack { Entries = [e] }, e);
 
     public static byte[] EntriesBytes(Pack p)
     {
+        if (p.RawEntries is not null) return Canonical(p.RawEntries);
         var arr = new JsonArray();
         foreach (var e in p.Entries) arr.Add(JsonSerializer.SerializeToNode(e, Options));
         return Canonical(arr);
     }
 
-    /// <summary>Fills in every entry's sha256 and returns the ids whose stored hash did not match.</summary>
+    /// <summary>Returns the ids whose stored hash does not match the entry as published.</summary>
     public static List<string> VerifyHashes(Pack p)
     {
         var bad = new List<string>();
         foreach (var e in p.Entries)
-            if (e.Sha256 is not null && !string.Equals(e.Sha256, EntryHash(e), StringComparison.OrdinalIgnoreCase)) bad.Add(e.Id);
+            if (e.Sha256 is not null && !string.Equals(e.Sha256, EntryHash(p, e), StringComparison.OrdinalIgnoreCase)) bad.Add(e.Id);
         return bad;
     }
 
-    public static void StampHashes(Pack p) { foreach (var e in p.Entries) e.Sha256 = EntryHash(e); }
+    /// <summary>Fills in every entry's sha256 — in the model and in the raw nodes, so the written file carries them.</summary>
+    public static void StampHashes(Pack p)
+    {
+        foreach (var e in p.Entries)
+        {
+            e.Sha256 = EntryHash(p, e);
+            if (p.RawEntries?.OfType<JsonObject>().FirstOrDefault(n => n["id"]?.GetValue<string>() == e.Id) is { } raw) raw["sha256"] = e.Sha256;
+        }
+    }
 }
