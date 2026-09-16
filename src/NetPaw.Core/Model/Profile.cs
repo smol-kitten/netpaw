@@ -4,16 +4,57 @@ namespace NetPaw.Model;
 /// A network profile. The first address is the primary; the rest are added as secondaries
 /// (Windows "multiple IP addresses on one adapter"), so one profile can sit in several subnets.
 /// </summary>
-/// <summary>What identifies a wired network without any config on it: the gateway's MAC (unique per box, VRRP aside), the DHCP server, the subnet.</summary>
+/// <summary>
+/// What identifies a network without any config on it. Several signals, each weighted: LLDP/CDP switch identity and a
+/// Wi-Fi BSSID are near-unique; a DHCP server and a real gateway MAC are strong; DNS suffix, SSID, subnet and ARP
+/// neighbours are weak. Virtual-router MACs (VRRP/HSRP/CARP) repeat across sites and count almost nothing.
+/// The three positional fields are the v0.7 shape; the rest are optional so old JSON loads unchanged.
+/// </summary>
 public sealed record NetworkFingerprint(string GatewayMac, string? DhcpServer, string Subnet)
 {
-    /// <summary>Every field present on both sides must match; a missing DHCP server on one side is not a mismatch.
-    /// A virtual-router MAC (VRRP/HSRP/CARP) repeats across sites, so it only matches when the DHCP server confirms it.</summary>
-    public bool Matches(NetworkFingerprint other) =>
-        string.Equals(GatewayMac, other.GatewayMac, StringComparison.OrdinalIgnoreCase) && Subnet == other.Subnet
-        && (IsVirtualRouterMac(GatewayMac)
-            ? DhcpServer is not null && other.DhcpServer is not null && DhcpServer == other.DhcpServer
-            : DhcpServer is null || other.DhcpServer is null || DhcpServer == other.DhcpServer);
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] public string? DnsSuffix { get; init; }
+    /// <summary>LLDP/CDP chassis id (or system name) of the switch the cable ends on.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] public string? SwitchChassis { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] public string? SwitchPort { get; init; }
+    /// <summary>Up to three other MACs seen on the subnet (ARP cache) — printers, servers, other boxes that stay put.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] public IReadOnlyList<string>? NeighbourMacs { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] public string? Ssid { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] public string? Bssid { get; init; }
+
+    /// <summary>Score at or above this = the stored fingerprint describes the observed network.</summary>
+    public const int MatchThreshold = 5;
+    /// <summary>The best candidate must beat the runner-up by this much, else the situation is ambiguous.</summary>
+    public const int Margin = 3;
+
+    /// <summary>
+    /// Weighted agreement between this (stored) fingerprint and an observed one. A signal missing on either side is
+    /// neutral; a strong signal present on both but different is a penalty. Weights: switch chassis+port 5 (chassis
+    /// alone 3), BSSID 4, real gateway MAC 4, DHCP server 3, DNS suffix 2, SSID 2, subnet 1, virtual-router MAC 1,
+    /// each shared neighbour MAC 1 (max 3).
+    /// </summary>
+    public int Score(NetworkFingerprint o)
+    {
+        var s = 0;
+        var macEq = Eq(GatewayMac, o.GatewayMac);
+        if (macEq) s += IsVirtualRouterMac(GatewayMac) ? 1 : 4;
+        else if (!IsVirtualRouterMac(GatewayMac) && !IsVirtualRouterMac(o.GatewayMac)) s -= 3;
+        s += Both(DhcpServer, o.DhcpServer, 3, -3);
+        s += Both(SwitchChassis, o.SwitchChassis, 3, -3);
+        if (SwitchChassis is not null && Eq(SwitchChassis, o.SwitchChassis)) s += Both(SwitchPort, o.SwitchPort, 2, -1);
+        s += Both(Bssid, o.Bssid, 4, -3);
+        s += Both(Ssid, o.Ssid, 2, -1);
+        s += Both(DnsSuffix, o.DnsSuffix, 2, -1);
+        if (Subnet == o.Subnet) s += 1;
+        if (NeighbourMacs is { Count: > 0 } && o.NeighbourMacs is { Count: > 0 })
+            s += Math.Min(3, NeighbourMacs.Count(n => o.NeighbourMacs.Any(m => Eq(m, n))));
+        return s;
+
+        static int Both(string? a, string? b, int hit, int miss) => a is null || b is null ? 0 : Eq(a, b) ? hit : miss;
+    }
+
+    public bool Matches(NetworkFingerprint other) => Score(other) >= MatchThreshold;
+
+    static bool Eq(string? a, string? b) => string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>VRRP 00:00:5e:00:01:xx / IPv6 VRRP 00:00:5e:00:02:xx, HSRP v1 00:00:0c:07:ac:xx, HSRP v2 00:00:0c:9f:fx:xx. Not a per-box identity.</summary>
     public static bool IsVirtualRouterMac(string mac)
@@ -21,7 +62,8 @@ public sealed record NetworkFingerprint(string GatewayMac, string? DhcpServer, s
         var m = mac.Replace('-', ':').ToLowerInvariant();
         return m.StartsWith("00:00:5e:00:01:") || m.StartsWith("00:00:5e:00:02:") || m.StartsWith("00:00:0c:07:ac:") || m.StartsWith("00:00:0c:9f:f");
     }
-    public override string ToString() => $"gw {GatewayMac} · {Subnet}{(DhcpServer is null ? "" : " · dhcp " + DhcpServer)}";
+
+    public override string ToString() => $"gw {GatewayMac} · {Subnet}{(DhcpServer is null ? "" : " · dhcp " + DhcpServer)}{(SwitchChassis is null ? "" : $" · switch {SwitchChassis}{(SwitchPort is null ? "" : "/" + SwitchPort)}")}{(Bssid is null ? "" : $" · wifi {Ssid} {Bssid}")}{(DnsSuffix is null ? "" : " · " + DnsSuffix)}";
 }
 
 public sealed class Profile

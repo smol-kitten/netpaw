@@ -38,7 +38,7 @@ public sealed class NetworkInterfaceAdapterProvider : IAdapterProvider
             IReadOnlyList<string> dhcpServers = [];
             try { dhcpServers = props.DhcpServerAddresses.Where(a => a.AddressFamily == AddressFamily.InterNetwork).Select(a => a.ToString()).ToList(); } catch (PlatformNotSupportedException) { }
             list.Add(new AdapterInfo(nic.Name, desc, nic.Id, index, nic.OperationalStatus == OperationalStatus.Up, isPhysical, dhcp, addrs, gws, dns,
-                string.Join(":", nic.GetPhysicalAddress().GetAddressBytes().Select(b => b.ToString("X2"))), SafeSpeed(nic)) { HyperVVirtual = hyperV, DhcpServers = dhcpServers, Wireless = nic.NetworkInterfaceType == NetworkInterfaceType.Wireless80211 });
+                string.Join(":", nic.GetPhysicalAddress().GetAddressBytes().Select(b => b.ToString("X2"))), SafeSpeed(nic)) { HyperVVirtual = hyperV, DhcpServers = dhcpServers, Wireless = nic.NetworkInterfaceType == NetworkInterfaceType.Wireless80211, DnsSuffix = string.IsNullOrWhiteSpace(props.DnsSuffix) ? null : props.DnsSuffix });
         }
         return AdapterSelector.TagVSwitchUplinks(list.OrderByDescending(a => a.IsPhysical).ThenByDescending(a => a.HyperVVirtual).ThenByDescending(a => a.Up).ThenBy(a => a.Name).ToList());
     }

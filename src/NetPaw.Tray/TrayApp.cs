@@ -31,7 +31,11 @@ sealed class TrayApp : ApplicationContext
     readonly Dictionary<string, IReadOnlyList<Discovery.SwitchNeighbor>> _switches = new(StringComparer.OrdinalIgnoreCase);
     bool _discovering;
     public IReadOnlyList<Discovery.SwitchNeighbor> SwitchNeighbors(string adapter) => _switches.TryGetValue(adapter, out var l) ? l : [];
-    public void SetSwitchNeighbors(string adapter, IReadOnlyList<Discovery.SwitchNeighbor> list) { _switches[adapter] = list; _toast?.Render(_snapshot); }
+    public void SetSwitchNeighbors(string adapter, IReadOnlyList<Discovery.SwitchNeighbor> list) { _switches[adapter] = list; _switchSeen[adapter] = DateTime.UtcNow; _toast?.Render(_snapshot); }
+    readonly Dictionary<string, DateTime> _switchSeen = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>Switch neighbour usable as a fingerprint signal: seen on this adapter within the last 24 h (older captures may predate a re-patch).</summary>
+    Discovery.SwitchNeighbor? RecentSwitch(string adapter) =>
+        _switchSeen.TryGetValue(adapter, out var t) && DateTime.UtcNow - t < TimeSpan.FromHours(24) ? SwitchNeighbors(adapter).FirstOrDefault() : null;
     readonly Arp.WindowsArpProvider _arp = new();
     bool _autoSwitchArmed = true, _autoSwitching;
     Profile? _autoSwitchUndo;
@@ -215,7 +219,15 @@ sealed class TrayApp : ApplicationContext
         RefreshState(); _ = RunCheck();
     }
 
-    AutoSwitcher MakeSwitcher(AdapterInfo live) { var (add, remove) = _svc.Borrower(live); return new AutoSwitcher(_arp, add, remove); }
+    AutoSwitcher MakeSwitcher(AdapterInfo live)
+    {
+        var (add, remove) = _svc.Borrower(live);
+        return new AutoSwitcher(_arp, add, remove)
+        {
+            Switch = RecentSwitch,
+            Wlan = (a, ct) => Task.Run(() => Wlan.Read(_svc.Runner, a.Name), ct),
+        };
+    }
 
     async Task AutoSwitch(AdapterInfo adapter)
     {

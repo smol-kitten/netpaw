@@ -1,3 +1,4 @@
+using NetPaw.Adapters;
 using NetPaw.Connectivity;
 using NetPaw.Model;
 using NetPaw.Scan;
@@ -123,12 +124,12 @@ public class AutoSwitchTests
         Assert.True(NetworkFingerprint.IsVirtualRouterMac("00:00:0c:9f:f0:01"));
         Assert.False(NetworkFingerprint.IsVirtualRouterMac("aa-bb-cc-dd-ee-01"));
         var vrrp = new NetworkFingerprint("00-00-5e-00-01-01", null, "192.168.1.0/24");
-        Assert.False(vrrp.Matches(vrrp));                                                                    // no DHCP evidence at all
-        Assert.False(vrrp.Matches(vrrp with { DhcpServer = "192.168.1.10" }));                              // one side only
-        Assert.True((vrrp with { DhcpServer = "192.168.1.10" }).Matches(vrrp with { DhcpServer = "192.168.1.10" }));
-        Assert.False((vrrp with { DhcpServer = "192.168.1.10" }).Matches(vrrp with { DhcpServer = "192.168.1.11" }));
+        Assert.Equal(2, vrrp.Score(vrrp)); Assert.False(vrrp.Matches(vrrp));                                // virtual MAC 1 + subnet 1: no evidence
+        Assert.False(vrrp.Matches(vrrp with { DhcpServer = "192.168.1.10" }));                              // one side only: neutral
+        Assert.True((vrrp with { DhcpServer = "192.168.1.10" }).Matches(vrrp with { DhcpServer = "192.168.1.10" }));   // 1 + 3 + 1 = 5
+        Assert.False((vrrp with { DhcpServer = "192.168.1.10" }).Matches(vrrp with { DhcpServer = "192.168.1.11" }));  // 1 - 3 + 1
         var real = new NetworkFingerprint("aa-bb-cc-dd-ee-01", null, "192.168.1.0/24");
-        Assert.True(real.Matches(real with { DhcpServer = "192.168.1.10" }));                               // unchanged rule for real MACs
+        Assert.Equal(5, real.Score(real with { DhcpServer = "192.168.1.10" })); Assert.True(real.Matches(real with { DhcpServer = "192.168.1.10" }));   // real MAC + subnet is enough
 
         var arp = new FakeArp(new() { ["192.168.1.1"] = "00-00-5e-00-01-01" });
         var sw = new AutoSwitcher(arp, (_, _) => Task.FromResult(true), (_, _) => Task.CompletedTask);
@@ -145,12 +146,13 @@ public class AutoSwitchTests
         var live = Live(["192.168.1.20/24"], "192.168.1.1", "192.168.1.1");
         var fp = await sw.Learn(live);
         Assert.Equal(new NetworkFingerprint("aa-bb-cc-dd-ee-01", "192.168.1.1", "192.168.1.0/24"), fp);
-        var office = Auto("office", "aa-bb-cc-dd-ee-01", "192.168.1.0/24", dhcpProfile: false, addrs: ["192.168.1.77/24"], gw: "192.168.1.1");
+        var office = Auto("office", "aa-bb-cc-dd-ee-01", "192.168.1.0/24", dhcp: "192.168.1.1", dhcpProfile: false, addrs: ["192.168.1.77/24"], gw: "192.168.1.1");
         var other = Auto("other", "aa-bb-cc-dd-ee-02", "192.168.1.0/24");
         var off = Auto("off", "aa-bb-cc-dd-ee-01", "192.168.1.0/24"); off.AutoSwitch = false;
         var d = await sw.Decide(live, [office, other, off]);
         Assert.Equal("office", d.Profile!.Name);
-        Assert.Null((await sw.Decide(live, [office, Auto("dup", "aa-bb-cc-dd-ee-01", "192.168.1.0/24")])).Profile);   // ambiguous
+        Assert.Null((await sw.Decide(live, [office, Auto("dup", "aa-bb-cc-dd-ee-01", "192.168.1.0/24", dhcp: "192.168.1.1")])).Profile);   // ambiguous: equal scores
+        Assert.Equal("office", (await sw.Decide(live, [office, Auto("dup", "aa-bb-cc-dd-ee-01", "192.168.1.0/24")])).Profile?.Name);      // office knows the DHCP server, dup does not: 8 vs 5
         Assert.Null((await sw.Decide(live, [other])).Profile);                                                         // no match
         Assert.Null((await sw.Decide(live, [])).Profile);
         var already = Auto("already", "aa-bb-cc-dd-ee-01", "192.168.1.0/24", dhcp: null, dhcpProfile: true);         // DHCP profile matches the DHCP state → already applied
@@ -199,5 +201,129 @@ public class CaptivePortalTests
         Assert.Equal(NetState.Online, (await new ConnectivityChecker(probe).Check(Fx.Adapter(gw: "10.0.0.1"), s)).State);
         probe.Reachable.Remove("1.1.1.1");
         Assert.Equal(NetState.IntranetOnly, (await new ConnectivityChecker(probe).Check(Fx.Adapter(gw: "10.0.0.1"), s)).State);  // no HTTP probe without internet
+    }
+}
+
+public class FingerprintScoreTests
+{
+    static readonly NetworkFingerprint SiteA = new("00-00-5e-00-01-01", "10.1.0.10", "192.168.1.0/24") { DnsSuffix = "a.corp", SwitchChassis = "sw-a-01", SwitchPort = "Gi1/0/7" };
+    static readonly NetworkFingerprint SiteB = new("00-00-5e-00-01-01", "10.2.0.10", "192.168.1.0/24") { DnsSuffix = "b.corp", SwitchChassis = "sw-b-01", SwitchPort = "Gi1/0/7" };
+
+    [Fact]
+    public void ScoreVrrpCollisionStaysBelowMargin()
+    {
+        // Observed at site A with only the v0.7 signals available (no capture yet, static → no DHCP server).
+        var observedThin = new NetworkFingerprint("00-00-5e-00-01-01", null, "192.168.1.0/24");
+        Assert.Equal(2, SiteA.Score(observedThin)); Assert.Equal(2, SiteB.Score(observedThin));
+        Assert.False(SiteA.Matches(observedThin)); Assert.False(SiteB.Matches(observedThin));
+        // With the DHCP server seen: A scores, B is penalised.
+        var observedDhcp = observedThin with { DhcpServer = "10.1.0.10" };
+        Assert.Equal(5, SiteA.Score(observedDhcp)); Assert.Equal(-1, SiteB.Score(observedDhcp));
+        // Two real, different gateways: negative, never a match.
+        Assert.True(new NetworkFingerprint("aa-aa-aa-aa-aa-01", null, "10.0.0.0/24").Score(new NetworkFingerprint("aa-aa-aa-aa-aa-02", null, "10.0.0.0/24")) < 0);
+    }
+
+    [Fact]
+    public void ScoreLldpBreaksTie()
+    {
+        var observed = new NetworkFingerprint("00-00-5e-00-01-01", null, "192.168.1.0/24") { SwitchChassis = "SW-A-01", SwitchPort = "Gi1/0/7", DnsSuffix = "a.corp" };
+        Assert.Equal(1 + 1 + 3 + 2 + 2, SiteA.Score(observed));      // virtual mac, subnet, chassis, port, suffix
+        Assert.Equal(1 + 1 - 3 - 1, SiteB.Score(observed));          // chassis and suffix contradict
+        Assert.True(SiteA.Matches(observed)); Assert.False(SiteB.Matches(observed));
+        // Same switch, other port: chassis agrees, port disagrees (moved patch cable) — still matches, one point less.
+        Assert.Equal(1 + 1 + 3 - 1 + 2, SiteA.Score(observed with { SwitchPort = "Gi1/0/8" }));
+        // Wi-Fi: BSSID is near-unique, SSID is not.
+        var home = new NetworkFingerprint("aa-aa-aa-aa-aa-01", "192.168.0.1", "192.168.0.0/24") { Ssid = "FRITZ!Box", Bssid = "11:22:33:44:55:66" };
+        var otherFritz = home with { GatewayMac = "bb-bb-bb-bb-bb-01", DhcpServer = "192.168.0.1", Bssid = "11:22:33:44:55:99" };
+        Assert.True(home.Score(home) >= 14);
+        Assert.False(home.Matches(otherFritz));                       // -3 mac, +3 dhcp, +2 ssid, -3 bssid, +1 subnet = 0
+        Assert.Equal(3, new NetworkFingerprint("aa", null, "x") { NeighbourMacs = ["m1", "m2", "m3", "m4"] }.Score(new NetworkFingerprint("bb", null, "y") { NeighbourMacs = ["M1", "m2", "m3", "m4"] }) + 3);   // neighbours cap at 3, real MAC mismatch -3
+    }
+
+    [Fact]
+    public void ScoreLoadsV07Json()
+    {
+        const string v07 = """{"name":"office","addresses":[{"address":"192.168.1.77","prefixLength":24}],"gateway":"192.168.1.1","dns":[],"routes":[],"fingerprint":{"gatewayMac":"aa-bb-cc-dd-ee-01","dhcpServer":"192.168.1.1","subnet":"192.168.1.0/24"},"autoSwitch":true}""";
+        var p = System.Text.Json.JsonSerializer.Deserialize<Profile>(v07, NetPaw.Store.JsonStore.Json)!;
+        Assert.NotNull(p.Fingerprint);
+        Assert.Null(p.Fingerprint!.SwitchChassis); Assert.Null(p.Fingerprint.NeighbourMacs); Assert.Null(p.Fingerprint.Bssid);
+        Assert.Equal(8, p.Fingerprint.Score(new NetworkFingerprint("AA-BB-CC-DD-EE-01", "192.168.1.1", "192.168.1.0/24") { SwitchChassis = "sw", DnsSuffix = "x" }));   // extras on one side are neutral
+        // Round trip does not invent fields: v0.7.x reads it back unchanged.
+        var json = System.Text.Json.JsonSerializer.Serialize(p.Fingerprint, NetPaw.Store.JsonStore.Json);
+        Assert.DoesNotContain("SwitchChassis", json); Assert.DoesNotContain("NeighbourMacs", json); Assert.DoesNotContain("Bssid", json);
+        Assert.Contains("SwitchPort", System.Text.Json.JsonSerializer.Serialize(p.Fingerprint with { SwitchChassis = "sw", SwitchPort = "1" }, NetPaw.Store.JsonStore.Json));
+    }
+
+    [Fact]
+    public async Task DecideNeedsMarginOfThree()
+    {
+        var arp = new FakeArp(new() { ["192.168.1.1"] = "aa-bb-cc-dd-ee-01" });
+        var sw = new AutoSwitcher(arp, (_, _) => Task.FromResult(true), (_, _) => Task.CompletedTask);
+        var live = Fx.Nic(dhcp: true, addrs: ["192.168.1.20/24"], gw: "192.168.1.1", dhcpServer: "192.168.1.1");
+        Profile P(string name, string? suffix) { var p = Fx.Static(name, "192.168.1.1", "192.168.1.77/24"); p.AutoSwitch = true; p.Fingerprint = new NetworkFingerprint("aa-bb-cc-dd-ee-01", "192.168.1.1", "192.168.1.0/24") { DnsSuffix = suffix }; return p; }
+        // Both 8; one has a suffix the live adapter does not report → neutral → tie → ambiguous.
+        var d = await sw.Decide(live, [P("one", "x.corp"), P("two", null)]);
+        Assert.Null(d.Profile); Assert.StartsWith("ambiguous", d.Reason);
+        // Live suffix known: "one" gains 2 — still under the margin of 3 → ambiguous.
+        d = await sw.Decide(live with { DnsSuffix = "x.corp" }, [P("one", "x.corp"), P("two", null)]);
+        Assert.Null(d.Profile);
+        // "two" contradicts the suffix (-1): 10 vs 7 → clear.
+        d = await sw.Decide(live with { DnsSuffix = "x.corp" }, [P("one", "x.corp"), P("two", "y.corp")]);
+        Assert.Equal("one", d.Profile?.Name);
+    }
+
+    [Fact]
+    public async Task LearnCollectsSwitchWlanAndNeighbours()
+    {
+        var arp = new FakeArp(new() { ["192.168.1.1"] = "aa-bb-cc-dd-ee-01" }) { Cache =
+        [
+            new NetPaw.Arp.ArpEntry("192.168.1.1", "aa-bb-cc-dd-ee-01", "dynamic", null),
+            new NetPaw.Arp.ArpEntry("192.168.1.9", "00-11-22-33-44-09", "dynamic", null),
+            new NetPaw.Arp.ArpEntry("192.168.1.5", "00-11-22-33-44-05", "dynamic", null),
+            new NetPaw.Arp.ArpEntry("192.168.1.255", "ff-ff-ff-ff-ff-ff", "static", null),
+            new NetPaw.Arp.ArpEntry("224.0.0.251", "01-00-5e-00-00-fb", "static", null),
+            new NetPaw.Arp.ArpEntry("10.9.9.9", "00-11-22-33-44-99", "dynamic", null),
+            new NetPaw.Arp.ArpEntry("192.168.1.20", "00-11-22-33-44-20", "dynamic", null),   // ourselves
+        ] };
+        var sw = new AutoSwitcher(arp, (_, _) => Task.FromResult(true), (_, _) => Task.CompletedTask)
+        {
+            Switch = name => name == "Wi-Fi" ? new NetPaw.Discovery.SwitchNeighbor("LLDP", "sw-1", "Gi1/0/3", null, "00-de-ad-be-ef-01", null, null, null, [], DateTimeOffset.Now) : null,
+            Wlan = (a, _) => Task.FromResult<WlanInfo?>(new WlanInfo(a.Name, "Corp", "aa:bb:cc:00:00:01")),
+        };
+        var live = Fx.Nic("Wi-Fi", wireless: true, dhcp: true, addrs: ["192.168.1.20/24"], gw: "192.168.1.1", dhcpServer: "192.168.1.1") with { DnsSuffix = "corp.local" };
+        var fp = (await sw.Learn(live))!;
+        Assert.Equal("00-de-ad-be-ef-01", fp.SwitchChassis); Assert.Equal("Gi1/0/3", fp.SwitchPort);
+        Assert.Equal("aa:bb:cc:00:00:01", fp.Bssid); Assert.Equal("Corp", fp.Ssid); Assert.Equal("corp.local", fp.DnsSuffix);
+        Assert.Equal(["00-11-22-33-44-05", "00-11-22-33-44-09"], fp.NeighbourMacs);   // subnet only, no gateway/self/broadcast/multicast, sorted by IP
+        var wired = Fx.Nic("Ethernet", dhcp: true, addrs: ["192.168.1.20/24"], gw: "192.168.1.1");
+        var fp2 = (await sw.Learn(wired))!;
+        Assert.Null(fp2.Bssid); Assert.Null(fp2.SwitchChassis);                          // not wireless, no recent capture on that adapter
+    }
+
+    [Fact]
+    public void WlanParsesNetshOutput()
+    {
+        const string text = """
+
+            There are 2 interfaces on the system:
+
+                Name                   : Wi-Fi
+                Description            : Intel(R) Wi-Fi 6E AX211 160MHz
+                GUID                   : 1234
+                Physical address       : aa:bb:cc:dd:ee:ff
+                State                  : connected
+                SSID                   : Corp WLAN
+                BSSID                  : 10:20:30:40:50:60
+                Network type           : Infrastructure
+                Radio type             : 802.11ax
+
+                Name                   : Wi-Fi 2
+                State                  : disconnected
+            """;
+        var l = Wlan.Parse(text);
+        Assert.Equal(2, l.Count);
+        Assert.Equal(new WlanInfo("Wi-Fi", "Corp WLAN", "10:20:30:40:50:60"), l[0]);
+        Assert.Null(l[1].Bssid);
+        Assert.Equal("10:20:30:40:50:60", Wlan.Parse(text.Replace("10:20:30:40:50:60", "10-20-30-40-50-60"))[0].Bssid);
     }
 }
