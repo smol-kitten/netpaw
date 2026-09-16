@@ -490,23 +490,22 @@ sealed class TrayApp : ApplicationContext
     public IReadOnlyList<string> LastVerifyDiffs { get; private set; } = [];
     public string? LastVerifyAdapter { get; private set; }
 
-    /// <summary>Apply through the service's verify path; a mismatch (the documented "still DHCP / two gateways" state) becomes a warning with a Reset action on that adapter.</summary>
-    public void ApplyProfileVerified(Profile p, AdapterInfo adapter)
+    public void ApplyProfileVerified(Profile p, AdapterInfo adapter) => Execute(_svc.PlanProfile(p, adapter));
+
+    /// <summary>Default work for <see cref="Execute"/>: apply through the service's verify path. A mismatch (the documented
+    /// "still DHCP / two gateways" state, a route Windows refused, a metric it ignored) becomes a warning with a Reset action on that adapter.</summary>
+    ApplyOutcome ApplyVerified(ApplyPlan plan)
     {
         LastVerifyDiffs = []; LastVerifyAdapter = null;
-        var plan = _svc.PlanProfile(p, adapter);
-        Execute(plan, () =>
+        var o = _svc.ApplyAndVerify(plan);
+        if (o.VerifyDiffs.Count > 0)
         {
-            var o = _svc.ApplyAndVerify(plan);
-            if (o.VerifyDiffs.Count > 0)
-            {
-                LastVerifyDiffs = o.VerifyDiffs; LastVerifyAdapter = plan.Adapter;
-                var text = $"Windows did not fully take '{p.Name}' on {plan.Adapter}: {string.Join("; ", o.VerifyDiffs)}. Network info → Reset adapter usually clears it.";
-                _hotkeys.BeginInvoke(() => { Status?.Invoke(text, "warn"); Notify("Apply not fully effective", text, ToolTipIcon.Warning, force: true); });
-                TelemetryHost.Event("apply", "verify-mismatch", p.Dhcp ? "dhcp" : "static", o.VerifyDiffs.Count);
-            }
-            return o;
-        });
+            LastVerifyDiffs = o.VerifyDiffs; LastVerifyAdapter = plan.Adapter;
+            var text = $"Windows did not fully take '{plan.Title}' on {plan.Adapter}: {string.Join("; ", o.VerifyDiffs)}. Network info → Reset adapter usually clears it.";
+            _hotkeys.BeginInvoke(() => { Status?.Invoke(text, "warn"); Notify("Apply not fully effective", text, ToolTipIcon.Warning, force: true); });
+            TelemetryHost.Event("apply", "verify-mismatch", plan.Profile?.Dhcp == true ? "dhcp" : "static", o.VerifyDiffs.Count);
+        }
+        return o;
     }
 
     /// <summary>Repair actions from advisories: Release/Reset on the named adapter, Prefer the work adapter.</summary>
@@ -547,7 +546,7 @@ sealed class TrayApp : ApplicationContext
         if (_svc.Settings.ConfirmBeforeApply || plan.Warnings.Count > 0)
             if (!PlanPreviewForm.Confirm(plan, subtitle)) { Status?.Invoke("Cancelled.", "warn"); return; }
         var kind = plan.Title == "DHCP" ? "dhcp" : plan.Title.StartsWith("reach ") ? "reach" : subtitle is not null ? "preset" : "profile";
-        RunInBackground($"Applying {plan.Title}", () => { ApplyOutcome? o = null; try { o = (custom ?? (() => _svc.Apply(plan)))(); return o; } finally { TelemetryHost.Apply(kind, plan, o); TelemetryHost.Export(_svc, o is { Success: true } ? "info" : "error", $"apply {kind} '{plan.Title}' on {plan.Adapter}: {(o is null ? "crashed" : o.Success ? "ok" : "failed")}", new() { ["adapter"] = plan.Adapter, ["kind"] = kind, ["profile"] = plan.Title, ["steps"] = plan.Steps.Count, ["result"] = o is null ? "crashed" : o.Success ? "ok" : "failed" }, isIncident: false); } }, $"{plan.Title} → {plan.Adapter}", after);
+        RunInBackground($"Applying {plan.Title}", () => { ApplyOutcome? o = null; try { o = (custom ?? (() => ApplyVerified(plan)))(); return o; } finally { TelemetryHost.Apply(kind, plan, o); TelemetryHost.Export(_svc, o is { Success: true } ? "info" : "error", $"apply {kind} '{plan.Title}' on {plan.Adapter}: {(o is null ? "crashed" : o.Success ? "ok" : "failed")}", new() { ["adapter"] = plan.Adapter, ["kind"] = kind, ["profile"] = plan.Title, ["steps"] = plan.Steps.Count, ["result"] = o is null ? "crashed" : o.Success ? "ok" : "failed" }, isIncident: false); } }, $"{plan.Title} → {plan.Adapter}", after);
     }
 
     void RunInBackground(string title, Func<ApplyOutcome> work, string doneText, Action? after = null)

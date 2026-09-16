@@ -39,6 +39,7 @@ public sealed class NetPawService
 
     public NetPawService(JsonStore store, IAdapterProvider adapters, IVlanProvider vlan, IStepRunner runner, MachineStore? machine = null, Func<Policy>? policy = null, RepoClient? repos = null)
     {
+        if (OperatingSystem.IsWindows()) RouteReader = idx => RouteTable.Read(runner, idx);
         Store = store; Adapters = adapters; Vlan = vlan; Runner = runner;
         Machine = machine ?? new MachineStore();
         Repos = repos ?? new RepoClient(Path.Combine(store.Directory, "cache"));
@@ -236,23 +237,34 @@ public sealed class NetPawService
     public ApplyOutcome ApplyProfile(Profile p, AdapterInfo? adapter = null) => Apply(PlanProfile(p, adapter));
 
     /// <summary>Apply, wait for Windows to settle, re-read the adapter and report what it did not take. One code path for tray and CLI.</summary>
+    /// <summary>Reads live routes + interface metric for verification. Windows: netsh through the runner; elsewhere: nothing (route checks skipped). Tests override.</summary>
+    public Func<int, (IReadOnlyList<RouteEntry>? Routes, int? Metric)> RouteReader { get; set; } =
+        _ => (null, null);
+
     public ApplyOutcome ApplyAndVerify(ApplyPlan plan, int settleMs = 2500)
     {
         var outcome = Apply(plan);
         if (!outcome.Success || plan.Profile is null) return outcome;
         Thread.Sleep(settleMs);
-        var live = GetAdapters().FirstOrDefault(a => a.Name == plan.Adapter);
-        var diffs = live is null ? ["adapter disappeared"] : ApplyVerifier.Compare(plan.Profile, live);
+        var diffs = VerifyNow(plan);
         if (diffs.Count > 0)
         {
             // Windows drops the old lease's default route a few seconds after a static apply: confirm before alarming.
             Thread.Sleep(4000);
-            live = GetAdapters().FirstOrDefault(a => a.Name == plan.Adapter);
-            diffs = live is null ? ["adapter disappeared"] : ApplyVerifier.Compare(plan.Profile, live);
+            diffs = VerifyNow(plan);
         }
         outcome.VerifyDiffs = diffs;
         if (outcome.VerifyDiffs.Count > 0) Store.Log($"verify '{plan.Title}' on {plan.Adapter}: " + string.Join("; ", outcome.VerifyDiffs));
         return outcome;
+    }
+
+    List<string> VerifyNow(ApplyPlan plan)
+    {
+        var live = GetAdapters().FirstOrDefault(a => a.Name == plan.Adapter);
+        if (live is null) return ["adapter disappeared"];
+        var p = plan.Profile!;
+        var (routes, metric) = !p.Dhcp && (p.Routes.Count > 0 || p.InterfaceMetric is not null) ? RouteReader(live.Index) : (null, null);
+        return ApplyVerifier.Compare(p, live, strict: true, routes, metric);
     }
 
     public ApplyOutcome ApplyDhcp(AdapterInfo? adapter = null)

@@ -11,7 +11,9 @@ namespace NetPaw.Planning;
 public static class ApplyVerifier
 {
     /// <param name="strict">true = post-apply verification (extra addresses, second gateway and DNS count); false = "is this profile active" for menu ticks.</param>
-    public static List<string> Compare(Profile p, AdapterInfo live, bool strict = true)
+    /// <param name="routes">Live routes on the adapter (null = not read; route checks skipped).</param>
+    /// <param name="interfaceMetric">Live interface metric (null = not read).</param>
+    public static List<string> Compare(Profile p, AdapterInfo live, bool strict = true, IReadOnlyList<RouteEntry>? routes = null, int? interfaceMetric = null)
     {
         var diffs = new List<string>();
         if (p.Dhcp)
@@ -29,6 +31,15 @@ public static class ApplyVerifier
         if (p.Gateway is not null && !live.Gateways.Contains(p.Gateway)) diffs.Add($"gateway {p.Gateway} missing");
         if (strict && live.Gateways.Count > 1) diffs.Add($"two default gateways ({string.Join(", ", live.Gateways)}) — the stale one usually comes from the previous DHCP lease");
         if (strict && p.Dns.Count > 0 && !p.Dns.SequenceEqual(live.Dns)) diffs.Add($"DNS is {(live.Dns.Count == 0 ? "empty" : string.Join(", ", live.Dns))}, expected {string.Join(", ", p.Dns)}");
+        if (strict && routes is not null)
+            foreach (var r in p.Routes)
+            {
+                var got = routes.FirstOrDefault(x => x.Prefix == r.Prefix);
+                if (got is null) { diffs.Add($"route {r.Prefix} missing"); continue; }
+                if (r.Gateway is not null && got.Gateway != r.Gateway) diffs.Add($"route {r.Prefix} goes via {got.Gateway ?? "on-link"}, expected {r.Gateway}");
+                if (r.Metric is not null && got.Metric != r.Metric) diffs.Add($"route {r.Prefix} has metric {got.Metric}, expected {r.Metric}");
+            }
+        if (strict && p.InterfaceMetric is not null && interfaceMetric is not null && interfaceMetric != p.InterfaceMetric) diffs.Add($"interface metric is {interfaceMetric}, expected {p.InterfaceMetric}");
         return diffs;
     }
 }
