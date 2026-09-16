@@ -105,3 +105,16 @@ window and the main window, then add one window with a nav list and five pages b
 - A hidden main window keeps a subscription to every `RefreshState` → re-render only when
   `Visible`. Unsubscribe on dispose.
 - Saved bounds off-screen after a monitor change → clamp to the nearest screen on load (tested).
+
+## Review round (2026-09-16, after v0.12.0 shipped)
+The critic judged this plan against the v0.10 request (slimming, verbosity, health checks, error
+logging). Reconciliation:
+- Scope: rebutted. The operator wrote on 2026-09-16 "maybe also make a main window to optionally open
+  instead of navigating through small tray" and answered "Go" to this plan. The quote is in Given state.
+- v0.10 items "not addressed": rebutted. They shipped as v0.10.0 (`docs/PLAN-v0.10.md`, PRs #37–#44):
+  per-row visibility modes, adaptive cadence + watchdog, error reports with context, log levels,
+  compressed builds.
+- IPv6 diagnostics: rebutted. The operator deferred IPv6 ("that's for later"); it is not in this scope.
+- Cheap check "is there a branch": `feat/main-window` → PR #52, merged, tag v0.12.0.
+- Found on the VM, not by the critic: page headings sat under the hint labels (hint labels were not
+  docked). Fixed before merge.
