@@ -65,6 +65,7 @@ static class Theme
             case ComboBox cb: cb.BackColor = Field; cb.ForeColor = Text; cb.FlatStyle = FlatStyle.Flat; break;
             case ListBox lb: lb.BackColor = Panel; lb.ForeColor = Text; lb.BorderStyle = BorderStyle.None; break;
             case ListView lv: DarkListView(lv); break;
+            case TabControl tc: DarkTabs(tc); break;
             case CheckBox or RadioButton: c.ForeColor = Text; c.BackColor = Color.Transparent; break;
             case LinkLabel ll: ll.LinkColor = Accent; ll.ActiveLinkColor = Text; ll.VisitedLinkColor = Accent; ll.LinkBehavior = LinkBehavior.HoverUnderline; ll.BackColor = Color.Transparent; break;
             case Label l: if (l.ForeColor == SystemColors.ControlText) l.ForeColor = Text; l.BackColor = Color.Transparent; break;
@@ -97,6 +98,21 @@ static class Theme
         };
         lv.DrawSubItem += (_, e) => { e.DrawDefault = e.Item.Tag is not SeparatorTag; };
         lv.ItemSelectionChanged += (_, e) => { if (e.Item?.Tag is SeparatorTag && e.IsSelected) e.Item.Selected = false; };
+    }
+
+    /// <summary>TabControl ignores BackColor; owner-draw the tab strip so it matches the dark forms.</summary>
+    static void DarkTabs(TabControl tc)
+    {
+        if (tc.DrawMode == TabDrawMode.OwnerDrawFixed) return;
+        tc.DrawMode = TabDrawMode.OwnerDrawFixed; tc.SizeMode = TabSizeMode.Fixed; tc.ItemSize = new Size(Math.Max(tc.ItemSize.Width, 110), 26); tc.Padding = new Point(12, 4);
+        foreach (TabPage page in tc.TabPages) { page.BackColor = Bg; page.ForeColor = Text; page.UseVisualStyleBackColor = false; }
+        tc.DrawItem += (_, e) =>
+        {
+            var selected = e.Index == tc.SelectedIndex;
+            using var bg = new SolidBrush(selected ? Bg : Field); e.Graphics.FillRectangle(bg, e.Bounds);
+            if (selected) { using var accent = new SolidBrush(Accent); e.Graphics.FillRectangle(accent, e.Bounds.Left, e.Bounds.Bottom - 2, e.Bounds.Width, 2); }
+            TextRenderer.DrawText(e.Graphics, tc.TabPages[e.Index].Text, selected ? new Font(Base, FontStyle.Bold) : Base, e.Bounds, selected ? Text : Muted, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+        };
     }
 
     sealed class SeparatorTag { public static readonly SeparatorTag Instance = new(); }
