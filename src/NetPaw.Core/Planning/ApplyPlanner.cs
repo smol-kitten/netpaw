@@ -108,8 +108,8 @@ public static class ApplyPlanner
     }
 
     /// <summary>Quick "DHCP now" without a profile.</summary>
-    public static ApplyPlan PlanDhcp(AdapterInfo adapter) =>
-        Plan(new Profile { Name = "DHCP", Dhcp = true }, adapter);
+    public static ApplyPlan PlanDhcp(AdapterInfo adapter, bool flushDns = false) =>
+        Plan(new Profile { Name = "DHCP", Dhcp = true }, adapter, null, flushDns);
 
     /// <summary>Best-effort "is this profile what the adapter currently runs" for the ✓ in menus.</summary>
     public static bool Matches(Profile p, AdapterInfo adapter)

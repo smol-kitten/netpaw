@@ -430,7 +430,7 @@ sealed class TrayApp : ApplicationContext
     {
         var w = Work; if (w is null) { Notify("No adapter", "Pick a work adapter first.", ToolTipIcon.Warning); return; }
         if (!_svc.Allowed(Capability.Dhcp)) { Denied(Capability.Dhcp); return; }
-        Execute(ApplyPlanner.PlanDhcp(w));
+        Execute(ApplyPlanner.PlanDhcp(w, _svc.Settings.FlushDns));
     }
 
     void Denied(Capability c) { var msg = new DeniedByPolicyException(c).Message; Status?.Invoke(msg, "error"); Notify("Not allowed", msg, ToolTipIcon.Warning); }

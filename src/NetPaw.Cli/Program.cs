@@ -101,7 +101,7 @@ try
             return Run(svc, svc.PlanProfile(p, adapter), dryRun);
         }
         case "dhcp":
-            return Run(svc, ApplyPlanner.PlanDhcp(svc.ResolveAdapter(adapterName)), dryRun);
+            return Run(svc, ApplyPlanner.PlanDhcp(svc.ResolveAdapter(adapterName), svc.Settings.FlushDns), dryRun);
         case "renew":
             return Run(svc, NetPaw.Connectivity.Advisor.PlanRenew(svc.ResolveAdapter(adapterName)), dryRun);
         case "release": return Run(svc, NetPaw.Connectivity.Advisor.PlanRelease(svc.ResolveAdapter(adapterName)), dryRun);

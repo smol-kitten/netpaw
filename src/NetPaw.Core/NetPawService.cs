@@ -217,7 +217,7 @@ public sealed class NetPawService
     public ApplyOutcome ApplyDhcp(AdapterInfo? adapter = null)
     {
         Require(Capability.Dhcp);
-        return Apply(ApplyPlanner.PlanDhcp(adapter ?? ResolveAdapter((string?)null)));
+        return Apply(ApplyPlanner.PlanDhcp(adapter ?? ResolveAdapter((string?)null), Settings.FlushDns));
     }
 
     public ReachDecision ResolveReach(string target, AdapterInfo? adapter = null)

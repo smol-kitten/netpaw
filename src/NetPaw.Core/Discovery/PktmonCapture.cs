@@ -23,6 +23,16 @@ public sealed class PktmonCapture
         catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException) { return (-1, ex.Message); }
     }
 
+    static void RunPs(string command)
+    {
+        try
+        {
+            using var p = Process.Start(new ProcessStartInfo("powershell", "-NoProfile -NonInteractive -Command \"" + command.Replace("\"", "\\\"") + "\"") { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true })!;
+            p.WaitForExit(15_000);
+        }
+        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException) { }
+    }
+
     /// <summary>pktmon component id of an adapter (by name substring of `pktmon list`), or null = all NICs.</summary>
     public static int? ComponentId(string adapterName)
     {
@@ -48,9 +58,13 @@ public sealed class PktmonCapture
         foreach (var f in new[] { etl, pcap }) if (File.Exists(f)) File.Delete(f);
         Run("stop"); Run("filter remove");
         var comp = adapterName is null ? null : ComponentId(adapterName);
+        // Some drivers only pass the 01-80-C2-00-00-0E group to the stack once an LLDP agent registered it.
+        // Where the Hyper-V module exists, enabling Windows' own agent does exactly that (best effort, harmless).
+        if (adapterName is not null) RunPs($"if (Get-Command Enable-NetLldpAgent -ErrorAction SilentlyContinue) {{ Enable-NetLldpAgent -NetAdapterName '{adapterName.Replace("'", "''")}' -ErrorAction SilentlyContinue }}");
         try
         {
-            Run("filter add NetPawLLDP -m 01-80-C2-00-00-0E"); Run("filter add NetPawCDP -m 01-00-0C-CC-CC-CC");
+            // LLDP by ethertype (catches the rare unicast-addressed LLDP too); CDP is LLC/SNAP, so by its multicast MAC.
+            Run("filter add NetPawLLDP -d 0x88CC"); Run("filter add NetPawLLDPm -m 01-80-C2-00-00-0E"); Run("filter add NetPawCDP -m 01-00-0C-CC-CC-CC");
             var (code, o) = Run($"start --capture --pkt-size 0{(comp is { } c ? $" --comp {c}" : "")} -f \"{etl}\"");
             log?.Invoke($"pktmon start -> {code}: {o.Trim().Split('\n').FirstOrDefault()}");
             if (code != 0) return ([], "pktmon start failed: " + o.Trim());
@@ -58,8 +72,10 @@ public sealed class PktmonCapture
         }
         catch (OperationCanceledException) { /* fall through to stop + decode what we have */ }
         finally { Run("stop"); Run("filter remove"); }
-        var (c2, o2) = Run($"etl2pcapng \"{etl}\" -o \"{pcap}\"", 60_000);
-        if (c2 != 0 || !File.Exists(pcap)) return ([], "pktmon etl2pcapng failed: " + o2.Trim());
+        // The converter was renamed across builds: Windows 10 2004 shipped `etl2pcapng`, Windows 11 has `etl2pcap` (alias e2p). Try both.
+        var (c2, o2) = Run($"etl2pcap \"{etl}\" -o \"{pcap}\"", 60_000);
+        if (c2 != 0 || !File.Exists(pcap)) (c2, o2) = Run($"etl2pcapng \"{etl}\" -o \"{pcap}\"", 60_000);
+        if (c2 != 0 || !File.Exists(pcap)) return ([], "pktmon could not convert the capture (etl2pcap/etl2pcapng): " + o2.Trim().Split('\n')[0]);
         var bytes = await File.ReadAllBytesAsync(pcap, CancellationToken.None);
         var n = PcapNg.Neighbors(bytes);
         log?.Invoke($"lldp/cdp capture: {bytes.Length} bytes, {n.Count} neighbour(s)");

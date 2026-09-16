@@ -126,7 +126,7 @@ sealed class NetworkMapForm : Form
                 Row("Management", n.ManagementAddress); Row("System", n.SystemDescription); Row("Capabilities", string.Join(", ", n.Capabilities)); Row("Chassis", n.ChassisId); Row("Seen", n.SeenAt.ToString("HH:mm:ss"));
                 _switch.Items.Add(new ListViewItem(["", ""]));
             }
-            _status.Text = found.Count == 0 ? $"No LLDP/CDP announcement in {seconds} s — the switch may not send them on access ports, or the port is a dumb switch." : $"{found.Count} announcement(s) — {found[0].Headline}";
+            _status.Text = found.Count == 0 ? $"No LLDP/CDP announcement in {seconds} s. Causes: the switch does not send on this port, an unmanaged switch, or this NIC driver only passes the LLDP multicast group once an LLDP agent registered it (see Help)." : $"{found.Count} announcement(s) — {found[0].Headline}";
             TelemetryHost.Event("map", "lldp", found.FirstOrDefault()?.Protocol, found.Count);
         }
         catch (OperationCanceledException) { _status.Text = "Cancelled."; }
