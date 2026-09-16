@@ -21,3 +21,5 @@ Open with the panel hotkey (default `Ctrl+Alt+N`), a left-click on the tray paw,
 
 ## Header
 The first line shows the work adapter: link dot, name, addresses, gateway, link speed, and how many temporary addresses NetPaw added. Hover for MAC and DNS.
+
+Hold **Shift** while picking a profile, preset or action to see the exact command plan first — the same window *Settings → Confirm* shows every time.

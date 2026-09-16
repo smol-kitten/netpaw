@@ -89,6 +89,7 @@ logon.
 | save what's configured right now | *Capture current as profile…* |
 | undo temporary addresses | *Remove N temporary addresses* (menu / panel) |
 | see what will run | *Settings → confirm before applying*, or *Preview plan* in the editor |
+| see what a change will run | hold **Shift** while picking it (or *Settings → Confirm* for every time), or `netpaw-cli apply <p> -n` |
 | check the link | `Ctrl+Alt+I` — the info card; 📌 keeps it |
 | get told when the network changes | *Settings → Connectivity → check reachability* + *monitor mode* |
 | renew the lease | *Renew DHCP lease* (menu / panel / info card), or `netpaw-cli renew` |

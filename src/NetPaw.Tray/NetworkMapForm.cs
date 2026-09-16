@@ -70,16 +70,15 @@ sealed class NetworkMapForm : Form
 
     void Render(IEnumerable<NetworkBundle> bundles)
     {
-        _hosts.BeginUpdate(); _hosts.Items.Clear(); _hosts.Groups.Clear();
+        _hosts.BeginUpdate(); _hosts.Items.Clear(); _hosts.ShowGroups = false;
         foreach (var b in bundles)
         {
-            var g = new ListViewGroup(b.Network == "other" ? "other (not in a local subnet)" : $"{b.Cidr}  ·  {b.Adapter}  ·  you are {b.OwnAddress}" + (b.Hosts.Any(h => h.Alive is not null) ? $"  ·  {b.Alive} alive" : ""));
-            _hosts.Groups.Add(g);
+            _hosts.Items.Add(Theme.SeparatorItem(b.Network == "other" ? "other (not in a local subnet)" : $"{b.Cidr}  ·  {b.Adapter}  ·  you are {b.OwnAddress}" + (b.Hosts.Any(h => h.Alive is not null) ? $"  ·  {b.Alive} alive" : "")));
             foreach (var h in b.Hosts)
             {
                 var alive = h.Alive switch { true => $"✓ {h.Ms} ms", false => "✗", null => "—" };
                 var note = _app.Service.Presets.FirstOrDefault(p => p.Ip == h.Ip) is { } pr ? $"default address of {pr.Vendor} {pr.Model}" : _adapter.Gateways.Contains(h.Ip) ? "default gateway" : "";
-                _hosts.Items.Add(new ListViewItem([h.Ip, h.Mac, h.Kind, alive, note]) { Group = g, ForeColor = h.Alive switch { true => Theme.Static, false => Theme.Error, null => Theme.Text } });
+                _hosts.Items.Add(new ListViewItem([h.Ip, h.Mac, h.Kind, alive, note]) { ForeColor = h.Alive switch { true => Theme.Static, false => Theme.Error, null => Theme.Text } });
             }
         }
         _hosts.EndUpdate();
