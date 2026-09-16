@@ -61,6 +61,10 @@ MIT licensed. Windows 10/11, .NET 10.
 |---|---|---|
 | ![map](docs/map.png) | ![switch](docs/switch.png) | ![routes](docs/routes.png) |
 
+| intent watcher — "msedge cannot reach 192.168.88.4 — profile *MikroTik lab* covers it" |
+|---|
+| ![intent](docs/intent.png) |
+
 *Screenshots from the Windows 11 test VM; every `netsh` path in this README was verified there.*
 
 [![CI](https://github.com/smol-kitten/netpaw/actions/workflows/ci.yml/badge.svg)](https://github.com/smol-kitten/netpaw/actions/workflows/ci.yml) ![C#](https://img.shields.io/badge/C%23-239120?style=for-the-badge&logo=csharp&logoColor=white) ![License](https://img.shields.io/badge/license-MIT-blue?style=for-the-badge)
