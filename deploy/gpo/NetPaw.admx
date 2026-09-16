@@ -71,5 +71,9 @@
       <parentCategory ref="NetPaw" /><supportedOn ref="windows:SUPPORTED_Windows_10_0" />
       <enabledValue><decimal value="1" /></enabledValue><disabledValue><decimal value="0" /></disabledValue>
     </policy>
+    <policy name="AllowIntentWatch" class="Machine" displayName="$(string.AllowIntentWatch)" explainText="$(string.AllowIntentWatch_Help)" key="SOFTWARE\Policies\NetPaw" valueName="AllowIntentWatch">
+      <parentCategory ref="NetPaw" /><supportedOn ref="windows:SUPPORTED_Windows_10_0" />
+      <enabledValue><decimal value="1" /></enabledValue><disabledValue><decimal value="0" /></disabledValue>
+    </policy>
   </policies>
 </policyDefinitions>

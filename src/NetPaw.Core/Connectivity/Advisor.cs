@@ -6,7 +6,7 @@ namespace NetPaw.Connectivity;
 public enum AdvisorySeverity { Info, Warning, Error }
 
 /// <summary>A plain-language finding about the current configuration and whether a DHCP renew could fix it.</summary>
-public enum RepairKind { None, Renew, Release, Reset, Prefer, SetMtu, DeleteRoute }
+public enum RepairKind { None, Renew, Release, Reset, Prefer, SetMtu, DeleteRoute, Reach }
 
 public sealed record Advisory(AdvisorySeverity Severity, string Title, string Text, bool CanRenew)
 {
@@ -19,6 +19,8 @@ public sealed record Advisory(AdvisorySeverity Severity, string Title, string Te
     public int? Value { get; init; }
     /// <summary>The route a <see cref="RepairKind.DeleteRoute"/> repair removes.</summary>
     public Planning.RouteEntry? Route { get; init; }
+    /// <summary>The address a <see cref="RepairKind.Reach"/> repair reaches (intent watcher).</summary>
+    public string? Target { get; init; }
     public override string ToString() => $"{Title}: {Text}";
 }
 
@@ -139,6 +141,23 @@ public static class Advisor
     }
 
     /// <summary>`ipconfig /release "<adapter>"` on the adapter that still owns the address.</summary>
+    /// <summary>One stuck connection as advice: who, what, why, and the cheapest way to make it reachable.</summary>
+    public static Advisory FromStuck(StuckTarget t, DateTimeOffset now)
+    {
+        var why = t.Kind == StuckKind.OnLinkSilent ? "the host is on this subnet but does not answer: down, or on another VLAN" : "no reply from beyond the gateway";
+        var d = t.Decision;
+        var (sev, fix) = d.Kind switch
+        {
+            Reach.ReachKind.UseProfile => (AdvisorySeverity.Warning, $"Profile '{d.Profile!.Name}' covers it."),
+            Reach.ReachKind.UsePreset => (AdvisorySeverity.Warning, $"Preset {d.Preset!.Vendor} {d.Preset.Model} covers it (its subnet, temporary address {d.Address})."),
+            Reach.ReachKind.TempAddress => (AdvisorySeverity.Info, $"Nothing saved covers it; 'reach {t.Remote}' adds a temporary address {d.Address}."),
+            Reach.ReachKind.AlreadyReachable => (AdvisorySeverity.Info, "This adapter already sits in its subnet; the host itself is silent."),
+            _ => (AdvisorySeverity.Info, d.Explanation),
+        };
+        return new Advisory(sev, $"{t.Process} cannot reach {t.Remote}:{t.Port}", $"No reply for {t.SecondsWaiting(now)} s ({why}). {fix}", CanRenew: false)
+        { Repair = d.Kind is Reach.ReachKind.UseProfile or Reach.ReachKind.UsePreset or Reach.ReachKind.TempAddress ? RepairKind.Reach : RepairKind.None, Target = t.Remote };
+    }
+
     /// <summary>netsh set subinterface: the one knob that makes Windows fragment before a too-small link swallows the packet.</summary>
     public static ApplyPlan PlanSetMtu(AdapterInfo adapter, int mtu)
     {
@@ -191,6 +210,8 @@ public sealed class RepairSettings
     public bool VpnNotifications { get; set; } = true;
     /// <summary>Listen for LLDP/CDP (pktmon, passive) after every link-up so the card can say which switch port you are on. Off by default: it is a ~35 s capture.</summary>
     public bool DiscoverSwitchOnLinkUp { get; set; }
+    /// <summary>Watch the TCP table for connections nobody answers and recommend the profile that covers the target. Local only; nothing is sent.</summary>
+    public bool IntentWatch { get; set; } = true;
     public int DiscoverSeconds { get; set; } = 35;
 }
 

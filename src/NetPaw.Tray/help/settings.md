@@ -9,6 +9,7 @@
 - **Log level** — *errors only*, *normal*, or *verbose* (every check round, reader results, the next interval). `netpaw.log` rotates at 5 MB either way.
 - **Startup** — run at logon through an elevated scheduled task (no UAC prompt each login).
 - **Info card** — one mode per row: *never* / *on issue* / *always*. "Issue" is the row's own verdict (link down, weak Wi-Fi, MTU below 1500, a DNS server ✗, another adapter with a problem, a warning in Advice). Errors in Advice always show. Hidden rows take no space. *Auto-pin* uses the same three modes: bring the card up and keep it there never / while a problem exists / always. *Reset to defaults* restores the quiet defaults (core rows always, the rest on issue).
+- **Intent watcher** (Repair tab) — name the program waiting on an unanswered address and offer the profile that covers it. Reads the local TCP table only.
 - **Connectivity** — reachability checks, interval, intranet/internet targets, DNS check host, monitor mode, sticky alert. See *Network info & monitor*.
 - **Repositories** — online packs: add, remove, sync. See *Presets & repositories*.
 

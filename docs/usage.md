@@ -15,6 +15,7 @@
 | weak Wi-Fi / 802.1X refused / path MTU 1452? | info card rows *Wi-Fi*, *802.1X*, *Path MTU* with advice + one-click *Set MTU* |
 | which DNS server is dead? | info card DNS row shows each server ✓/✗ (checks on); the advice row names it |
 | where does the path stop? | info card → *Trace route to …* when internet/gateway is ✗, or `netpaw-cli trace 1.1.1.1` |
+| browser says it cannot reach a device | wait 4 s — the advice row names the program, the target and the profile that covers it; `netpaw-cli stuck` |
 | is that port open from here? | type `10.0.0.5:443` (or `nas:22`) in the panel, or `netpaw-cli check 10.0.0.5:443` |
 | see what a change will run | hold **Shift** while picking it (or *Settings → Confirm* for every time), or `netpaw-cli apply <p> -n` |
 | check the link | `Ctrl+Alt+I` — the info card; 📌 keeps it |
@@ -81,6 +82,7 @@ netpaw-cli check <host:port> [--timeout ms] one TCP connect: open / refused / ti
 netpaw-cli trace <host> [--max N]           traceroute: where does the path stop?
 netpaw-cli wake <mac> [subnet]              Wake-on-LAN magic packet
 netpaw-cli diag [file.zip]                  diagnostics bundle for the helpdesk
+netpaw-cli stuck                            who waits on an unanswered connection, and which profile covers it
 netpaw-cli routes                           route table with interface names
 netpaw-cli preset [query]                   list presets
 netpaw-cli preset apply <vendor/model|query>

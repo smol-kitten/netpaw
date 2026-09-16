@@ -16,26 +16,26 @@ CLAIMS = [
   "id": "c1"
  },
  {
-  "line": 81,
+  "line": 83,
   "text": "| `netpaw-win-x64-standalone.zip` | nothing | ~85 MB (tray 49 MB + CLI 38 MB, compressed single files) |",
   "kind": "size",
   "check": {
    "pattern": "out/netpaw-win-x64-standalone.zip",
    "max_mb": 100.0
   },
-  "id": "c3"
+  "id": "c2"
  },
  {
-  "line": 82,
+  "line": 84,
   "text": "| `NetPaw-<version>.msi` | [.NET 10 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/10.0) | ~1 MB, per-machine, for Intune/GPO |",
   "kind": "file",
   "check": {
    "path": "deploy/msi/Package.wxs"
   },
-  "id": "c4"
+  "id": "c3"
  },
  {
-  "line": 43,
+  "line": 45,
   "text": "MIT licensed. Windows 10/11, .NET 10.",
   "kind": "grep",
   "check": {
@@ -44,61 +44,61 @@ CLAIMS = [
    "min": 1,
    "max": 1
   },
-  "id": "c5"
+  "id": "c4"
  },
  {
-  "line": 40,
+  "line": 42,
   "text": "**Enterprise-ready** \u2014 MSI for Intune/GPO, read-only managed profiles from `%ProgramData%`, registry policy with ADMX (pin the adapter/hotkey, deny reach/DHCP/user profiles). See [docs/ENTERPRISE.md](docs/ENTERPRISE.md).",
   "kind": "file",
   "check": {
    "path": "docs/ENTERPRISE.md"
   },
-  "id": "c6"
+  "id": "c5"
  },
  {
-  "line": 41,
+  "line": 43,
   "text": "**Online profile packs** \u2014 subscribe to signed `index.json` repositories (the community pack in this repo, or your company's). Fetched only when you click *Sync*, cached, never auto-applied. See [docs/PACK-FORMAT.md](docs/PACK-FORMAT.md).",
   "kind": "file",
   "check": {
    "path": "docs/PACK-FORMAT.md"
   },
-  "id": "c7"
+  "id": "c6"
  },
  {
-  "line": 188,
+  "line": 184,
   "text": "MIT \u2014 see [LICENSE](LICENSE).",
   "kind": "file",
   "check": {
    "path": "LICENSE"
   },
-  "id": "c9"
+  "id": "c7"
  },
  {
-  "line": 63,
+  "line": 65,
   "text": "[![CI](https://github.com/smol-kitten/netpaw/actions/workflows/ci.yml/badge.svg)](https://github.com/smol-kitten/netpaw/actions/workflows/ci.yml) ![C#](https://img.shields.io/badge/C%23-239120?style=for-the-badge&logo=csharp&logoColor=white) ![License](https://img.shields.io/badge/license-MIT-blue?style=for-the-badge)",
   "kind": "url",
   "check": {
    "url": "https://github.com/smol-kitten/netpaw/actions/workflows/ci.yml"
   },
-  "id": "c10"
+  "id": "c8"
  },
  {
-  "line": 80,
+  "line": 82,
   "text": "| `netpaw-win-x64.zip` | [.NET 10 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/10.0) | ~1.5 MB |",
   "kind": "url",
   "check": {
    "url": "https://dotnet.microsoft.com/download/dotnet/10.0"
   },
-  "id": "c11"
+  "id": "c9"
  },
  {
-  "line": 76,
+  "line": 78,
   "text": "Grab a zip from [Releases](../../releases):",
   "kind": "url",
   "check": {
    "url": "https://github.com/smol-kitten/netpaw/releases"
   },
-  "id": "c13"
+  "id": "c10"
  },
  {
   "line": 15,
@@ -110,7 +110,7 @@ CLAIMS = [
    "min": 50,
    "max": 100
   },
-  "id": "c14"
+  "id": "c11"
  },
  {
   "line": 15,
@@ -122,7 +122,7 @@ CLAIMS = [
    "min": 50,
    "max": 100
   },
-  "id": "c15"
+  "id": "c12"
  },
  {
   "line": 15,
@@ -134,7 +134,73 @@ CLAIMS = [
    "min": 50,
    "max": 100
   },
+  "id": "c13"
+ },
+ {
+  "line": 31,
+  "text": "Auto-switch (opt-in per profile) \u2014 learn a network's fingerprint (gateway MAC, subnet, DHCP server, DNS suffix, ARP neighbours, plus the LLDP/CDP switch port and Wi-Fi BSSID when known \u2014 weighted, so a shared VRRP MAC or a common subnet alone never triggers); on link-up NetPaw applies the profile that scores best by a clear margin.",
+  "kind": "grep",
+  "check": {
+   "path": "src/NetPaw.Core/Scan/AutoSwitcher.cs",
+   "regex": "gateway MAC|subnet|DHCP server|DNS suffix|ARP neighbours|LLDP|CDP|BSSID|VRRP",
+   "min": 1
+  },
+  "id": "c14"
+ },
+ {
+  "line": 32,
+  "text": "Update check (opt-in \u2014 asked once on first start; one GitHub API call a day, never downloads) \u2014 a balloon once per newer release; click opens the release page.",
+  "kind": "grep",
+  "check": {
+   "path": "src/NetPaw.Core/Updates/UpdateChecker.cs",
+   "regex": "GitHub|api|release|balloon|once",
+   "min": 1
+  },
+  "id": "c15"
+ },
+ {
+  "line": 33,
+  "text": "Quiet by default \u2014 every info-card row has a mode (*never / on issue / always*), so a healthy network shows five lines and a dock, Wi-Fi, VPN or switch row appears only when it has something to say.",
+  "kind": "grep",
+  "check": {
+   "path": "src/NetPaw.Tray/QuickPanel.cs",
+   "regex": "never|on issue|always|mode",
+   "min": 1
+  },
   "id": "c16"
+ },
+ {
+  "line": 34,
+  "text": "Self-watching \u2014 the check loop backs off on a stable network (30 \u2192 120 s), returns to the fast rate on any change, cancels a hung round after twice the interval, and tells you when its last result is stale.",
+  "kind": "grep",
+  "check": {
+   "path": "src/NetPaw.Core/Connectivity/Cadence.cs",
+   "regex": "30|120|backoff|interval|stale",
+   "min": 1
+  },
+  "id": "c17"
+ },
+ {
+  "line": 35,
+  "text": "Verify after apply \u2014 every change (profile, DHCP, undo, repair, CLI) re-reads the adapter 2 s later, including static routes and the interface metric; the Windows \"static applied but still shows DHCP / two gateways\" state and a route Windows refused are caught, and *Reset adapter* clears it.",
+  "kind": "grep",
+  "check": {
+   "path": "src/NetPaw.Core/Planning/ApplyVerifier.cs",
+   "regex": "2|static|DHCP|gateway|route|Reset",
+   "min": 1
+  },
+  "id": "c18"
+ },
+ {
+  "line": 36,
+  "text": "VPN status \u2014 WireGuard, OpenVPN, Windows native, Tailscale, ZeroTier: up/down, full vs split tunnel, change notifications.",
+  "kind": "grep",
+  "check": {
+   "path": "src/NetPaw.Core/Connectivity/Vpn.cs",
+   "regex": "WireGuard|OpenVPN|Tailscale|ZeroTier|split|tunnel",
+   "min": 1
+  },
+  "id": "c19"
  }
 ]
 

@@ -26,6 +26,14 @@ sealed class TrayApp : ApplicationContext
     public IProbe Probe { get; } = new NetworkProbe();
     readonly ConnectivityChecker _checker;
     readonly System.Windows.Forms.Timer _checkTimer = new();
+    // Intent watcher: every 2 s read the SYN_SENT rows (one IP Helper call), report what nobody answers.
+    readonly System.Windows.Forms.Timer _intentTimer = new() { Interval = 2000 };
+    readonly IntentWatcher _intent = new(Environment.ProcessId, pid => { try { return Process.GetProcessById(pid).ProcessName; } catch (Exception) { return null; } });
+    readonly ITcpTable _tcpTable = OperatingSystem.IsWindows() ? new IpHelperTcpTable() : new NullTcpTable();
+    readonly List<(Advisory Advisory, DateTimeOffset At)> _intentAdvisories = [];
+    bool _intentSampling;
+    /// <summary>Advice rows from the intent watcher (kept 10 min), rendered after the adapter advice.</summary>
+    public IReadOnlyList<Advisory> IntentAdvisories => _intentAdvisories.Select(x => x.Advisory).ToList();
     Snapshot? _snapshot, _previous, _announced;
     readonly RenewScheduler _renew = new();
     IReadOnlyList<Advisory> _advisories = [];
@@ -84,6 +92,7 @@ sealed class TrayApp : ApplicationContext
         RegisterHotkeys();
         RefreshState();
         _checkTimer.Tick += (_, _) => { Watchdog(); _ = RunCheck(); };
+        _intentTimer.Tick += (_, _) => _ = Guarded("intent", IntentSample);
         _confirm.Tick += (_, _) => { _confirm.Stop(); _ = RunCheck(); };
         ConfigureChecks();
         // Instant reaction to cable pulls / address changes, on top of the periodic probe.
@@ -110,6 +119,39 @@ sealed class TrayApp : ApplicationContext
         var c = _svc.Settings.Checks;
         _checkTimer.Stop(); _currentInterval = 0;
         if (c.Enabled) { _checkTimer.Interval = Math.Clamp(c.IntervalSeconds, 5, 3600) * 1000; _checkTimer.Start(); }
+        _intentTimer.Stop();
+        if (_svc.Settings.Repair.IntentWatch && _svc.Allowed(Capability.IntentWatch)) _intentTimer.Start();
+        else { _intentAdvisories.Clear(); }
+    }
+
+    /// <summary>One watcher sample: table → stuck endpoints → classification + reach recommendation → advice, balloon, incident.</summary>
+    async Task IntentSample()
+    {
+        if (_intentSampling || _busy) return;
+        _intentSampling = true;
+        try
+        {
+            var now = DateTimeOffset.Now;
+            _intentAdvisories.RemoveAll(x => now - x.At >= IntentWatcher.Cooldown);
+            var rows = await Task.Run(_tcpTable.SynSent);
+            var stuck = _intent.Sample(rows, now);
+            if (stuck.Count == 0) return;
+            var work = Work;
+            if (work is null || !work.HasRealAddress) return;                      // no address: the adapter advice already says why nothing works
+            var arp = await Task.Run(() => { try { return _arp.ReadCache(); } catch (Exception) { return (IReadOnlyList<Arp.ArpEntry>)[]; } });
+            foreach (var (endpoint, since) in stuck)
+            {
+                var t = _intent.Describe(endpoint, since, work, arp, _svc.Profiles, _svc.Presets, _svc.Settings.ReachDefaultPrefix);
+                var adv = Advisor.FromStuck(t, now);
+                _intentAdvisories.Add((adv, now));
+                _svc.Store.Verbose("intent", $"{adv.Title}: {adv.Text}");
+                Notify(adv.Title, adv.Text, adv.Severity == AdvisorySeverity.Warning ? ToolTipIcon.Warning : ToolTipIcon.Info, force: true);
+                if (_svc.Settings.Repair.IncidentLog) (_incidents ??= new IncidentLog(_svc.Store.IncidentsFile)).Append(new Incident(now, work.Name, "intent", "", t.Kind.ToString(), $"{adv.Title} — {adv.Text}", []));
+                TelemetryHost.Event("intent", t.Kind.ToString(), t.Decision.Kind.ToString());
+            }
+            _toast?.Render(_snapshot);
+        }
+        finally { _intentSampling = false; }
     }
 
     // ---- loop health: adaptive cadence, watchdog, guarded background work ------------------------

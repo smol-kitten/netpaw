@@ -27,6 +27,7 @@ const string Usage = """
       netpaw-cli find-routers [-a X] [--force]    borrow an address in each common subnet, ARP the usual gateways, report who answers (--force: ok to drop a DHCP lease)
       netpaw-cli incidents [-n 30]                show the incident log (enable it in settings: repair.incidentLog)
       netpaw-cli reach <ip[/prefix]> [--replace] [-a X] [-n]
+      netpaw-cli stuck                              programs waiting on an unanswered connection, why, and the profile that covers the target (rc 1 when any)
       netpaw-cli diag [file.zip]                    diagnostics bundle (ipconfig, routes, arp, log, incidents, redacted settings)
       netpaw-cli wake <mac> [subnet/prefix]         Wake-on-LAN magic packet (global + subnet broadcast)
       netpaw-cli routes                             IPv4 route table with interface names
@@ -146,6 +147,23 @@ try
             var entries = NetPaw.Diagnostics.Bundle.Write(path, svc.Runner, svc.Store, svc.GetAdapters(), svc.Settings, typeof(NetPawService).Assembly.GetName().Version?.ToString(3) ?? "0", Environment.MachineName, now);
             Console.WriteLine($"{path}\n  {string.Join("\n  ", entries)}");
             return 0;
+        }
+        case "stuck":
+        {
+            svc.Require(Capability.IntentWatch);
+            var table = OperatingSystem.IsWindows() ? new NetPaw.Net.IpHelperTcpTable() : (NetPaw.Net.ITcpTable)new NetPaw.Net.NullTcpTable();
+            var watcher = new NetPaw.Connectivity.IntentWatcher(Environment.ProcessId, pid => { try { return System.Diagnostics.Process.GetProcessById(pid).ProcessName; } catch (Exception) { return null; } });
+            watcher.Sample(table.SynSent(), DateTimeOffset.Now); Thread.Sleep(2000);
+            var now = DateTimeOffset.Now; var stuck = watcher.Sample(table.SynSent(), now);
+            if (stuck.Count == 0) { Console.WriteLine("nothing is waiting on an unanswered connection right now"); return 0; }
+            var work = svc.ResolveAdapter(adapterName); var arp = new NetPaw.Arp.WindowsArpProvider().ReadCache();
+            foreach (var (e, since) in stuck)
+            {
+                var t = watcher.Describe(e, since, work, arp, svc.Profiles, svc.Presets, svc.Settings.ReachDefaultPrefix);
+                var adv = NetPaw.Connectivity.Advisor.FromStuck(t, now);
+                Console.WriteLine($"{adv.Title}\n  {adv.Text}{(adv.Repair == NetPaw.Connectivity.RepairKind.Reach ? $"\n  try: netpaw-cli reach {t.Remote}" : "")}");
+            }
+            return 1;
         }
         case "wake":
         {
@@ -476,7 +494,7 @@ try
                     "WorkAdapter" => pol.WorkAdapter, "PanelHotkey" => pol.PanelHotkey, "ConfirmBeforeApply" => pol.ConfirmBeforeApply?.ToString(),
                     "RepoUrls" => string.Join(" ", pol.RepoUrls), "AllowUserProfiles" => pol.AllowUserProfiles.ToString(), "AllowUserRepos" => pol.AllowUserRepos.ToString(),
                     "AllowReach" => pol.AllowReach.ToString(), "AllowTempAddresses" => pol.AllowTempAddresses.ToString(), "AllowDhcp" => pol.AllowDhcp.ToString(), "AllowUnsignedRepos" => pol.AllowUnsignedRepos.ToString(),
-                    "AllowTelemetry" => pol.AllowTelemetry.ToString(), "AllowAutoSwitch" => pol.AllowAutoSwitch.ToString(), "AllowScan" => pol.AllowScan.ToString(), "AllowCapture" => pol.AllowCapture.ToString(), _ => pol.AllowUpdateCheck.ToString(),
+                    "AllowTelemetry" => pol.AllowTelemetry.ToString(), "AllowAutoSwitch" => pol.AllowAutoSwitch.ToString(), "AllowScan" => pol.AllowScan.ToString(), "AllowCapture" => pol.AllowCapture.ToString(), "AllowUpdateCheck" => pol.AllowUpdateCheck.ToString(), _ => pol.AllowIntentWatch.ToString(),
                 };
                 Console.WriteLine($"{k,-20} {v,-40} {(pol.IsSet(k) ? "(policy)" : "(default)")}");
             }

@@ -34,6 +34,8 @@
       <string id="AllowCapture">Allow packet capture (LLDP/CDP via pktmon)</string>
       <string id="AllowCapture_Help">Disabled: NetPaw never starts a pktmon capture; the Switch tab and 'netpaw-cli switch' are refused.</string>
       <string id="AllowUpdateCheck">Allow the daily update check (GitHub releases API)</string>
+      <string id="AllowIntentWatch">Allow the intent watcher (unanswered connections → profile advice)</string>
+      <string id="AllowIntentWatch_Help">Disabled: NetPaw never reads the local TCP table to spot programs waiting on an unreachable address, and never recommends a profile for it. The watcher sends nothing; it only reads the table on this machine.</string>
       <string id="AllowUpdateCheck_Help">Disabled: NetPaw never contacts api.github.com to look for a newer release. Managed fleets that ship NetPaw through Intune/GPO should disable this.</string>
     </stringTable>
     <presentationTable>

@@ -118,6 +118,8 @@ sealed class SettingsForm : Form
         Row("Advisory", advisory);
         Row("Incident log", incidents);
         Row("VPN", vpnNotify);
+        var intent = new CheckBox { Text = "intent watcher: when a program waits on an address nobody answers, name it and offer the profile that covers it (local only)", Checked = rp.IntentWatch, AutoSize = true, MaximumSize = new Size(520, 0) };
+        Row("Intent watcher", intent); intent.Enabled = app.Service.Allowed(Capability.IntentWatch); if (!intent.Enabled) intent.Text += "  (disabled by policy)";
         var discover = new CheckBox { Text = "discover the switch port after link-up (LLDP/CDP via pktmon, passive, ~35 s)", Checked = rp.DiscoverSwitchOnLinkUp, AutoSize = true, Enabled = NetPaw.Discovery.PktmonCapture.Available };
         Row("Switch", discover);
         Row("Auto-repair", autoRenew);
@@ -211,7 +213,7 @@ sealed class SettingsForm : Form
             ck.DnsCheckHost = dnsHost.Text.Trim(); ck.MonitorMode = monitor.Checked;
             card.AutoPin = (Visibility)pinMode.SelectedIndex; card.Rows.Clear();
             foreach (var (kind, def, _) in InfoCardSettings.Catalog) if ((Visibility)cardRows[kind].SelectedIndex != def) card.Rows[kind] = (Visibility)cardRows[kind].SelectedIndex;
-            rp.DhcpAdvisory = advisory.Checked; rp.IncidentLog = incidents.Checked; rp.VpnNotifications = vpnNotify.Checked; rp.DiscoverSwitchOnLinkUp = discover.Checked; rp.AutoRenew = autoRenew.Checked; rp.AutoRenewIntervalSeconds = (int)renewInterval.Value; rp.AutoRenewMaxAttempts = (int)renewMax.Value;
+            rp.DhcpAdvisory = advisory.Checked; rp.IncidentLog = incidents.Checked; rp.VpnNotifications = vpnNotify.Checked; rp.DiscoverSwitchOnLinkUp = discover.Checked; rp.IntentWatch = intent.Checked; rp.AutoRenew = autoRenew.Checked; rp.AutoRenewIntervalSeconds = (int)renewInterval.Value; rp.AutoRenewMaxAttempts = (int)renewMax.Value;
             if (_saveExport?.Invoke() is { } exportErr) { err.Text = exportErr; return; }
             if (telemetry is not null) { s.TelemetryEnabled = telemetry.Checked; }
             TelemetryHost.Refresh(app.Service);
