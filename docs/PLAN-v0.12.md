@@ -28,23 +28,23 @@ card keep working unchanged. Ships as v0.12.0.
 - R2 Overview = the info card content plus an action bar (DHCP, Renew, Reset adapter, Reach box).
   The info card and the Overview render from one control.
 - R3 Profiles page: list (name, summary, adapter, *current* / *managed* badge), *Apply*, *Edit…*,
-  *New…*, *Capture current…*. double-click applies. hotkey column.
-- R4 Tools page: one button per tool with a one-line description. trace and port check show their
-  result inside the page (no extra window). the others open their existing window.
+  *New…*, *Capture current…*. Double-click applies. A hotkey column shows the shortcut.
+- R4 Tools page: one button per tool with a one-line description. Trace and port check show their
+  result inside the page (no extra window). The others open their existing window.
 - R5 Map page hosts the network map (same four tabs) inside the window.
 - R6 Log page: last 200 lines of `netpaw.log` and the incident log, refresh, *Open folder*.
 - R7 Ways in: tray menu *Open NetPaw window*, tray double-click, `--main` at start, setting
   *Tray click opens: quick panel / main window* (default: quick panel), F1 help per page.
 - R8 Closing the window hides it (the tray stays). *Exit* stays in the tray menu.
-- Must not: change what the quick panel, info card, tray menu or hotkeys do. block the UI thread
-  (every action already runs through `RunInBackground` / `Guarded`). add dependencies. grow the
+- Must not: change what the quick panel, info card, tray menu or hotkeys do. Do not block the UI thread
+  (every action already runs through `RunInBackground` / `Guarded`). Do not add dependencies. Do not grow the
   portable build past 2 MB.
 
 ## Design details
 **Panels, not forms.** Two refactors with no behaviour change: `InfoCardPanel : UserControl`
-(the `_grid` + `Render(Snapshot?)` from `InfoToast`. the toast keeps title, state, pin, close and
+(the `_grid` + `Render(Snapshot?)` from `InfoToast`. The toast keeps title, state, pin, close and
 hosts the panel) and `NetworkMapPanel : UserControl` (everything in `NetworkMapForm` below the
-title bar. the form becomes a 10-line host). `MainForm` hosts both.
+title bar. The form becomes a 10-line host). `MainForm` hosts both.
 
 **Layout.** `MainForm` = `SplitContainer` fixed at 180 px: left a `ListBox` (owner-drawn nav with
 icons from `Icons.Dot`), right a `Panel` that swaps one page control. Pages are `UserControl`s:
@@ -52,17 +52,17 @@ icons from `Icons.Dot`), right a `Panel` that swaps one page control. Pages are 
 The window subscribes to `TrayApp.Status` and `RefreshState` to re-render the current page.
 
 **State.** `Settings.MainWindow { int X, Y, W, H; bool Maximized; string LastPage }` and
-`Settings.TrayClick = "panel" | "main"`. Saved on close. validated against the screen bounds on load.
+`Settings.TrayClick = "panel" | "main"`. Saved on close. Validated against the screen bounds on load.
 
 **Tools results inline.** `ToolsPage` has a result `TextBox` (read-only, monospace): trace writes
 hops as they arrive (`IProgress<Hop>`), port check writes its verdict line. Other buttons call the
 existing `TrayApp` methods.
 
 ## Options considered
-- A. One big tabbed window that replaces the tray: rejected: the operator wants the tray kept;
-  admins use the hotkey + panel for speed.
-- B. Show the existing forms as MDI children: rejected: WinForms MDI is light-themed and clunky;
-  the forms would still be separate windows.
+- A. One big tabbed window that replaces the tray: rejected: the operator wants the tray kept.
+  Admins use the hotkey + panel for speed.
+- B. Show the existing forms as MDI children: rejected: WinForms MDI is light-themed and clunky.
+  The forms would still be separate windows.
 - C. Chosen: extract two panels, add a nav window that hosts them and the actions that exist.
 
 ## Chosen approach
@@ -92,16 +92,16 @@ window and the main window, then add one window with a nav list and five pages b
 ## Verification
 - `dotnet test` ≥ 219 tests, 0 failed. Portable NetPaw.exe ≤ 2 MB.
 - VM 150: the info card renders as before (compare with `docs/info.png`). `NetPaw.exe --main`
-  opens the window on Overview. each page screenshot. apply a profile from the Profiles page and
-  see the status line update. trace to 1.1.1.1 prints hops inside Tools. close hides, tray
+  opens the window on Overview. Screenshot each page. Apply a profile from the Profiles page and
+  see the status line update. Trace to 1.1.1.1 prints hops inside Tools. Close hides the window, tray
   double-click brings it back at the same size and page.
 - README shows the main window screenshot (fleet rule).
 
 ## Risks
 - The refactor of `InfoToast` changes pixel layout → compare screenshots before and after on
-  the VM. the toast's `AutoPin`, `Present`, `Render` signatures stay.
+  the VM. The toast's `AutoPin`, `Present`, `Render` signatures stay.
 - `NetworkMapPanel` inside a `SplitContainer` loses its status bar → the panel keeps its own
-  `_status` label. the host forms add nothing.
+  `_status` label. The host forms add nothing.
 - A hidden main window keeps a subscription to every `RefreshState` → re-render only when
-  `Visible`. unsubscribe on dispose.
+  `Visible`. Unsubscribe on dispose.
 - Saved bounds off-screen after a monitor change → clamp to the nearest screen on load (tested).
