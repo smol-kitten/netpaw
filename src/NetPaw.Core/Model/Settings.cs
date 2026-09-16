@@ -23,6 +23,9 @@ public sealed class Settings
 
     /// <summary>Random id so the telemetry build can count installs without any machine identity. Created on first use.</summary>
     public string? InstallId { get; set; }
+    /// <summary>Profiles whose first automatic switch the user approved / declined on this machine (covers managed profiles too).</summary>
+    public List<string> AutoSwitchConfirmedIds { get; set; } = [];
+    public List<string> AutoSwitchDeclinedIds { get; set; } = [];
     /// <summary>Runtime switch for the telemetry build (the default build ignores it — there is nothing to switch).</summary>
     public bool TelemetryEnabled { get; set; } = true;
     public bool TelemetryNoticeShown { get; set; }

@@ -24,15 +24,20 @@ public sealed class NetworkProbe : IProbe
     public async Task<ProbeResult> Http(string url, string expectedBody, int timeoutMs, CancellationToken ct)
     {
         var sw = System.Diagnostics.Stopwatch.StartNew();
+        // A proxy answers for the internet on proxy-only LANs; whatever it returns is not a captive portal. Skip rather than guess by status code.
+        try { if (HttpClient.DefaultProxy.GetProxy(new Uri(url)) is not null) return new ProbeResult(url, true, 0, "skipped: system proxy in use"); } catch (UriFormatException) { }
         try
         {
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct); cts.CancelAfter(timeoutMs);
             using var res = await Http1.GetAsync(url, cts.Token);
             var body = res.IsSuccessStatusCode ? (await res.Content.ReadAsStringAsync(cts.Token)).Trim() : "";
-            var ok = (res.IsSuccessStatusCode && body == expectedBody) || (int)res.StatusCode == 407; // proxy wants auth: not a captive portal
-            return new ProbeResult(url, ok, (int)sw.ElapsedMilliseconds, ok ? null : (int)res.StatusCode is 301 or 302 or 303 or 307 ? "redirected: " + res.Headers.Location : $"HTTP {(int)res.StatusCode}, body differs");
+            // Only positive evidence counts: a redirect, or a 2xx whose body is not the expected text. Blocked ports,
+            // timeouts and server errors are "unknown", not "portal" — they must not raise an alarm.
+            var status = (int)res.StatusCode;
+            var portal = status is 301 or 302 or 303 or 307 or 308 || (res.IsSuccessStatusCode && body != expectedBody);
+            return new ProbeResult(url, !portal, (int)sw.ElapsedMilliseconds, portal ? (status >= 300 && status < 400 ? "redirected: " + res.Headers.Location : "body differs (login page?)") : status >= 400 ? $"HTTP {status} (inconclusive)" : null);
         }
-        catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException) { return new ProbeResult(url, false, (int)sw.ElapsedMilliseconds, ex.GetBaseException().Message); }
+        catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException) { return new ProbeResult(url, true, (int)sw.ElapsedMilliseconds, "inconclusive: " + ex.GetBaseException().Message); }
     }
 
     public async Task<ProbeResult> Ping(string host, int timeoutMs, CancellationToken ct)

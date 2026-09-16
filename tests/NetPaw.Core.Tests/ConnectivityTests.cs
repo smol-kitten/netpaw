@@ -243,9 +243,15 @@ public class V07AdvisorTests
         var snap = await new ConnectivityChecker(new FakeProbe()).Check(dockNic, new CheckSettings());
         var adv = Advisor.Analyze(snap, [oldNic, dockNic]);
         var held = Assert.Single(adv, a => a.Title == "Address held by another adapter");
-        Assert.Equal("Ethernet", held.RepairAdapter); Assert.Equal(RepairKind.Release, held.Repair);
+        Assert.Equal("Ethernet", held.RepairAdapter); Assert.Equal(RepairKind.Reset, held.Repair);    // ipconfig /release refuses a disconnected NIC
         Assert.Contains("10.0.0.5/24", held.Text);
         Assert.Equal("ipconfig /release \"Ethernet\"", Advisor.PlanRelease(oldNic).Steps.Single().CommandLine);
+        // With a known DHCP server, only a holder in that server's subnet is blamed.
+        var dockKnown = dockNic with { DhcpServers = ["10.0.0.1"] };
+        Assert.Contains(Advisor.Analyze(await new ConnectivityChecker(new FakeProbe()).Check(dockKnown, new CheckSettings()), [oldNic, dockKnown]), a => a.Repair == RepairKind.Reset);
+        var dockOther = dockNic with { DhcpServers = ["172.30.0.1"] };
+        Assert.DoesNotContain(Advisor.Analyze(await new ConnectivityChecker(new FakeProbe()).Check(dockOther, new CheckSettings()), [oldNic, dockOther]), a => a.Repair == RepairKind.Reset);
+        Assert.Equal(RepairKind.Renew, Assert.Single(adv, a => a.Title == "No DHCP lease").Repair);
         Assert.Contains(adv, a => a.Title == "No DHCP lease");                                   // the plain finding is still there
         Assert.DoesNotContain(Advisor.Analyze(snap, [dockNic]), a => a.Repair == RepairKind.Release);
         var healthyWifi = Nic("Wi-Fi", up: true, dhcp: true, ["192.168.1.20/24"], "192.168.1.1");   // an up adapter with its own lease is not a "holder"

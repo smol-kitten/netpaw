@@ -23,6 +23,7 @@ public sealed class Pack
     public PackSignature? Signature { get; set; }
     /// <summary>The entries exactly as they appear in the file. Hashes and the signature are computed over THIS, never over the re-serialized model — otherwise every new Profile field would invalidate every published pack.</summary>
     [JsonIgnore] public JsonArray? RawEntries { get; set; }
+    [JsonIgnore] internal Dictionary<string, JsonObject>? RawIndex { get; set; }
 }
 
 public sealed class PackEntry
@@ -64,8 +65,9 @@ public static class PackJson
 
     public static Pack Parse(string json)
     {
-        var pack = JsonSerializer.Deserialize<Pack>(json, Options) ?? throw new JsonException("empty pack");
-        pack.RawEntries = JsonNode.Parse(json)?["entries"] as JsonArray;
+        var node = JsonNode.Parse(json) ?? throw new JsonException("empty pack");
+        var pack = node.Deserialize<Pack>(Options) ?? throw new JsonException("empty pack");
+        pack.RawEntries = node["entries"] as JsonArray;
         return pack;
     }
 
@@ -73,16 +75,19 @@ public static class PackJson
     public static string Serialize(Pack pack)
     {
         var node = JsonSerializer.SerializeToNode(pack, Options)!.AsObject();
-        if (pack.RawEntries is not null) node["entries"] = JsonNode.Parse(pack.RawEntries.ToJsonString());
+        if (pack.RawEntries is not null) node["entries"] = pack.RawEntries.DeepClone();
         return node.ToJsonString(Options);
     }
 
-    /// <summary>Raw node of an entry (by id), or the serialized model when the pack was built in memory.</summary>
-    static JsonObject NodeOf(Pack p, PackEntry e)
+    /// <summary>Raw node of an entry by id (indexed once per pack), or null when the pack was built in memory.</summary>
+    static JsonObject? RawOf(Pack p, string id)
     {
-        var raw = p.RawEntries?.OfType<JsonObject>().FirstOrDefault(n => n["id"]?.GetValue<string>() == e.Id);
-        return raw ?? JsonSerializer.SerializeToNode(e, Options)!.AsObject();
+        if (p.RawEntries is null) return null;
+        p.RawIndex ??= p.RawEntries.OfType<JsonObject>().Where(n => n["id"] is JsonValue).GroupBy(n => n["id"]!.GetValue<string>()).ToDictionary(g => g.Key, g => g.First());
+        return p.RawIndex.TryGetValue(id, out var n) ? n : null;
     }
+
+    static JsonObject NodeOf(Pack p, PackEntry e) => RawOf(p, e.Id) ?? JsonSerializer.SerializeToNode(e, Options)!.AsObject();
 
     /// <summary>Canonical form: object keys sorted ordinally, no whitespace, UTF-8. Stable across serializers, so signatures survive re-formatting.</summary>
     public static byte[] Canonical(JsonNode? node)
@@ -114,7 +119,7 @@ public static class PackJson
 
     public static string EntryHash(Pack p, PackEntry e)
     {
-        var node = JsonNode.Parse(NodeOf(p, e).ToJsonString())!.AsObject();
+        var node = NodeOf(p, e).DeepClone().AsObject();
         node.Remove("sha256");
         return Convert.ToHexStringLower(SHA256.HashData(Canonical(node)));
     }
@@ -145,7 +150,7 @@ public static class PackJson
         foreach (var e in p.Entries)
         {
             e.Sha256 = EntryHash(p, e);
-            if (p.RawEntries?.OfType<JsonObject>().FirstOrDefault(n => n["id"]?.GetValue<string>() == e.Id) is { } raw) raw["sha256"] = e.Sha256;
+            if (RawOf(p, e.Id) is { } raw) raw["sha256"] = e.Sha256;
         }
     }
 }

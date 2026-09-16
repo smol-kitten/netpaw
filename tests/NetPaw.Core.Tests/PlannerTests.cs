@@ -132,13 +132,24 @@ public class PlannerTests
 public class V07PlannerTests
 {
     [Fact]
-    public void FlushDnsIsOptionalNonCriticalAndLast()
+    public void PlansThatChangeDnsAreFlaggedAndTheServiceAppendsOneFlush()
     {
-        var plan = ApplyPlanner.Plan(Fx.Static("x"), Fx.Adapter(), flushDns: true);
-        var last = plan.Steps.Last();
-        Assert.Equal("ipconfig /flushdns", last.CommandLine); Assert.False(last.Critical);
-        Assert.DoesNotContain(ApplyPlanner.Plan(Fx.Static("x"), Fx.Adapter()).Steps, s => s.FileName == "ipconfig");
-        Assert.Equal("ipconfig /flushdns", ApplyPlanner.Plan(new Profile { Name = "d", Dhcp = true }, Fx.Adapter(), flushDns: true).Steps.Last().CommandLine);
+        Assert.True(ApplyPlanner.Plan(Fx.Static("x"), Fx.Adapter()).ChangesDns);
+        Assert.True(ApplyPlanner.PlanDhcp(Fx.Adapter()).ChangesDns);
+        Assert.True(NetPaw.Connectivity.Advisor.PlanRenew(Fx.Adapter(dhcp: true)).ChangesDns);
+        Assert.True(ApplyPlanner.PlanResetAdapter(Fx.Adapter()).ChangesDns);
+        Assert.False(ApplyPlanner.PlanAddSecondary(Fx.Adapter(), IpAddr.Parse("10.1.1.250/24"), "t").ChangesDns);
+        Assert.False(ApplyPlanner.Plan(Fx.Static("x"), Fx.Adapter()).Steps.Any(s => s.FileName == "ipconfig"));
+        var dir = Directory.CreateTempSubdirectory().FullName;
+        var runner = new FakeRunner();
+        var store = new NetPaw.Store.JsonStore(dir); store.SaveSettings(new Settings { FlushDns = true });
+        var svc = new NetPawService(store, new FakeAdapters(Fx.Adapter(gw: "192.168.1.1")), new FakeVlan(false), runner, new NetPaw.Store.MachineStore(Path.Combine(dir, "profiles.d")), () => NetPaw.Store.Policy.None);
+        svc.Apply(ApplyPlanner.PlanDhcp(Fx.Adapter()));
+        Assert.Equal("ipconfig /flushdns", runner.Ran.Last().CommandLine); Assert.False(runner.Ran.Last().Critical);
+        Assert.Equal(1, runner.Ran.Count(s => s.Arguments == "/flushdns"));
+        svc.Settings.FlushDns = false; runner.Ran.Clear();
+        svc.Apply(ApplyPlanner.PlanDhcp(Fx.Adapter()));
+        Assert.DoesNotContain(runner.Ran, s => s.FileName == "ipconfig");
     }
 
     [Fact]

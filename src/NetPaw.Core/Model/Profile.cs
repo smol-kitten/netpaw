@@ -40,8 +40,8 @@ public sealed class Profile
     /// <summary>Network fingerprint learned while this profile was applied; used by auto-switch.</summary>
     public NetworkFingerprint? Fingerprint { get; set; }
     /// <summary>Apply automatically when the fingerprint matches on link-up. Off by default; the first automatic switch asks once.</summary>
-    public bool AutoSwitch { get; set; }
-    public bool AutoSwitchConfirmed { get; set; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)] public bool AutoSwitch { get; set; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)] public bool AutoSwitchConfirmed { get; set; }
     /// <summary>Deployed machine-wide (profiles.d / policy): visible and applicable, never editable from the UI. Not persisted in the user file.</summary>
     [System.Text.Json.Serialization.JsonIgnore] public bool Managed { get; set; }
     /// <summary>Where the profile came from when not the user's own file: "managed", a repo name, … Not persisted.</summary>

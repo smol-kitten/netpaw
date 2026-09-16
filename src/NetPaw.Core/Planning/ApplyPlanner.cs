@@ -12,7 +12,7 @@ public static class ApplyPlanner
 {
     static string Q(string adapter) => "\"" + adapter + "\"";
 
-    public static ApplyPlan Plan(Profile p, AdapterInfo adapter, VlanInfo? vlan = null, bool flushDns = false)
+    public static ApplyPlan Plan(Profile p, AdapterInfo adapter, VlanInfo? vlan = null)
     {
         var plan = new ApplyPlan { Title = p.Name, Adapter = adapter.Name };
         var n = Q(adapter.Name);
@@ -70,8 +70,6 @@ public static class ApplyPlanner
             }
             else plan.Warnings.Add($"Profile wants VLAN {vid} but the driver of '{adapter.Name}' exposes no VlanID property — skipped. Use a driver/vNIC that supports 802.1Q tagging.");
         }
-        // Names cached from the previous network are the classic "it says online but nothing resolves" after a switch.
-        if (flushDns) plan.Steps.Add(new Step("Flush DNS cache", "ipconfig", "/flushdns", Critical: false));
         return plan;
     }
 
@@ -108,18 +106,12 @@ public static class ApplyPlanner
     }
 
     /// <summary>Quick "DHCP now" without a profile.</summary>
-    public static ApplyPlan PlanDhcp(AdapterInfo adapter, bool flushDns = false) =>
-        Plan(new Profile { Name = "DHCP", Dhcp = true }, adapter, null, flushDns);
-
-    /// <summary>Best-effort "is this profile what the adapter currently runs" for the ✓ in menus.</summary>
-    public static bool Matches(Profile p, AdapterInfo adapter)
+    public static ApplyPlan PlanDhcp(AdapterInfo adapter)
     {
-        if (p.Dhcp) return adapter.Dhcp;
-        if (adapter.Dhcp || p.Primary is null || adapter.Primary is null) return false;
-        if (p.Primary != adapter.Primary) return false;
-        var want = p.Addresses.Select(a => a.ToString()).ToHashSet();
-        var have = adapter.Addresses.Select(a => a.ToString()).ToHashSet();
-        if (!want.IsSubsetOf(have)) return false;
-        return p.Gateway is null ? !adapter.HasGateway : adapter.Gateways.Contains(p.Gateway);
+        var p = new Profile { Name = "DHCP", Dhcp = true };
+        var plan = Plan(p, adapter); plan.Profile = p; return plan;
     }
+
+    /// <summary>"Is this profile what the adapter currently runs" for the ✓ in menus: primary must match, extra addresses and DNS are tolerated. Strict comparison lives in <see cref="ApplyVerifier"/>.</summary>
+    public static bool Matches(Profile p, AdapterInfo adapter) => ApplyVerifier.Compare(p, adapter, strict: false).Count == 0;
 }

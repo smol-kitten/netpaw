@@ -110,8 +110,8 @@ sealed class InfoToast : Form
                 _grid.Controls.Add(new Label { Text = "Verify", AutoSize = true, ForeColor = Theme.Temp, Font = Theme.Small, Margin = new Padding(0, 3, 0, 3) });
                 var host = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.TopDown, WrapContents = false, Margin = new Padding(0, 3, 0, 3) };
                 host.Controls.Add(new Label { Text = "Last apply not fully effective: " + string.Join("; ", _app.LastVerifyDiffs), AutoSize = true, MaximumSize = new Size(230, 0), ForeColor = Theme.Temp, Font = Theme.Small, Margin = Padding.Empty });
-                var reset = new LinkLabel { Text = "Reset adapter (disable → enable)", AutoSize = true, Font = Theme.Small, Margin = new Padding(0, 2, 0, 0) };
-                reset.LinkClicked += (_, _) => _app.ResetAdapter(); Theme.Apply(reset); host.Controls.Add(reset);
+                var reset = new LinkLabel { Text = $"Reset adapter {_app.LastVerifyAdapter} (disable → enable)", AutoSize = true, Font = Theme.Small, Margin = new Padding(0, 2, 0, 0) };
+                reset.LinkClicked += (_, _) => _app.ResetAdapter(_app.LastVerifyAdapter); Theme.Apply(reset); host.Controls.Add(reset);
                 _grid.Controls.Add(host);
             }
             if (_app.Service.Settings.Repair.DhcpAdvisory)
@@ -121,14 +121,14 @@ sealed class InfoToast : Form
                     _grid.Controls.Add(new Label { Text = "Advice", AutoSize = true, ForeColor = color, Font = Theme.Small, Margin = new Padding(0, 3, 0, 3) });
                     var host = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.TopDown, WrapContents = false, Margin = new Padding(0, 3, 0, 3) };
                     host.Controls.Add(new Label { Text = adv.Title + " — " + adv.Text, AutoSize = true, MaximumSize = new Size(230, 0), ForeColor = color, Font = Theme.Small, Margin = Padding.Empty });
-                    if (adv.CanRenew && a.Dhcp)
+                    if (adv.Repair == RepairKind.Renew && a.Dhcp)
                     {
                         var renew = new LinkLabel { Text = _app.RenewInfo, AutoSize = true, Font = Theme.Small, Margin = new Padding(0, 2, 0, 0) };
                         renew.LinkClicked += (_, _) => _app.Renew(manual: true);
                         Theme.Apply(renew);
                         host.Controls.Add(renew);
                     }
-                    if (adv.Repair != RepairKind.None)
+                    else if (adv.Repair != RepairKind.None)
                     {
                         var text = adv.Repair switch { RepairKind.Release => $"Release lease on {adv.RepairAdapter}", RepairKind.Reset => $"Reset adapter {adv.RepairAdapter}", RepairKind.Prefer => $"Prefer {adv.RepairAdapter} (pin metrics)", _ => adv.Repair.ToString() };
                         var fix = new LinkLabel { Text = text, AutoSize = true, Font = Theme.Small, Margin = new Padding(0, 2, 0, 0) };

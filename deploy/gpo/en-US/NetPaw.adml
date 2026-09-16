@@ -27,6 +27,12 @@
       <string id="AllowUnsignedRepos_Help">Disabled: entries from a repository without a valid signature and pinned key are not shown.</string>
       <string id="AllowTelemetry">Allow telemetry (telemetry build only)</string>
       <string id="AllowTelemetry_Help">Disabled: the telemetry build of NetPaw sends nothing, regardless of the user's setting. The standard build never sends telemetry.</string>
+      <string id="AllowAutoSwitch">Allow automatic profile switching</string>
+      <string id="AllowAutoSwitch_Help">Disabled: profiles never apply themselves on link-up, even if a fingerprint matches.</string>
+      <string id="AllowScan">Allow scanning (try profiles / find routers)</string>
+      <string id="AllowScan_Help">Disabled: the scan dialog, find-routers and their CLI commands are refused (exit 4).</string>
+      <string id="AllowCapture">Allow packet capture (LLDP/CDP via pktmon)</string>
+      <string id="AllowCapture_Help">Disabled: NetPaw never starts a pktmon capture; the Switch tab and 'netpaw-cli switch' are refused.</string>
     </stringTable>
     <presentationTable>
       <presentation id="WorkAdapter"><textBox refId="WorkAdapter"><label>Adapter name:</label></textBox></presentation>

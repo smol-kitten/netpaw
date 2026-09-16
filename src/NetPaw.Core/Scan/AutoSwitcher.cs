@@ -20,16 +20,19 @@ public sealed class AutoSwitcher(IArpProvider arp, Func<IpAddr, CancellationToke
     /// <summary>Fingerprint of what the adapter runs right now (needs a gateway to ARP). Null when there is nothing to identify.</summary>
     public async Task<NetworkFingerprint?> Learn(AdapterInfo live, CancellationToken ct = default)
     {
-        var addr = live.Addresses.FirstOrDefault(a => !a.Address.StartsWith("169.254."));
+        var addr = live.RealAddress;
         var gw = live.Gateways.FirstOrDefault();
         if (addr is null || gw is null) return null;
         var (mac, _) = await arp.Probe(gw, addr.Address, ct);
         return mac is null ? null : new NetworkFingerprint(mac, live.DhcpServers.FirstOrDefault(), $"{addr.Network}/{addr.PrefixLength}");
     }
 
-    public async Task<Decision> Decide(AdapterInfo live, IReadOnlyList<Profile> profiles, CancellationToken ct = default)
+    public async Task<Decision> Decide(AdapterInfo live, IReadOnlyList<Profile> profiles, CancellationToken ct = default) => await Decide(live, profiles, [], ct);
+
+    /// <param name="declinedIds">Profiles the user declined on this machine — never offered again.</param>
+    public async Task<Decision> Decide(AdapterInfo live, IReadOnlyList<Profile> profiles, IReadOnlyCollection<string> declinedIds, CancellationToken ct = default)
     {
-        var candidates = profiles.Where(p => p.AutoSwitch && p.Fingerprint is not null && !p.Temporary
+        var candidates = profiles.Where(p => p.AutoSwitch && p.Fingerprint is not null && !p.Temporary && !declinedIds.Contains(p.Id)
                                             && (p.Adapter is null || string.Equals(p.Adapter, live.Name, StringComparison.OrdinalIgnoreCase) || string.Equals(p.AdapterMac, live.Mac, StringComparison.OrdinalIgnoreCase))).ToList();
         if (candidates.Count == 0) return new Decision(null, "no auto-switch profiles for this adapter", null);
 

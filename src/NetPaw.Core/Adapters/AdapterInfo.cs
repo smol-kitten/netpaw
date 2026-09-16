@@ -24,7 +24,9 @@ public sealed record AdapterInfo(
     public bool VSwitchUplink { get; init; }
     /// <summary>Adapters an admin actually configures: physical NICs and Hyper-V host vEthernet adapters.</summary>
     public bool HostFacing => IsPhysical || HyperVVirtual;
-    public bool HasRealAddress => Addresses.Any(a => !a.Address.StartsWith("169.254."));
+    public bool HasRealAddress => RealAddress is not null;
+    /// <summary>First address that is not self-assigned (169.254.x.x).</summary>
+    public IpAddr? RealAddress => Addresses.FirstOrDefault(a => !a.Address.StartsWith("169.254."));
     /// <summary>"1 Gbit/s", "100 Mbit/s" or "" when unknown.</summary>
     public string SpeedText => SpeedBps <= 0 ? "" : SpeedBps >= 1_000_000_000 ? $"{SpeedBps / 1_000_000_000.0:0.#} Gbit/s" : $"{SpeedBps / 1_000_000} Mbit/s";
     public IpAddr? Primary => Addresses.Count > 0 ? Addresses[0] : null;

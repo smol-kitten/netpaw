@@ -10,7 +10,8 @@ namespace NetPaw.Planning;
 /// </summary>
 public static class ApplyVerifier
 {
-    public static List<string> Compare(Profile p, AdapterInfo live)
+    /// <param name="strict">true = post-apply verification (extra addresses, second gateway and DNS count); false = "is this profile active" for menu ticks.</param>
+    public static List<string> Compare(Profile p, AdapterInfo live, bool strict = true)
     {
         var diffs = new List<string>();
         if (p.Dhcp)
@@ -19,14 +20,15 @@ public static class ApplyVerifier
             return diffs;
         }
         if (live.Dhcp) diffs.Add("adapter still reports DHCP enabled");
+        if (p.Primary is null || live.Primary is null || p.Primary != live.Primary) diffs.Add($"primary is {live.Primary?.ToString() ?? "none"}, expected {p.Primary?.ToString() ?? "none"}");
         var want = p.Addresses.Select(a => a.ToString()).ToHashSet();
         var have = live.Addresses.Select(a => a.ToString()).ToHashSet();
-        foreach (var a in want.Except(have)) diffs.Add($"address {a} missing");
-        foreach (var a in have.Except(want).Where(x => !x.StartsWith("169.254."))) diffs.Add($"unexpected address {a}");
+        foreach (var a in want.Except(have).Where(a => a != p.Primary?.ToString())) diffs.Add($"address {a} missing");
+        if (strict) foreach (var a in have.Except(want).Where(x => !x.StartsWith("169.254."))) diffs.Add($"unexpected address {a}");
         if (p.Gateway is null && live.HasGateway) diffs.Add($"unexpected gateway {live.Gateways[0]}");
         if (p.Gateway is not null && !live.Gateways.Contains(p.Gateway)) diffs.Add($"gateway {p.Gateway} missing");
-        if (live.Gateways.Count > 1) diffs.Add($"two default gateways ({string.Join(", ", live.Gateways)}) — the stale one usually comes from the previous DHCP lease");
-        if (p.Dns.Count > 0 && !p.Dns.SequenceEqual(live.Dns)) diffs.Add($"DNS is {(live.Dns.Count == 0 ? "empty" : string.Join(", ", live.Dns))}, expected {string.Join(", ", p.Dns)}");
+        if (strict && live.Gateways.Count > 1) diffs.Add($"two default gateways ({string.Join(", ", live.Gateways)}) — the stale one usually comes from the previous DHCP lease");
+        if (strict && p.Dns.Count > 0 && !p.Dns.SequenceEqual(live.Dns)) diffs.Add($"DNS is {(live.Dns.Count == 0 ? "empty" : string.Join(", ", live.Dns))}, expected {string.Join(", ", p.Dns)}");
         return diffs;
     }
 }

@@ -37,7 +37,8 @@ sealed class NetworkMapForm : Form
         var bar3 = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 40, Padding = new Padding(8, 6, 8, 0) };
         var hint3 = new Label { Text = NetPaw.Discovery.PktmonCapture.Available ? "Passive: Windows' pktmon captures the switch's LLDP (every 30 s) / CDP (every 60 s) announcements. Nothing is sent." : "pktmon is not available on this Windows version (needs 10 2004+ / 11).", AutoSize = true, ForeColor = Theme.Muted, Font = Theme.Small, Margin = new Padding(8, 8, 0, 0) };
         bar3.Controls.AddRange([_listen, _listen65, hint3]);
-        _listen.Enabled = _listen65.Enabled = NetPaw.Discovery.PktmonCapture.Available;
+        _listen.Enabled = _listen65.Enabled = NetPaw.Discovery.PktmonCapture.Available && app.Service.Allowed(Capability.Capture);
+        if (!app.Service.Allowed(Capability.Capture)) hint3.Text = "Packet capture is disabled by your organisation's policy.";
         t3.Controls.Add(_switch); t3.Controls.Add(bar3);
         _listen.Click += async (_, _) => await ListenSwitch(35);
         _listen65.Click += async (_, _) => await ListenSwitch(65);
@@ -116,7 +117,7 @@ sealed class NetworkMapForm : Form
         try
         {
             var prog = new Progress<int>(n => _status.Text = $"Listening for LLDP/CDP on {_adapter.Name}: {n}/{seconds} s…");
-            var (found, err) = await new NetPaw.Discovery.PktmonCapture().Listen(_adapter.Name, seconds, prog, _app.Service.Store.Log, _cts.Token);
+            var (found, err) = await Task.Run(() => new NetPaw.Discovery.PktmonCapture().Listen(_adapter.Name, _adapter.Mac, seconds, prog, _app.Service.Store.Log, _cts.Token));
             if (err is not null) { _status.Text = err; return; }
             _app.SetSwitchNeighbors(_adapter.Name, found);
             foreach (var n in found)
@@ -136,15 +137,21 @@ sealed class NetworkMapForm : Form
     async Task FindRouters()
     {
         if (_cts is not null) { _cts.Cancel(); return; }
-        if (!_app.Service.Allowed(Capability.TempAddresses)) { _status.Text = "Temporary addresses are disabled by policy; the router finder needs them."; return; }
+        if (!_app.Service.Allowed(Capability.TempAddresses) || !_app.Service.Allowed(Capability.Scan)) { _status.Text = "Temporary addresses or scanning are disabled by policy; the router finder needs both."; return; }
         _routers.Items.Clear();
         _cts = new CancellationTokenSource(); _find.Text = "Cancel";
         var svc = _app.Service;
-        var restores = new Dictionary<string, Action>();
-        var finder = new RouterFinder(
-            async (addr, ct) => { var (ok, restore) = await Task.Run(() => svc.Borrow(_adapter.Name, addr), ct); if (ok) { restores[addr.ToString()] = restore; await Task.Delay(300, ct); } return ok; },
-            async (addr, _) => { if (restores.Remove(addr.ToString(), out var r)) await Task.Run(r); },
-            _arp);
+        var live = svc.GetAdapters().FirstOrDefault(a => a.Name == _adapter.Name) ?? _adapter;
+        var dropLease = false;
+        if (NetPawService.BorrowDropsLease(live))
+        {
+            // netsh cannot add a static secondary next to a DHCP lease: probing means replacing the lease per subnet.
+            var r = MessageBox.Show(this, $"{live.Name} has a working DHCP lease ({live.RealAddress}). Finding routers will replace it with a temporary address for each subnet probed and return to DHCP afterwards — the connection drops for the whole run.\n\nContinue?", "NetPaw — find routers", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
+            if (r != DialogResult.Yes) { _status.Text = "Cancelled — apply a static profile first to probe without losing the lease."; return; }
+            dropLease = true;
+        }
+        var (add, remove) = svc.Borrower(live, dropLease);
+        var finder = new RouterFinder(add, remove, _arp);
         var cands = RouterFinder.Candidates(svc.Presets);
         try
         {

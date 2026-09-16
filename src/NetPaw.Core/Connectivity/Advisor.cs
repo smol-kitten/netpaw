@@ -10,8 +10,8 @@ public enum RepairKind { None, Renew, Release, Reset, Prefer }
 
 public sealed record Advisory(AdvisorySeverity Severity, string Title, string Text, bool CanRenew)
 {
-    /// <summary>A one-click repair other than renew, and which adapter it targets.</summary>
-    public RepairKind Repair { get; init; } = RepairKind.None;
+    /// <summary>The one-click repair, and which adapter it targets. Renewable findings are RepairKind.Renew on the adapter itself.</summary>
+    public RepairKind Repair { get; init; } = CanRenew ? RepairKind.Renew : RepairKind.None;
     public string? RepairAdapter { get; init; }
     public override string ToString() => $"{Title}: {Text}";
 }
@@ -75,11 +75,14 @@ public static class Advisor
         var others = all.Where(o => o.Name != a.Name && o.HostFacing).ToList();
         if (a.Dhcp && !s.HasAddress)
         {
-            var holder = others.FirstOrDefault(o => !o.Up && o.Addresses.Any(x => !x.Address.StartsWith("169.254.")));
+            // The dock case: the unplugged NIC still owns a lease; when this adapter already knows its DHCP server,
+            // only a holder in that server's subnet can be the reason for the refused offer.
+            var server = a.DhcpServers.FirstOrDefault();
+            var holder = others.FirstOrDefault(o => !o.Up && o.HasRealAddress && (server is null || o.Addresses.Any(x => x.Contains(server))));
             if (holder is not null)
                 yield return new Advisory(AdvisorySeverity.Warning, "Address held by another adapter",
-                    $"{holder.Name}{(holder.Up ? "" : " (disconnected)")} still holds {string.Join(", ", holder.Addresses.Select(x => x.ToString()))}. Windows refuses a DHCP offer for an address another adapter still owns — release it there or reset that adapter.", CanRenew: false)
-                    { RepairAdapter = holder.Name, Repair = holder.Dhcp ? RepairKind.Release : RepairKind.Reset };
+                    $"{holder.Name} (disconnected) still holds {string.Join(", ", holder.Addresses.Select(x => x.ToString()))}. Windows refuses a DHCP offer for an address another adapter still owns — reset that adapter (disable → enable) to let it go.", CanRenew: false)
+                    { RepairAdapter = holder.Name, Repair = RepairKind.Reset }; // ipconfig /release refuses a media-disconnected NIC; disable→enable clears it
         }
         if (a.HasGateway)
         {

@@ -23,6 +23,10 @@ public sealed class ApplyPlan
     public string Adapter { get; init; } = "";
     public List<Step> Steps { get; } = [];
     public List<string> Warnings { get; } = [];
+    /// <summary>The profile this plan applies, when it applies one — lets the service verify afterwards.</summary>
+    public Model.Profile? Profile { get; set; }
     public bool IsEmpty => Steps.Count == 0;
+    /// <summary>True when a step changes DNS servers or (re)negotiates a lease — the cases where a stale resolver cache bites.</summary>
+    public bool ChangesDns => Steps.Any(s => s.Arguments.Contains("dnsservers") || s.Arguments.Contains("source=dhcp") || (s.FileName == "ipconfig" && (s.Arguments.StartsWith("/renew") || s.Arguments.StartsWith("/release"))) || s.Arguments.Contains("admin=enable"));
     public override string ToString() => string.Join(Environment.NewLine, Steps.Select(s => "  " + s.CommandLine));
 }

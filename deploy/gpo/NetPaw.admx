@@ -55,5 +55,17 @@
       <parentCategory ref="NetPaw" /><supportedOn ref="windows:SUPPORTED_Windows_10_0" />
       <enabledValue><decimal value="1" /></enabledValue><disabledValue><decimal value="0" /></disabledValue>
     </policy>
+    <policy name="AllowAutoSwitch" class="Machine" displayName="$(string.AllowAutoSwitch)" explainText="$(string.AllowAutoSwitch_Help)" key="SOFTWARE\Policies\NetPaw" valueName="AllowAutoSwitch">
+      <parentCategory ref="NetPaw" /><supportedOn ref="windows:SUPPORTED_Windows_10_0" />
+      <enabledValue><decimal value="1" /></enabledValue><disabledValue><decimal value="0" /></disabledValue>
+    </policy>
+    <policy name="AllowScan" class="Machine" displayName="$(string.AllowScan)" explainText="$(string.AllowScan_Help)" key="SOFTWARE\Policies\NetPaw" valueName="AllowScan">
+      <parentCategory ref="NetPaw" /><supportedOn ref="windows:SUPPORTED_Windows_10_0" />
+      <enabledValue><decimal value="1" /></enabledValue><disabledValue><decimal value="0" /></disabledValue>
+    </policy>
+    <policy name="AllowCapture" class="Machine" displayName="$(string.AllowCapture)" explainText="$(string.AllowCapture_Help)" key="SOFTWARE\Policies\NetPaw" valueName="AllowCapture">
+      <parentCategory ref="NetPaw" /><supportedOn ref="windows:SUPPORTED_Windows_10_0" />
+      <enabledValue><decimal value="1" /></enabledValue><disabledValue><decimal value="0" /></disabledValue>
+    </policy>
   </policies>
 </policyDefinitions>

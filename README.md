@@ -141,6 +141,7 @@ trunking on one NIC needs Intel PROSet / Hyper-V switch, which is out of scope.
 ```
 netpaw-cli adapters                         list adapters, current config, VLAN capability
 netpaw-cli list                             list profiles (* = matches the adapter right now)
+netpaw-cli show <profile>                   print one profile
 netpaw-cli apply <profile> [-a X] [-n]      apply a profile (-n = dry run, print the plan)
 netpaw-cli dhcp [-a X]                      switch the adapter to DHCP
 netpaw-cli reach <ip[/prefix]> [--replace]  make <ip> reachable
@@ -157,7 +158,7 @@ netpaw-cli export <file> [--managed]    write profiles as JSON (--managed = depl
 netpaw-cli import <file>                add profiles from JSON
 netpaw-cli policy                       show the effective machine policy
 netpaw-cli repo [add|remove|sync|search] online profile repositories
-netpaw-cli arp [--check|--sweep] / find-routers / switch [--seconds N]   network map + LLDP/CDP
+netpaw-cli arp [--check|--sweep] / find-routers [--force] / switch [--seconds N]   network map + LLDP/CDP (--force = allowed to drop a DHCP lease)
 netpaw-cli advise / renew / release / reset / prefer / verify <profile>   diagnosis + repairs
 netpaw-cli scan [--all] [--repos] [--keep] / incidents [-n N]
 netpaw-cli pack keygen|build|sign|verify author and sign a pack
