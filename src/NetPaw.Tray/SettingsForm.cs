@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Net.Http;
+using NetPaw.Model;
 using NetPaw.Hotkeys;
 using NetPaw.Telemetry;
 
@@ -24,7 +25,7 @@ sealed class SettingsForm : Form
             g.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 150)); g.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
             page.Controls.Add(g); tabs.TabPages.Add(page); return g;
         }
-        var gGeneral = Tab("General"); var gConn = Tab("Connectivity"); var gRepair = Tab("Repair"); var gRepos = Tab("Repositories"); var gTelemetry = TelemetryHost.IsTelemetryBuild ? Tab("Telemetry") : null;
+        var gGeneral = Tab("General"); var gConn = Tab("Connectivity"); var gCard = Tab("Info card"); var gRepair = Tab("Repair"); var gRepos = Tab("Repositories"); var gTelemetry = TelemetryHost.IsTelemetryBuild ? Tab("Telemetry") : null;
         var grid = gGeneral;
         void RowIn(TableLayoutPanel g, string label, Control c) { g.Controls.Add(new Label { Text = label, Anchor = AnchorStyles.Left, AutoSize = true, Margin = new Padding(0, 8, 0, 8) }); c.Anchor = AnchorStyles.Left | AnchorStyles.Right; c.Margin = new Padding(0, 5, 0, 5); g.Controls.Add(c); }
         void Row(string label, Control c) => RowIn(grid, label, c);
@@ -68,7 +69,25 @@ sealed class SettingsForm : Form
         var internet = new TextBox { Text = string.Join(" ", ck.InternetTargets) };
         var dnsHost = new TextBox { Text = ck.DnsCheckHost, PlaceholderText = "empty = no DNS check" };
         var monitor = new CheckBox { Text = "monitor mode: notify when the state changes (internet lost, link down, back online)", Checked = ck.MonitorMode, AutoSize = true };
-        var sticky = new CheckBox { Text = "keep the info card on screen while there is a problem", Checked = ck.StickyAlerts, AutoSize = true };
+        // ---- info card: one mode per row, and when the card pins itself ---------------------
+        var card = s.CardSettings();
+        var cardRows = new Dictionary<string, Theme.DarkComboBox>();
+        Theme.DarkComboBox ModeBox(Visibility v) { var cb = new Theme.DarkComboBox { Width = 110 }; cb.Items.AddRange(["never", "on issue", "always"]); cb.SelectedIndex = (int)v; return cb; }
+        var pinMode = ModeBox(card.AutoPin);
+        var pinRow = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = Padding.Empty };
+        pinRow.Controls.Add(pinMode); pinRow.Controls.Add(new Label { Text = "bring the card up and keep it on screen", AutoSize = true, ForeColor = Theme.Muted, Font = Theme.Small, Margin = new Padding(6, 6, 0, 0) });
+        RowIn(gCard, "Auto-pin", pinRow);
+        foreach (var (kind, _, issueWhen) in InfoCardSettings.Catalog)
+        {
+            var cb = ModeBox(card.Mode(kind)); cardRows[kind] = cb;
+            var row = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = Padding.Empty };
+            row.Controls.Add(cb); row.Controls.Add(new Label { Text = "issue = " + issueWhen, AutoSize = true, ForeColor = Theme.Muted, Font = Theme.Small, Margin = new Padding(6, 6, 0, 0) });
+            RowIn(gCard, kind, row);
+        }
+        var cardReset = new Button { Text = "Reset to defaults", Width = 140, Height = 26 };
+        cardReset.Click += (_, _) => { pinMode.SelectedIndex = (int)Visibility.OnIssue; foreach (var (kind, def, _) in InfoCardSettings.Catalog) cardRows[kind].SelectedIndex = (int)def; };
+        RowIn(gCard, "", cardReset);
+        RowIn(gCard, "", new Label { Text = "Errors in the Advice row always show. Hidden rows do not take space; the card shrinks.", AutoSize = true, ForeColor = Theme.Muted, Font = Theme.Small, MaximumSize = new Size(500, 0) });
         void ToggleChecks() { foreach (Control c in new Control[] { interval, intranet, internet, dnsHost, monitor }) c.Enabled = checksOn.Checked; }
         checksOn.CheckedChanged += (_, _) => ToggleChecks(); ToggleChecks();
         var intervalRow = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = Padding.Empty };
@@ -79,7 +98,6 @@ sealed class SettingsForm : Form
         Row("Internet targets", internet);
         Row("DNS check host", dnsHost);
         Row("Monitor", monitor);
-        Row("Sticky alert", sticky);
         grid = gRepair;
         var rp = s.Repair;
         var advisory = new CheckBox { Text = "DHCP/static advisory on the info card and in alerts (missing gateway/DNS, silent gateway, failing DNS)", Checked = rp.DhcpAdvisory, AutoSize = true, MaximumSize = new Size(520, 0) };
@@ -186,7 +204,9 @@ sealed class SettingsForm : Form
             static List<string> Hosts(string t) => t.Split([' ', ',', ';'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
             s.InfoHotkey = ik.ToString();
             ck.Enabled = checksOn.Checked; ck.IntervalSeconds = (int)interval.Value; ck.IntranetTargets = Hosts(intranet.Text); ck.InternetTargets = Hosts(internet.Text);
-            ck.DnsCheckHost = dnsHost.Text.Trim(); ck.MonitorMode = monitor.Checked; ck.StickyAlerts = sticky.Checked;
+            ck.DnsCheckHost = dnsHost.Text.Trim(); ck.MonitorMode = monitor.Checked;
+            card.AutoPin = (Visibility)pinMode.SelectedIndex; card.Rows.Clear();
+            foreach (var (kind, def, _) in InfoCardSettings.Catalog) if ((Visibility)cardRows[kind].SelectedIndex != def) card.Rows[kind] = (Visibility)cardRows[kind].SelectedIndex;
             rp.DhcpAdvisory = advisory.Checked; rp.IncidentLog = incidents.Checked; rp.VpnNotifications = vpnNotify.Checked; rp.DiscoverSwitchOnLinkUp = discover.Checked; rp.AutoRenew = autoRenew.Checked; rp.AutoRenewIntervalSeconds = (int)renewInterval.Value; rp.AutoRenewMaxAttempts = (int)renewMax.Value;
             if (_saveExport?.Invoke() is { } exportErr) { err.Text = exportErr; return; }
             if (telemetry is not null) { s.TelemetryEnabled = telemetry.Checked; }

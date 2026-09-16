@@ -89,21 +89,26 @@ sealed class InfoToast : Form
             var text = (ok switch { true => "✓  ", false => "✗  ", null => "" }) + v;
             _grid.Controls.Add(new Label { Text = text, AutoSize = true, ForeColor = ok switch { true => Theme.Static, false => Theme.Error, null => Theme.Text }, Font = Theme.Small, Margin = new Padding(0, 3, 0, 3), MaximumSize = new Size(230, 0) });
         }
+        // Per-row visibility (Settings → Info card): a row renders when its mode is Always, or OnIssue and its own verdict is bad.
+        var card = _app.Service.Settings.CardSettings();
+        void Show(string kind, bool issue, string v, bool? ok = null) { if (card.Show(kind, issue)) Row(kind, v, ok); }
         if (a is not null)
         {
-            Row("Link", a.Up ? "up" : "down", a.Up);
-            if (s!.Wlan is { } wl) Row("Wi-Fi", wl.Summary, wl.Signal is null ? null : !wl.Weak);
-            if (s.Dot1x is { } dx && (dx.Failed || dx.InProgress)) Row("802.1X", dx.State, !dx.Failed);
-            if (s.PathMtu is { } pm) Row("Path MTU", $"{pm.Mtu} to {pm.Host}", !pm.Reduced);
-            Row("Address", a.Addresses.Count == 0 ? "none" : string.Join(", ", a.Addresses.Select(x => x.ToString())) + (a.Dhcp ? "  (DHCP)" : "") + (s.HasAddress ? "" : "  self-assigned"), s.HasAddress);
-            Row("Gateway", a.HasGateway ? a.Gateways[0] + (s!.ChecksEnabled && s.Intranet.Count > 0 ? (s.GatewayOk ? $"  {s.Intranet[0].Ms} ms" : "  no reply") : "") : "not set", a.HasGateway && (!s!.ChecksEnabled || s.Intranet.Count == 0 || s.GatewayOk));
+            Show("Link", !a.Up, a.Up ? "up" : "down", a.Up);
+            if (s!.Wlan is { } wl) Show("Wi-Fi", wl.Weak, wl.Summary, wl.Signal is null ? null : !wl.Weak);
+            if (s.Dot1x is { } dx && (dx.Failed || dx.InProgress)) Show("802.1X", true, dx.State, !dx.Failed);
+            if (s.PathMtu is { } pm) Show("Path MTU", pm.Reduced, $"{pm.Mtu} to {pm.Host}", !pm.Reduced);
+            Show("Address", !s.HasAddress, a.Addresses.Count == 0 ? "none" : string.Join(", ", a.Addresses.Select(x => x.ToString())) + (a.Dhcp ? "  (DHCP)" : "") + (s.HasAddress ? "" : "  self-assigned"), s.HasAddress);
+            var gwOk = a.HasGateway && (!s!.ChecksEnabled || s.Intranet.Count == 0 || s.GatewayOk);
+            Show("Gateway", !gwOk, a.HasGateway ? a.Gateways[0] + (s!.ChecksEnabled && s.Intranet.Count > 0 ? (s.GatewayOk ? $"  {s.Intranet[0].Ms} ms" : "  no reply") : "") : "not set", gwOk);
             // With checks on, each server carries its own verdict: "10.0.0.53 ✗, 10.0.0.54 ✓ 3 ms".
             var dnsText = a.Dns.Count == 0 ? "none" : s!.DnsServers.Count == 0 ? string.Join(", ", a.Dns) : string.Join(", ", s.DnsServers.Select(d => d.Ok ? $"{d.Target} ✓ {d.Ms} ms" : $"{d.Target} ✗"));
-            Row("DNS", dnsText, a.Dns.Count > 0 && (s!.DnsCheck is null || s.DnsOk) && (s.DnsServers.Count == 0 || s.AnyDnsServerAnswers));
+            var dnsOk = a.Dns.Count > 0 && (s!.DnsCheck is null || s.DnsOk) && (s.DnsServers.Count == 0 || s.AnyDnsServerAnswers);
+            Show("DNS", !dnsOk || s!.DnsServers.Any(d => !d.Ok), dnsText, dnsOk);
             if (s!.ChecksEnabled)
             {
-                if (s.Intranet.Count > 1) Row("Intranet", string.Join(", ", s.Intranet.Skip(1).Select(p => $"{p.Target} {(p.Ok ? p.Ms + " ms" : "✗")}")), s.Intranet.Skip(1).Any(p => p.Ok));
-                Row("Internet", string.Join(", ", s.Internet.Select(p => $"{p.Target} {(p.Ok ? p.Ms + " ms" : "✗")}")), s.InternetOk);
+                if (s.Intranet.Count > 1) Show("Intranet", s.Intranet.Skip(1).Any(p => !p.Ok), string.Join(", ", s.Intranet.Skip(1).Select(p => $"{p.Target} {(p.Ok ? p.Ms + " ms" : "✗")}")), s.Intranet.Skip(1).Any(p => p.Ok));
+                Show("Internet", !s.InternetOk, string.Join(", ", s.Internet.Select(p => $"{p.Target} {(p.Ok ? p.Ms + " ms" : "✗")}")), s.InternetOk);
                 if (s.HasAddress && (!s.InternetOk || !s.GatewayOk) && (s.Internet.FirstOrDefault()?.Target ?? s.Intranet.FirstOrDefault()?.Target) is { } traceTarget)
                 {
                     _grid.Controls.Add(new Label { Text = "Path", AutoSize = true, ForeColor = Theme.Muted, Font = Theme.Small, Margin = new Padding(0, 3, 0, 3) });
@@ -111,19 +116,21 @@ sealed class InfoToast : Form
                     trace.LinkClicked += (_, _) => _app.ShowTrace(traceTarget); Theme.Apply(trace); _grid.Controls.Add(trace);
                 }
             }
-            else Row("Checks", "off — enable in Settings for intranet/internet probes");
+            else Show("Checks", false, "off — enable in Settings for intranet/internet probes");
             var temps = _app.Service.TempAddresses.Count;
-            if (temps > 0) Row("Temporary", $"{temps} address{(temps == 1 ? "" : "es")} added by NetPaw");
-            foreach (var v in _app.Vpns) Row("VPN", $"{v.Kind} '{v.Adapter}' — {v.Mode}", v.Up ? true : null);
+            if (temps > 0) Show("Temporary", true, $"{temps} address{(temps == 1 ? "" : "es")} added by NetPaw");
+            foreach (var v in _app.Vpns) Show("VPN", !v.Up, $"{v.Kind} '{v.Adapter}' — {v.Mode}", v.Up ? true : null);
             foreach (var o in _app.Secondaries)
             {
                 var oa = o.Adapter!;
                 var gw = !oa.HasGateway ? "no gateway" : !o.ChecksEnabled ? "gw " + oa.Gateways[0] : o.GatewayOk ? $"gw {oa.Gateways[0]} {o.Intranet[0].Ms} ms" : $"gw {oa.Gateways[0]} no reply";
-                Row("Also", $"{oa.Name}: {(oa.RealAddress?.ToString() ?? "no address")}{(oa.Dhcp ? " (DHCP)" : "")} · {gw}", !o.ChecksEnabled ? null : Snapshot.IsProblem(o.State) ? false : true);
-                foreach (var adv in _app.SecondaryAdvisories.Where(x => x.Adapter == oa.Name))
+                var secondaryAdvice = _app.SecondaryAdvisories.Where(x => x.Adapter == oa.Name).ToList();
+                var secondaryIssue = (o.ChecksEnabled && Snapshot.IsProblem(o.State)) || secondaryAdvice.Count > 0;
+                Show("Also", secondaryIssue, $"{oa.Name}: {(oa.RealAddress?.ToString() ?? "no address")}{(oa.Dhcp ? " (DHCP)" : "")} · {gw}", !o.ChecksEnabled ? null : Snapshot.IsProblem(o.State) ? false : true);
+                foreach (var adv in secondaryAdvice.Where(x => card.ShowAdvice(x.Severity)))
                     Row("Advice", $"{oa.Name}: {adv.Title} — {adv.Text}", adv.Severity == AdvisorySeverity.Error ? false : null);
             }
-            foreach (var sw in _app.SwitchNeighbors(a.Name)) Row("Switch", sw.Headline + (sw.PortDescription is null ? "" : "  ·  " + sw.PortDescription) + (sw.ManagementAddress is null ? "" : "  ·  " + sw.ManagementAddress), true);
+            foreach (var sw in _app.SwitchNeighbors(a.Name)) if (card.Show("Switch", false)) Row("Switch", sw.Headline + (sw.PortDescription is null ? "" : "  ·  " + sw.PortDescription) + (sw.ManagementAddress is null ? "" : "  ·  " + sw.ManagementAddress), true);
             if (_app.LastVerifyDiffs.Count > 0)
             {
                 _grid.Controls.Add(new Label { Text = "Verify", AutoSize = true, ForeColor = Theme.Temp, Font = Theme.Small, Margin = new Padding(0, 3, 0, 3) });
@@ -134,7 +141,7 @@ sealed class InfoToast : Form
                 _grid.Controls.Add(host);
             }
             if (_app.Service.Settings.Repair.DhcpAdvisory)
-                foreach (var adv in _app.Advisories)
+                foreach (var adv in _app.Advisories.Where(x => card.ShowAdvice(x.Severity)))
                 {
                     var color = adv.Severity switch { AdvisorySeverity.Error => Theme.Error, AdvisorySeverity.Warning => Theme.Temp, _ => Theme.Muted };
                     _grid.Controls.Add(new Label { Text = "Advice", AutoSize = true, ForeColor = color, Font = Theme.Small, Margin = new Padding(0, 3, 0, 3) });

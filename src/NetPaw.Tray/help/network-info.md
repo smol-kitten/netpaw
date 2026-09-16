@@ -19,6 +19,9 @@ The card fades after a few seconds. Click 📌 to keep it; ✕ closes it.
 ## Monitor mode
 With checks on, *monitor mode* tells you when the state **changes**: internet lost while the intranet still answers, gateway gone, link down, back online. One notification per change; no nagging while nothing changes. A red dot appears on the tray paw while there is a problem.
 
+## Rows, verbosity and pinning
+Every row has a mode in *Settings → Info card*: **never**, **on issue**, **always**. Core rows (Link, Address, Gateway, DNS, Internet, Temporary) default to *always*; Wi-Fi, 802.1X, Path MTU, Intranet, VPN, Also, Switch and Advice default to *on issue*, so a healthy network shows five lines. Errors in Advice cannot be hidden. The same three modes drive *Auto-pin* (the old sticky alert = *on issue*).
+
 ## Sticky alert
 *keep the info card on screen while there is a problem*: the card pins itself when the link drops (or any problem is detected) and releases itself when things recover. Pin it yourself and it stays regardless.
 
