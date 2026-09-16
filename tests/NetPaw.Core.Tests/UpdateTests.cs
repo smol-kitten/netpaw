@@ -30,6 +30,9 @@ public class UpdateTests
         var calls = 0;
         var c = new UpdateChecker((_, _) => { calls++; return Task.FromResult(Latest); }, "0.7.2");
         var s = new Settings();
+        Assert.False(s.UpdateCheck); Assert.False(s.UpdateCheckAsked);                                  // opt-in: nothing leaves the machine until the user says yes
+        Assert.Null(await c.Run(s, allowedByPolicy: true, DateTimeOffset.Now)); Assert.Equal(0, calls);
+        s.UpdateCheck = true;
         Assert.Null(await c.Run(s, allowedByPolicy: false, DateTimeOffset.Now)); Assert.Equal(0, calls); Assert.Null(s.UpdateLastCheck);
         s.UpdateCheck = false;
         Assert.Null(await c.Run(s, allowedByPolicy: true, DateTimeOffset.Now)); Assert.Equal(0, calls);
@@ -42,7 +45,7 @@ public class UpdateTests
     {
         var calls = 0;
         var c = new UpdateChecker((_, _) => { calls++; return Task.FromResult(Latest); }, "0.7.2");
-        var s = new Settings();
+        var s = new Settings { UpdateCheck = true };
         var t0 = new DateTimeOffset(2026, 9, 16, 9, 0, 0, TimeSpan.Zero);
         var first = await c.Run(s, true, t0);
         Assert.Equal("0.8.0", first!.Version); Assert.Equal(1, calls); Assert.Equal(t0, s.UpdateLastCheck); Assert.Equal("0.8.0", s.UpdateLastVersionSeen);
