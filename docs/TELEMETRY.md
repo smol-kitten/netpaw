@@ -43,3 +43,12 @@ The token only allows *ingest* to the NetPaw project bucket. Minting it is a one
 
 The hub (Workflow Manager, `telemetry.catboy.systems`) groups errors into issues on
 `smol-kitten/netpaw` and tracks which version fixed them.
+
+## What an error report contains (v0.10+)
+
+Every background task (check round, switch discovery, auto-switch, update check, port check, apply)
+runs through one guard. When one fails, the report carries: exception type and message, the
+operation name, the current network state (`Online`, `NoGateway`, …), the work adapter's *name*
+(never its addresses), the NetPaw version, uptime, and the last 40 lines of `netpaw.log` as they
+are on disk at your chosen log level. Addresses that appear in those log lines are the ones NetPaw
+logged for you — set *Settings → Log level* to *errors only* if you do not want them to travel.

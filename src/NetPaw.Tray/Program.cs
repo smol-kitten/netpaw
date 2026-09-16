@@ -8,6 +8,7 @@ static class Program
     [STAThread]
     static void Main(string[] args)
     {
+        var startup = System.Diagnostics.Stopwatch.StartNew();
         using var mutex = new Mutex(true, @"Local\NetPaw.Tray", out var first);
         if (!first)
         {
@@ -27,7 +28,7 @@ static class Program
         TelemetryHost.Init(svc);
         Application.ThreadException += (_, e) => { svc.Store.Log("unhandled: " + e.Exception); TelemetryHost.Error(e.Exception, "ui"); MessageBox.Show(e.Exception.Message, "NetPaw", MessageBoxButtons.OK, MessageBoxIcon.Error); };
         TrayApp app;
-        try { app = new TrayApp(svc, showPanelAtStart: args.Contains("--panel")); }
+        try { app = new TrayApp(svc, showPanelAtStart: args.Contains("--panel")); svc.Store.Log("startup", $"tray ready after {startup.ElapsedMilliseconds} ms"); }
         catch (Exception ex)
         {
             svc.Store.Log("startup failed: " + ex);

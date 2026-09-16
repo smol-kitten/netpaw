@@ -13,9 +13,11 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <InvariantGlobalization>true</InvariantGlobalization>
     <PublishSingleFile>true</PublishSingleFile>
+    <!-- Self-contained builds carry the whole runtime; compressing the bundle roughly halves the exe. Framework-dependent builds are tiny either way. -->
+    <EnableCompressionInSingleFile Condition="'$(SelfContained)' == 'true'">true</EnableCompressionInSingleFile>
     <SelfContained>false</SelfContained>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
-    <Version>0.9.0</Version>
+    <Version>0.10.0</Version>
     <Product>NetPaw</Product>
     <Company>smol-kitten</Company>
     <Copyright>MIT</Copyright>

@@ -9,6 +9,8 @@
     <InvariantGlobalization>true</InvariantGlobalization>
     <NoWarn>$(NoWarn);CA1416</NoWarn>
     <PublishSingleFile>true</PublishSingleFile>
+    <!-- Self-contained builds carry the whole runtime; compressing the bundle roughly halves the exe. Framework-dependent builds are tiny either way. -->
+    <EnableCompressionInSingleFile Condition="'$(SelfContained)' == 'true'">true</EnableCompressionInSingleFile>
     <SelfContained>false</SelfContained>
     <ApplicationManifest>app.manifest</ApplicationManifest>
   </PropertyGroup>

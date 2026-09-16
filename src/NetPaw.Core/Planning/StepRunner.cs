@@ -10,6 +10,9 @@ public interface IStepRunner
 /// <summary>Runs a step as a hidden child process and captures its output for the log.</summary>
 public sealed class ProcessStepRunner : IStepRunner
 {
+    /// <summary>Called with the command line when the 30 s bound fires, so the log names what hung.</summary>
+    public Action<string>? Timeout { get; set; }
+
     public StepResult Run(Step step)
     {
         var psi = new ProcessStartInfo(step.FileName, step.Arguments)
@@ -22,7 +25,7 @@ public sealed class ProcessStepRunner : IStepRunner
             using var proc = Process.Start(psi)!;
             var stdout = proc.StandardOutput.ReadToEndAsync();
             var stderr = proc.StandardError.ReadToEndAsync();
-            if (!proc.WaitForExit(30_000)) { try { proc.Kill(true); } catch { } return new StepResult(step, -1, "timeout after 30 s"); }
+            if (!proc.WaitForExit(30_000)) { try { proc.Kill(true); } catch { } Timeout?.Invoke($"{step.FileName} {step.Arguments}"); return new StepResult(step, -1, "timeout after 30 s"); }
             var text = (stdout.Result + stderr.Result).Trim();
             return new StepResult(step, proc.ExitCode, text);
         }
