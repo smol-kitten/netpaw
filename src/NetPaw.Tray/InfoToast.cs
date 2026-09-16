@@ -104,6 +104,14 @@ sealed class InfoToast : Form
             var temps = _app.Service.TempAddresses.Count;
             if (temps > 0) Row("Temporary", $"{temps} address{(temps == 1 ? "" : "es")} added by NetPaw");
             foreach (var v in _app.Vpns) Row("VPN", $"{v.Kind} '{v.Adapter}' — {v.Mode}", v.Up ? true : null);
+            foreach (var o in _app.Secondaries)
+            {
+                var oa = o.Adapter!;
+                var gw = !oa.HasGateway ? "no gateway" : !o.ChecksEnabled ? "gw " + oa.Gateways[0] : o.GatewayOk ? $"gw {oa.Gateways[0]} {o.Intranet[0].Ms} ms" : $"gw {oa.Gateways[0]} no reply";
+                Row("Also", $"{oa.Name}: {(oa.RealAddress?.ToString() ?? "no address")}{(oa.Dhcp ? " (DHCP)" : "")} · {gw}", !o.ChecksEnabled ? null : Snapshot.IsProblem(o.State) ? false : true);
+                foreach (var adv in _app.SecondaryAdvisories.Where(x => x.Adapter == oa.Name))
+                    Row("Advice", $"{oa.Name}: {adv.Title} — {adv.Text}", adv.Severity == AdvisorySeverity.Error ? false : null);
+            }
             foreach (var sw in _app.SwitchNeighbors(a.Name)) Row("Switch", sw.Headline + (sw.PortDescription is null ? "" : "  ·  " + sw.PortDescription) + (sw.ManagementAddress is null ? "" : "  ·  " + sw.ManagementAddress), true);
             if (_app.LastVerifyDiffs.Count > 0)
             {

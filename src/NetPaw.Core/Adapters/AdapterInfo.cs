@@ -74,6 +74,12 @@ public static class AdapterSelector
             ?? host.FirstOrDefault();
     }
 
+    /// <summary>Adapters worth watching besides the work adapter: up, host-facing, not a vSwitch uplink, carrying a real address. Work adapter excluded.</summary>
+    public static IReadOnlyList<AdapterInfo> Secondaries(IReadOnlyList<AdapterInfo> adapters, AdapterInfo? work) =>
+        adapters.Where(a => a.Up && (a.IsPhysical || (a.HyperVVirtual && a.HasGateway)) && !a.VSwitchUplink && a.HasRealAddress
+                            && (work is null || !string.Equals(a.Name, work.Name, StringComparison.OrdinalIgnoreCase)))
+                .OrderBy(a => a.HasGateway ? 0 : 1).ThenBy(a => a.Name).ToList();
+
     /// <summary>
     /// Marks physical NICs that are bound to an external Hyper-V switch: up with no IPv4 at all while a
     /// vEthernet adapter that is up and has a gateway exists (an external switch shared with the host).

@@ -42,6 +42,9 @@ When an advisory says a fresh lease could help, NetPaw can run `ipconfig /renew`
 ## Find routers
 Unknown port? *Find routers* borrows a temporary address in each common subnet (192.168.0/1/2/178/88…, 10.0.0, 172.16.x and every vendor default from the presets), ARPs the usual gateway addresses (.1, .254, the vendor default) and removes the address again — ARP only, ~1-2 s per subnet. Responders are listed with MAC and the vendors whose default that address is; type one in the panel to reach it. CLI: `netpaw-cli find-routers`. Needs temporary addresses to be allowed by policy.
 
+## Other adapters
+Dual-homed boxes (dock plus Wi-Fi, a second NIC, a Hyper-V vEthernet) get one *Also* row per host-facing adapter that is up and has a real address: its address, DHCP or static, and whether its gateway answers (one ping, no internet/DNS probes — the full checks run on the work adapter only). Findings on those adapters appear as *Advice* rows prefixed with the adapter name; they are shown, never auto-repaired. Pick a different work adapter from the tray menu to act on it.
+
 ## VPN status
 The info card lists VPN adapters NetPaw recognises (WireGuard/wintun, OpenVPN TAP/DCO, Windows native IKEv2/L2TP/SSTP, Tailscale, ZeroTier, common enterprise clients) with *full tunnel* (the VPN owns the default route) or *split tunnel*. Up/down and full↔split changes are announced (*Settings → VPN*) and logged to the incident log. Detection is passive — no vendor APIs, nothing sent.
 
