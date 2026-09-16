@@ -55,18 +55,26 @@ static class Theme
         c.Font = c.Font.Name == Base.Name && c.Font.Size == Base.Size ? c.Font : c switch { Label l when l.Font.Bold => c.Font, _ => Base };
         switch (c)
         {
-            case Form f: f.BackColor = Bg; f.ForeColor = Text; break;
+            case Form f:
+                f.BackColor = Bg; f.ForeColor = Text;
+                if (f.IsHandleCreated) Native.Dress(f); else f.HandleCreated += (_, _) => Native.Dress(f);
+                break;
             case Button b:
                 b.FlatStyle = FlatStyle.Flat; b.BackColor = Field; b.ForeColor = Text;
                 b.FlatAppearance.BorderColor = Border; b.FlatAppearance.MouseOverBackColor = Selection; b.FlatAppearance.MouseDownBackColor = Accent;
                 b.Cursor = Cursors.Hand; break;
             case TextBox t: t.BackColor = Field; t.ForeColor = Text; t.BorderStyle = BorderStyle.FixedSingle; break;
-            case NumericUpDown n: n.BackColor = Field; n.ForeColor = Text; n.BorderStyle = BorderStyle.FixedSingle; break;
+            case NumericUpDown n: n.BackColor = Field; n.ForeColor = Text; n.BorderStyle = BorderStyle.FixedSingle; foreach (Control part in n.Controls) { part.BackColor = Field; part.ForeColor = Text; } break;
+            case DarkComboBox: break;
             case ComboBox cb: cb.BackColor = Field; cb.ForeColor = Text; cb.FlatStyle = FlatStyle.Flat; break;
             case ListBox lb: lb.BackColor = Panel; lb.ForeColor = Text; lb.BorderStyle = BorderStyle.None; break;
             case ListView lv: DarkListView(lv); break;
-            case TabControl tc: DarkTabs(tc); break;
-            case CheckBox or RadioButton: c.ForeColor = Text; c.BackColor = Color.Transparent; break;
+            case DarkTabControl: break;
+            case CheckBox cb:
+                // Flat = the box is drawn with ForeColor/BackColor instead of the light system glyph.
+                // The box interior is BackColor (opaque, else it falls back to white) and CheckedBackColor; the tick is ForeColor.
+                cb.ForeColor = Text; cb.BackColor = Bg; cb.FlatStyle = FlatStyle.Flat; cb.FlatAppearance.BorderSize = 0; cb.FlatAppearance.CheckedBackColor = Accent; cb.FlatAppearance.MouseOverBackColor = Bg; cb.FlatAppearance.MouseDownBackColor = Bg; break;
+            case RadioButton rb: rb.ForeColor = Text; rb.BackColor = Bg; rb.FlatStyle = FlatStyle.Flat; rb.FlatAppearance.BorderSize = 0; rb.FlatAppearance.CheckedBackColor = Accent; break;
             case LinkLabel ll: ll.LinkColor = Accent; ll.ActiveLinkColor = Text; ll.VisitedLinkColor = Accent; ll.LinkBehavior = LinkBehavior.HoverUnderline; ll.BackColor = Color.Transparent; break;
             case Label l: if (l.ForeColor == SystemColors.ControlText) l.ForeColor = Text; l.BackColor = Color.Transparent; break;
             case GroupBox g: g.ForeColor = Muted; break;
@@ -83,6 +91,8 @@ static class Theme
     {
         lv.BackColor = Panel; lv.ForeColor = Text; lv.BorderStyle = BorderStyle.None;
         if (lv.OwnerDraw) return;
+        void Scrollbars() { try { Native.SetWindowTheme(lv.Handle, "DarkMode_Explorer", null); } catch (Exception ex) when (ex is DllNotFoundException or EntryPointNotFoundException) { } }
+        if (lv.IsHandleCreated) Scrollbars(); else lv.HandleCreated += (_, _) => Scrollbars();
         lv.OwnerDraw = true;
         lv.DrawColumnHeader += (_, e) =>
         {
@@ -100,19 +110,63 @@ static class Theme
         lv.ItemSelectionChanged += (_, e) => { if (e.Item?.Tag is SeparatorTag && e.IsSelected) e.Item.Selected = false; };
     }
 
-    /// <summary>TabControl ignores BackColor; owner-draw the tab strip so it matches the dark forms.</summary>
-    static void DarkTabs(TabControl tc)
+    /// <summary>
+    /// TabControl paints its strip background and the 3D page frame in system colours whatever the properties say
+    /// (owner-draw covers the tabs only). UserPaint takes the whole control: dark strip, accent underline, 1 px border.
+    /// </summary>
+    public sealed class DarkTabControl : TabControl
     {
-        if (tc.DrawMode == TabDrawMode.OwnerDrawFixed) return;
-        tc.DrawMode = TabDrawMode.OwnerDrawFixed; tc.SizeMode = TabSizeMode.Fixed; tc.ItemSize = new Size(Math.Max(tc.ItemSize.Width, 110), 26); tc.Padding = new Point(12, 4);
-        foreach (TabPage page in tc.TabPages) { page.BackColor = Bg; page.ForeColor = Text; page.UseVisualStyleBackColor = false; }
-        tc.DrawItem += (_, e) =>
+        public DarkTabControl()
         {
-            var selected = e.Index == tc.SelectedIndex;
-            using var bg = new SolidBrush(selected ? Bg : Field); e.Graphics.FillRectangle(bg, e.Bounds);
-            if (selected) { using var accent = new SolidBrush(Accent); e.Graphics.FillRectangle(accent, e.Bounds.Left, e.Bounds.Bottom - 2, e.Bounds.Width, 2); }
-            TextRenderer.DrawText(e.Graphics, tc.TabPages[e.Index].Text, selected ? new Font(Base, FontStyle.Bold) : Base, e.Bounds, selected ? Text : Muted, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
-        };
+            SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+            SizeMode = TabSizeMode.Fixed; ItemSize = new Size(120, 28); Padding = new Point(12, 4);
+        }
+        protected override void OnControlAdded(ControlEventArgs e)
+        {
+            base.OnControlAdded(e);
+            if (e.Control is TabPage p) { p.BackColor = Theme.Bg; p.ForeColor = Theme.Text; p.UseVisualStyleBackColor = false; p.BorderStyle = BorderStyle.None; }
+        }
+        protected override void OnSelectedIndexChanged(EventArgs e) { base.OnSelectedIndexChanged(e); Invalidate(); }
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            var g = e.Graphics; g.Clear(Theme.Bg);
+            using var border = new Pen(Theme.Border);
+            for (var i = 0; i < TabCount; i++)
+            {
+                var r = GetTabRect(i); var selected = i == SelectedIndex;
+                using var bg = new SolidBrush(selected ? Theme.Panel : Theme.Bg); g.FillRectangle(bg, r);
+                if (selected) { using var accent = new SolidBrush(Theme.Accent); g.FillRectangle(accent, r.Left, r.Bottom - 2, r.Width, 2); }
+                TextRenderer.DrawText(g, TabPages[i].Text, selected ? new Font(Theme.Base, FontStyle.Bold) : Theme.Base, r, selected ? Theme.Text : Theme.Muted, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+            }
+            var page = DisplayRectangle; g.DrawRectangle(border, page.Left - 1, page.Top - 1, page.Width + 1, page.Height + 1);
+        }
+    }
+
+    /// <summary>
+    /// ComboBox draws its arrow button and border with system colours even in FlatStyle.Flat. Items are owner-drawn;
+    /// the frame and arrow are painted over the control right after each WM_PAINT.
+    /// </summary>
+    public sealed class DarkComboBox : ComboBox
+    {
+        const int WM_PAINT = 0x000F;
+        public DarkComboBox() { FlatStyle = FlatStyle.Flat; BackColor = Theme.Field; ForeColor = Theme.Text; DrawMode = DrawMode.OwnerDrawFixed; DropDownStyle = ComboBoxStyle.DropDownList; }
+        protected override void OnDrawItem(DrawItemEventArgs e)
+        {
+            var selected = (e.State & DrawItemState.Selected) != 0;
+            using var bg = new SolidBrush(selected ? Theme.Selection : Theme.Field); e.Graphics.FillRectangle(bg, e.Bounds);
+            if (e.Index >= 0) TextRenderer.DrawText(e.Graphics, GetItemText(Items[e.Index]), Font, Rectangle.Inflate(e.Bounds, -2, 0), Theme.Text, TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+        }
+        protected override void WndProc(ref Message m)
+        {
+            base.WndProc(ref m);
+            if (m.Msg != WM_PAINT || !IsHandleCreated) return;
+            using var g = Graphics.FromHwnd(Handle);
+            var button = new Rectangle(Width - 18, 1, 17, Height - 2);
+            using var bg = new SolidBrush(Theme.Field); g.FillRectangle(bg, button);
+            using var pen = new Pen(Theme.Border); g.DrawRectangle(pen, 0, 0, Width - 1, Height - 1);
+            using var arrow = new SolidBrush(Theme.Muted); var cx = button.Left + button.Width / 2; var cy = button.Top + button.Height / 2;
+            g.FillPolygon(arrow, [new Point(cx - 4, cy - 2), new Point(cx + 4, cy - 2), new Point(cx, cy + 3)]);
+        }
     }
 
     sealed class SeparatorTag { public static readonly SeparatorTag Instance = new(); }

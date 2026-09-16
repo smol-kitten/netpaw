@@ -26,6 +26,10 @@ static partial class Native
     public static partial uint GetWindowThreadProcessId(IntPtr hWnd, IntPtr lpdwProcessId);
     [LibraryImport("kernel32.dll")]
     public static partial uint GetCurrentThreadId();
+    /// <summary>"DarkMode_Explorer" gives a ListView/TreeView dark scrollbars on Windows 10 1809+ (documented API, documented theme name).</summary>
+    [LibraryImport("uxtheme.dll", EntryPoint = "SetWindowTheme", StringMarshalling = StringMarshalling.Utf16)]
+    public static partial int SetWindowTheme(IntPtr hWnd, string? pszSubAppName, string? pszSubIdList);
+
     [LibraryImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)]
     public static partial bool AttachThreadInput(uint idAttach, uint idAttachTo, [MarshalAs(UnmanagedType.Bool)] bool fAttach);
     [LibraryImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)]
