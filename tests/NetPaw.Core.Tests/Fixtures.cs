@@ -11,6 +11,12 @@ static class Fx
             (addrs ?? ["192.168.1.10/24"]).Select(IpAddr.Parse).ToList(),
             gw is null ? [] : [gw], ["192.168.1.1"], "AA:BB:CC:DD:EE:FF");
 
+    /// <summary>One builder for every "live adapter" a test needs; the per-file copies used to drift.</summary>
+    public static AdapterInfo Nic(string name = "Ethernet", string desc = "x", bool up = true, bool physical = true, bool dhcp = false,
+        string[]? addrs = null, string? gw = null, string[]? dns = null, bool hyperv = false, bool wireless = false, int index = 1, string? dhcpServer = null) =>
+        new(name, desc, "{" + name + "}", index, up, physical, dhcp, (addrs ?? []).Select(IpAddr.Parse).ToList(), gw is null ? [] : [gw], dns ?? [], "AA")
+        { HyperVVirtual = hyperv, Wireless = wireless, DhcpServers = dhcpServer is null ? [] : [dhcpServer] };
+
     public static Profile Static(string name, string? gw = "192.168.1.1", params string[] addrs) => new()
     {
         Name = name, Addresses = addrs.Length == 0 ? [IpAddr.Parse("192.168.1.10/24")] : addrs.Select(IpAddr.Parse).ToList(), Gateway = gw, Dns = ["1.1.1.1", "9.9.9.9"],

@@ -18,6 +18,8 @@ public sealed record AdapterInfo(
 {
     /// <summary>A Hyper-V "vEthernet (…)" adapter: the host's own foot on an external virtual switch. Host-facing, so it is a valid work adapter.</summary>
     public bool HyperVVirtual { get; init; }
+    /// <summary>802.11 adapter. Static-IP work happens on the cable, so a wired adapter with a gateway wins over Wi-Fi.</summary>
+    public bool Wireless { get; init; }
     /// <summary>DHCP server that handed out the lease (Windows reports it); empty for static.</summary>
     public IReadOnlyList<string> DhcpServers { get; init; } = [];
     /// <summary>A physical NIC bound to an external Hyper-V switch: it carries the switch and has no host address by design. Not a fault.</summary>
@@ -49,7 +51,7 @@ public static class AdapterSelector
 {
     /// <summary>
     /// Picks the adapter NetPaw should act on: the configured name, else the host-facing adapter that
-    /// is up and has a gateway (physical before vEthernet), else one with a real address, else the first
+    /// is up and has a gateway (physical before vEthernet, wired before Wi-Fi), else one with a real address, else the first
     /// physical one that is up and is not a vSwitch uplink. On a Hyper-V host the physical NIC bound to
     /// the external switch has no address; the host's address is on "vEthernet (…)", which wins here.
     /// </summary>
@@ -62,7 +64,7 @@ public static class AdapterSelector
         }
         // vEthernet adapters qualify only when they carry a gateway (external switch shared with the host);
         // internal switches (WSL, Default Switch, Docker) have NAT addresses and must never become the work adapter.
-        var host = adapters.Where(a => a.IsPhysical || (a.HyperVVirtual && a.HasGateway)).OrderBy(a => a.IsPhysical ? 0 : 1).ToList();
+        var host = adapters.Where(a => a.IsPhysical || (a.HyperVVirtual && a.HasGateway)).OrderBy(a => a.IsPhysical ? 0 : 1).ThenBy(a => a.Wireless ? 1 : 0).ToList();
         return host.FirstOrDefault(a => a.Up && a.HasGateway && !a.VSwitchUplink)
             ?? host.FirstOrDefault(a => a.Up && a.HasRealAddress && !a.VSwitchUplink)
             ?? host.FirstOrDefault(a => a.Up && !a.VSwitchUplink)

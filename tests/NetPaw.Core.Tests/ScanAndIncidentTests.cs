@@ -106,8 +106,7 @@ public class NetworkScannerTests
 
 public class AutoSwitchTests
 {
-    static NetPaw.Adapters.AdapterInfo Live(string[]? addrs, string? gw, string? dhcp = null) =>
-        new("Ethernet", "x", "{e}", 1, true, true, dhcp is not null, (addrs ?? []).Select(IpAddr.Parse).ToList(), gw is null ? [] : [gw], [], "AA:AA") { DhcpServers = dhcp is null ? [] : [dhcp] };
+    static NetPaw.Adapters.AdapterInfo Live(string[]? addrs, string? gw, string? dhcp = null) => Fx.Nic(dhcp: dhcp is not null, addrs: addrs, gw: gw, dhcpServer: dhcp);
 
     static Profile Auto(string name, string fpMac, string subnet, string? dhcp = null, string[]? addrs = null, string? gw = null, bool dhcpProfile = false)
     {

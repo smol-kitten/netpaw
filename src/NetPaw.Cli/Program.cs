@@ -99,11 +99,7 @@ try
             var p = Need(svc, argv, 1);
             var adapter = adapterName is not null ? svc.ResolveAdapter(adapterName) : svc.AdapterFor(p);
             var plan = svc.PlanProfile(p, adapter);
-            if (dryRun || !IsElevated()) return Run(svc, plan, dryRun);
-            var o = svc.ApplyAndVerify(plan);
-            var rc = Report(plan, o, false);
-            if (o.VerifyDiffs.Count > 0) { Console.WriteLine("verify: Windows did not fully take the change — " + string.Join("; ", o.VerifyDiffs) + "\n        try: netpaw-cli reset -a \"" + plan.Adapter + "\""); return 1; }
-            return rc;
+            return Run(svc, plan, dryRun);
         }
         case "dhcp":
             return Run(svc, ApplyPlanner.PlanDhcp(svc.ResolveAdapter(adapterName)), dryRun);
@@ -460,7 +456,7 @@ static int Run(NetPawService svc, ApplyPlan plan, bool dryRun)
 {
     if (!dryRun && !plan.IsEmpty && OperatingSystem.IsWindows() && !IsElevated())
         return Fail("changing adapter settings needs an elevated prompt (run as Administrator)");
-    return Report(plan, dryRun ? null : svc.Apply(plan), dryRun);
+    return Report(plan, dryRun ? null : svc.ApplyAndVerify(plan), dryRun);
 }
 
 static int Report(ApplyPlan plan, ApplyOutcome? outcome, bool dryRun)
@@ -475,6 +471,7 @@ static int Report(ApplyPlan plan, ApplyOutcome? outcome, bool dryRun)
     foreach (var r in outcome.Results)
         Console.WriteLine($"[{(r.Ok ? "ok" : "FAIL")}] {r.Step.Description}{(r.Ok || string.IsNullOrEmpty(r.Output) ? "" : " — " + r.Output.ReplaceLineEndings(" "))}");
     Console.WriteLine(outcome.Success ? $"applied '{plan.Title}' on {plan.Adapter}" : "FAILED" + (outcome.Aborted ? " (aborted at first critical step)" : ""));
+    if (outcome.VerifyDiffs.Count > 0) { Console.WriteLine("verify: Windows did not fully take the change — " + string.Join("; ", outcome.VerifyDiffs) + "\n        try: netpaw-cli reset -a \"" + plan.Adapter + "\""); return 1; }
     return outcome.Success ? 0 : 1;
 }
 

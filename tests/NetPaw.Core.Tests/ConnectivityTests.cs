@@ -87,8 +87,7 @@ public class ApipaTests
 
 public class AdvisorTests
 {
-    static NetPaw.Adapters.AdapterInfo Dhcp(string[]? addrs, string? gw, string[]? dns = null) =>
-        new("Ethernet", "x", "{g}", 1, true, true, true, (addrs ?? []).Select(NetPaw.Model.IpAddr.Parse).ToList(), gw is null ? [] : [gw], dns ?? ["10.0.0.53"], "AA");
+    static NetPaw.Adapters.AdapterInfo Dhcp(string[]? addrs, string? gw, string[]? dns = null) => Fx.Nic(dhcp: true, addrs: addrs, gw: gw, dns: dns ?? ["10.0.0.53"]);
 
     [Fact]
     public async Task DhcpFindings()
@@ -139,8 +138,7 @@ public class AdvisorTests
 
 public class HyperVTests
 {
-    static NetPaw.Adapters.AdapterInfo Nic(string name, string desc, bool physical, bool hyperv, string[]? addrs, string? gw) =>
-        new(name, desc, "{" + name + "}", 1, true, physical, addrs is not null, (addrs ?? []).Select(NetPaw.Model.IpAddr.Parse).ToList(), gw is null ? [] : [gw], [], "AA") { HyperVVirtual = hyperv };
+    static NetPaw.Adapters.AdapterInfo Nic(string name, string desc, bool physical, bool hyperv, string[]? addrs, string? gw) => Fx.Nic(name, desc, physical: physical, dhcp: addrs is not null, addrs: addrs, gw: gw, hyperv: hyperv);
 
     static IReadOnlyList<NetPaw.Adapters.AdapterInfo> Host() => NetPaw.Adapters.AdapterSelector.TagVSwitchUplinks(
     [
@@ -199,8 +197,7 @@ public class HyperVTests
 
 public class VpnTests
 {
-    static NetPaw.Adapters.AdapterInfo A(string name, string desc, bool up, string[]? addrs, string? gw) =>
-        new(name, desc, "{" + name + "}", 1, up, false, false, (addrs ?? []).Select(NetPaw.Model.IpAddr.Parse).ToList(), gw is null ? [] : [gw], [], "AA");
+    static NetPaw.Adapters.AdapterInfo A(string name, string desc, bool up, string[]? addrs, string? gw) => Fx.Nic(name, desc, up, physical: false, addrs: addrs, gw: gw);
 
     [Fact]
     public void ClassifiesCommonClients()
@@ -232,8 +229,7 @@ public class VpnTests
 
 public class V07AdvisorTests
 {
-    static NetPaw.Adapters.AdapterInfo Nic(string name, bool up, bool dhcp, string[]? addrs, string? gw) =>
-        new(name, "x", "{" + name + "}", 1, up, true, dhcp, (addrs ?? []).Select(NetPaw.Model.IpAddr.Parse).ToList(), gw is null ? [] : [gw], [], "AA");
+    static NetPaw.Adapters.AdapterInfo Nic(string name, bool up, bool dhcp, string[]? addrs, string? gw) => Fx.Nic(name, up: up, dhcp: dhcp, addrs: addrs, gw: gw);
 
     [Fact]
     public async Task DockingStationHeldAddress()
