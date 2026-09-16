@@ -27,6 +27,7 @@ const string Usage = """
       netpaw-cli find-routers [-a X] [--force]    borrow an address in each common subnet, ARP the usual gateways, report who answers (--force: ok to drop a DHCP lease)
       netpaw-cli incidents [-n 30]                show the incident log (enable it in settings: repair.incidentLog)
       netpaw-cli reach <ip[/prefix]> [--replace] [-a X] [-n]
+      netpaw-cli diag [file.zip]                    diagnostics bundle (ipconfig, routes, arp, log, incidents, redacted settings)
       netpaw-cli wake <mac> [subnet/prefix]         Wake-on-LAN magic packet (global + subnet broadcast)
       netpaw-cli routes                             IPv4 route table with interface names
       netpaw-cli trace <host> [--max N]             traceroute (ICMP TTL, no elevation); rc 1 when the target never answers
@@ -137,6 +138,14 @@ try
             var r = NetPaw.Connectivity.PortCheck.Run(new NetPaw.Connectivity.NetworkProbe(), host, port, int.TryParse(timeoutOpt, out var t) ? t : 2000).GetAwaiter().GetResult();
             Console.WriteLine(r.Text);
             return r.ExitCode;
+        }
+        case "diag":
+        {
+            var now = DateTimeOffset.Now;
+            var path = argv.Count > 1 ? argv[1] : Path.Combine(Environment.CurrentDirectory, NetPaw.Diagnostics.Bundle.DefaultName(Environment.MachineName, now));
+            var entries = NetPaw.Diagnostics.Bundle.Write(path, svc.Runner, svc.Store, svc.GetAdapters(), svc.Settings, typeof(NetPawService).Assembly.GetName().Version?.ToString(3) ?? "0", Environment.MachineName, now);
+            Console.WriteLine($"{path}\n  {string.Join("\n  ", entries)}");
+            return 0;
         }
         case "wake":
         {

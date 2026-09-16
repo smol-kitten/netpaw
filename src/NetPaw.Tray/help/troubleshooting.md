@@ -15,6 +15,9 @@ The NIC driver exposes no `VlanID` property. Only some drivers (Intel, some Real
 ## A repository shows "rejected"
 Its signature or an entry hash did not match the pinned key. NetPaw keeps the last good copy. Ask the publisher for the right key or remove the pin (`url` without `|key`).
 
+## Helpdesk wants everything
+Tray menu → **Export diagnostics…** writes one zip: `ipconfig /all`, the route and interface tables, `netsh interface ipv4 show config`, `arp -a`, the DNS cache, NetPaw's adapter snapshot, `netpaw.log`, `incidents.jsonl`, `profiles.json`, `state.json` and `settings.json`. Addresses and adapter names are in there on purpose — that is what support needs. Export headers, tokens and anything password-shaped are replaced with `[redacted]`. CLI: `netpaw-cli diag`.
+
 ## Something went wrong — where do I look?
 `%APPDATA%\NetPaw\netpaw.log` has every command NetPaw ran with its output. *Open log* is in the tray menu.
 
