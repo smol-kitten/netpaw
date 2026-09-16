@@ -33,6 +33,19 @@ public class VlanProviderTests
         Assert.Contains("O''Brien", new PowerShellVlanProvider(new CountingRunner(runner, "VLANID=none")).Query("O'Brien").Source is null ? runner.Ran[^1].Arguments : "");   // quote escaped
     }
 
+    [Fact]
+    public void RegistryAnswersFirstAndPowerShellIsTheFallback()
+    {
+        var runner = new FakeRunner();
+        var ps = new PowerShellVlanProvider(new CountingRunner(runner, "VLANID=3"));
+        var reg = new RegistryVlanProvider(name => name == "Ethernet 2" ? "{GUID-2}" : name == "Odd" ? "{GUID-ODD}" : null, ps,
+            reader: guid => guid == "{GUID-2}" ? new VlanInfo(true, 20, "VlanID") : null);
+        var v = reg.Query("Ethernet 2");
+        Assert.True(v.Capable); Assert.Equal(20, v.VlanId); Assert.Empty(runner.Ran);                 // registry answered, no PowerShell
+        Assert.Equal(3, reg.Query("Odd").VlanId); Assert.Single(runner.Ran);                          // known adapter, registry silent → PowerShell
+        Assert.Equal(3, reg.Query("Unknown").VlanId); Assert.Equal(2, runner.Ran.Count);              // no GUID → PowerShell
+    }
+
     /// <summary>Records through the inner FakeRunner but answers with a fixed output.</summary>
     sealed class CountingRunner(FakeRunner inner, string output) : IStepRunner
     {

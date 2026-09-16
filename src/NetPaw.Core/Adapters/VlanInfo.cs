@@ -45,6 +45,45 @@ public sealed class PowerShellVlanProvider(Planning.IStepRunner runner) : IVlanP
     public void Forget(string adapterName) { lock (_cache) _cache.Remove(adapterName); }
 }
 
+/// <summary>
+/// Instant VLAN query from the driver's registry keys: the network class key holds one subkey per driver
+/// instance (<c>NetCfgInstanceId</c> = adapter GUID); <c>Ndi\Params\VlanID</c> under it means the driver
+/// exposes the property, the <c>VlanID</c> value is the current id. Falls back to PowerShell when the
+/// registry does not answer (odd drivers, denied keys). Setting still goes through Set-NetAdapterAdvancedProperty.
+/// </summary>
+public sealed class RegistryVlanProvider(Func<string, string?> adapterIdByName, IVlanProvider fallback, Func<string, VlanInfo?>? reader = null) : IVlanProvider
+{
+    public VlanInfo Query(string adapterName)
+    {
+        var id = adapterIdByName(adapterName);
+        var info = id is null ? null : (reader ?? ReadRegistry)(id);
+        return info ?? fallback.Query(adapterName);
+    }
+
+    const string ClassKey = @"SYSTEM\CurrentControlSet\Control\Class\{4d36e972-e325-11ce-bfc1-08002be10318}";
+
+    [System.Runtime.Versioning.SupportedOSPlatform("windows")]
+    static VlanInfo? ReadRegistry(string adapterGuid)
+    {
+        try
+        {
+            using var cls = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(ClassKey);
+            if (cls is null) return null;
+            foreach (var name in cls.GetSubKeyNames())
+            {
+                using var k = cls.OpenSubKey(name);
+                if (k?.GetValue("NetCfgInstanceId") is not string guid || !guid.Equals(adapterGuid, StringComparison.OrdinalIgnoreCase)) continue;
+                using var param = k.OpenSubKey(@"Ndi\Params\VlanID");
+                if (param is null) return new VlanInfo(false, null, null);
+                var raw = k.GetValue("VlanID")?.ToString();
+                return new VlanInfo(true, int.TryParse(raw, out var v) ? v : null, "VlanID");
+            }
+            return null;                                                 // adapter not found under the class key: let PowerShell decide
+        }
+        catch (Exception ex) when (ex is System.Security.SecurityException or UnauthorizedAccessException or IOException) { return null; }
+    }
+}
+
 public sealed class NullVlanProvider : IVlanProvider
 {
     public VlanInfo Query(string adapterName) => new(false, null, null);
