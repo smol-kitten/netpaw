@@ -379,6 +379,26 @@ sealed class TrayApp : ApplicationContext
         return await MakeSwitcher(live).Learn(live);
     }
 
+    /// <summary>The helpdesk zip: ipconfig/route/arp/netsh output + NetPaw's log, incidents and redacted settings. Addresses stay in by design (the help topic says so).</summary>
+    public void ExportDiagnostics()
+    {
+        var now = DateTimeOffset.Now;
+        using var dlg = new SaveFileDialog { Title = "Export diagnostics", Filter = "Zip archive|*.zip", FileName = Diagnostics.Bundle.DefaultName(Environment.MachineName, now), InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.Desktop) };
+        if (dlg.ShowDialog() != DialogResult.OK) return;
+        var path = dlg.FileName;
+        Status?.Invoke("Collecting diagnostics…", "busy");
+        Task.Run(() => Diagnostics.Bundle.Write(path, _svc.Runner, _svc.Store, _svc.GetAdapters(), _svc.Settings, System.Reflection.Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "0", Environment.MachineName, now))
+            .ContinueWith(t =>
+            {
+                if (t.IsFaulted) { var msg = t.Exception?.GetBaseException().Message ?? "failed"; Status?.Invoke("Diagnostics export failed: " + msg, "error"); Notify("Export failed", msg, ToolTipIcon.Error, force: true); return; }
+                _svc.Store.Log($"diagnostics exported to {path} ({t.Result.Count} entries)");
+                Status?.Invoke($"Diagnostics saved: {path}", "ok");
+                _balloonAction = () => Process.Start(new ProcessStartInfo("explorer.exe", $"/select,\"{path}\"") { UseShellExecute = true });
+                Notify("Diagnostics exported", $"{Path.GetFileName(path)} ({t.Result.Count} files). Click to show it. Addresses are included; credentials are not.", ToolTipIcon.Info, force: true);
+                TelemetryHost.Event("diag", "export");
+            }, TaskScheduler.FromCurrentSynchronizationContext());
+    }
+
     /// <summary>Wake-on-LAN towards the subnet the MAC was seen on. Nothing to verify — the target answers ARP a few seconds later if it worked.</summary>
     public async Task Wake(string mac, IpAddr? subnet)
     {
@@ -537,6 +557,7 @@ sealed class TrayApp : ApplicationContext
         _menu.Items.Add(new ToolStripMenuItem("Manage profiles…", null, (_, _) => ShowEditor()));
         _menu.Items.Add(new ToolStripMenuItem("Settings…", null, (_, _) => ShowSettings()));
         _menu.Items.Add(new ToolStripMenuItem("Open log", null, (_, _) => OpenLog()));
+        _menu.Items.Add(new ToolStripMenuItem("Export diagnostics…", null, (_, _) => ExportDiagnostics()));
         _menu.Items.Add(new ToolStripMenuItem("Help", null, (_, _) => ShowHelp("overview")) { ShortcutKeyDisplayString = "F1" });
         _menu.Items.Add(new ToolStripSeparator());
         _menu.Items.Add(new ToolStripMenuItem("Exit", null, (_, _) => Quit()));

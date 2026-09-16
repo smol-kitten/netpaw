@@ -54,9 +54,9 @@ MIT licensed. Windows 10/11, .NET 10.
 
 ![scan for a working profile](docs/scan.png)
 
-| network map — ARP neighbours | which switch port am I on? (LLDP via pktmon) |
-|---|---|
-| ![map](docs/map.png) | ![switch](docs/switch.png) |
+| network map — ARP neighbours (right-click → Wake) | which switch port am I on? (LLDP via pktmon) | route table with delete |
+|---|---|---|
+| ![map](docs/map.png) | ![switch](docs/switch.png) | ![routes](docs/routes.png) |
 
 *Screenshots from the Windows 11 test VM; every `netsh` path in this README was verified there.*
 
@@ -99,6 +99,7 @@ logon.
 | renew the lease | *Renew DHCP lease* (menu / panel / info card), or `netpaw-cli renew` |
 | see what's wrong with the config | info card *Advice* rows, or `netpaw-cli advise` |
 | find a profile that works on this port | *Scan for a working profile…* (menu / `scan` in the panel), or `netpaw-cli scan [--all] [--keep]` |
+| helpdesk wants "everything" | tray → *Export diagnostics…* (zip: ipconfig, routes, arp, netsh, log, incidents, redacted settings), or `netpaw-cli diag` |
 | when did it break? | *Settings → Incident log*, then *Open incident log* or `netpaw-cli incidents` |
 | wake the box on the bench | *Network map* → right-click a neighbour → *Wake*; `netpaw-cli wake <mac>` |
 | a stale route eats my traffic | *Network map → Routes* → *Delete route*; advice row *Two default routes* offers it too |
@@ -156,6 +157,7 @@ netpaw-cli reach <ip[/prefix]> [--replace]  make <ip> reachable
 netpaw-cli check <host:port> [--timeout ms] one TCP connect: open / refused / timeout (rc 0/1/2)
 netpaw-cli trace <host> [--max N]           traceroute: where does the path stop?
 netpaw-cli wake <mac> [subnet]              Wake-on-LAN magic packet
+netpaw-cli diag [file.zip]                  diagnostics bundle for the helpdesk
 netpaw-cli routes                           route table with interface names
 netpaw-cli preset [query]                   list presets
 netpaw-cli preset apply <vendor/model|query>

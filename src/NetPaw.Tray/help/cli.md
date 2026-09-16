@@ -6,6 +6,7 @@
 - `list` / `show <profile>` / `apply <profile> [-a adapter] [-n]` — `-n` prints the plan only.
 - `dhcp [-a adapter]`
 - `reach <ip[/prefix]> [--replace]`
+- `diag [file.zip]` — diagnostics bundle: ipconfig /all, routes, interfaces, netsh config, arp, DNS cache, adapters.json, log, incidents, settings (credentials redacted)
 - `wake <mac> [subnet/prefix]` — magic packet to the global and subnet broadcast (same segment only)
 - `routes` — the IPv4 route table with interface names
 - `trace <host> [--max N]` — traceroute over ICMP TTL; prints hops as they answer, exit 1 when the target stays silent
