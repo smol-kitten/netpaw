@@ -9,7 +9,7 @@ namespace NetPaw.Tray;
 /// refresh and an active re-check/sweep), and the router finder that borrows an address in each common
 /// subnet and ARPs the usual gateway addresses. Both are explicit actions — nothing runs on its own.
 /// </summary>
-sealed class NetworkMapForm : Form
+sealed class NetworkMapPanel : UserControl
 {
     readonly TrayApp _app;
     readonly AdapterInfo _adapter;
@@ -27,11 +27,15 @@ sealed class NetworkMapForm : Form
     readonly Dictionary<ListViewItem, NetPaw.Planning.RouteEntry> _routeRows = [];
     CancellationTokenSource? _cts;
 
+    /// <summary>The host closes (a window) or navigates away (the main window) when the panel asks.</summary>
+    public event Action? CloseRequested;
+    public AdapterInfo Adapter => _adapter;
+
     /// <param name="tab">0 neighbours, 1 find routers, 2 switch (LLDP/CDP), 3 routes.</param>
-    public NetworkMapForm(TrayApp app, AdapterInfo adapter, int tab = 0)
+    public NetworkMapPanel(TrayApp app, AdapterInfo adapter, int tab = 0)
     {
         _app = app; _adapter = adapter;
-        Text = $"NetPaw — network map on {adapter.Name}"; StartPosition = FormStartPosition.CenterScreen; ClientSize = new Size(820, 520); MinimumSize = new Size(640, 400);
+        BackColor = Theme.Bg; ForeColor = Theme.Text; Font = Theme.Base;
         foreach (var (h, w) in new[] { ("Address", 140), ("MAC", 150), ("Kind", 80), ("Alive", 90), ("Note", 300) }) _hosts.Columns.Add(h, w);
         foreach (var (h, w) in new[] { ("Network", 140), ("Responder", 130), ("MAC", 150), ("Round-trip", 80), ("Likely vendor(s)", 280) }) _routers.Columns.Add(h, w);
         foreach (var lv in new[] { _hosts, _routers }) { lv.BackColor = Theme.Panel; lv.ForeColor = Theme.Text; lv.Font = Theme.Base; }
@@ -61,7 +65,7 @@ sealed class NetworkMapForm : Form
         t4.Controls.Add(_routes); t4.Controls.Add(bar4);
         _routesRefresh.Click += (_, _) => LoadRoutes();
         _routes.SelectedIndexChanged += (_, _) => _routeDelete.Enabled = _routes.SelectedItems.Count == 1 && _routeRows.TryGetValue(_routes.SelectedItems[0], out var sel) && sel.Manual;
-        _routeDelete.Click += (_, _) => { if (_routes.SelectedItems.Count == 1 && _routeRows.TryGetValue(_routes.SelectedItems[0], out var r)) { _app.DeleteRoute(r); Close(); } };
+        _routeDelete.Click += (_, _) => { if (_routes.SelectedItems.Count == 1 && _routeRows.TryGetValue(_routes.SelectedItems[0], out var r)) { _app.DeleteRoute(r); CloseRequested?.Invoke(); } };
         _tabs.SelectedIndexChanged += (_, _) => { if (_tabs.SelectedTab == t4 && _routes.Items.Count == 0) LoadRoutes(); };
         // Wake-on-LAN from a neighbour row: right-click → Wake.
         var wake = new ContextMenuStrip { Renderer = new DarkMenuRenderer() };
@@ -76,10 +80,9 @@ sealed class NetworkMapForm : Form
         _sweep.Click += async (_, _) => await Recheck(sweep: true);
         _find.Click += async (_, _) => await FindRouters();
         _copy.Click += (_, _) => Clipboard.SetText(string.Join("\r\n", _hosts.Items.Cast<ListViewItem>().Select(i => string.Join("\t", i.SubItems.Cast<ListViewItem.ListViewSubItem>().Select(s => s.Text)))));
-        KeyPreview = true; KeyDown += (_, e) => { if (e.KeyCode == Keys.Escape) Close(); if (e.KeyCode == Keys.F1) _app.ShowHelp("network-map"); };
-        FormClosing += (_, _) => _cts?.Cancel();
+        Disposed += (_, _) => _cts?.Cancel();
         Theme.Apply(this); Theme.Primary(_find);
-        Load += (_, _) => { Native.Dress(this); Native.ForceForeground(Handle); LoadCache(); };
+        Load += (_, _) => LoadCache();
     }
 
     void LoadRoutes()
@@ -200,5 +203,20 @@ sealed class NetworkMapForm : Form
         }
         catch (OperationCanceledException) { _status.Text = "Cancelled; borrowed addresses removed."; }
         finally { _cts = null; _find.Text = "Find routers"; _app.RefreshState(); }
+    }
+}
+
+/// <summary>Window host for <see cref="NetworkMapPanel"/> (tray menu, Tools menu, panel).</summary>
+sealed class NetworkMapForm : Form
+{
+    public NetworkMapForm(TrayApp app, AdapterInfo adapter, int tab = 0)
+    {
+        Text = $"NetPaw — network map on {adapter.Name}"; StartPosition = FormStartPosition.CenterScreen; ClientSize = new Size(820, 520); MinimumSize = new Size(640, 400);
+        var panel = new NetworkMapPanel(app, adapter, tab) { Dock = DockStyle.Fill };
+        panel.CloseRequested += Close;
+        Controls.Add(panel);
+        KeyPreview = true; KeyDown += (_, e) => { if (e.KeyCode == Keys.Escape) Close(); if (e.KeyCode == Keys.F1) app.ShowHelp("network-map"); };
+        Theme.Apply(this);
+        Load += (_, _) => { Native.Dress(this); Native.ForceForeground(Handle); };
     }
 }
