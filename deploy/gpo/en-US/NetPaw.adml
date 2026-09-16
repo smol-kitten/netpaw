@@ -33,6 +33,8 @@
       <string id="AllowScan_Help">Disabled: the scan dialog, find-routers and their CLI commands are refused (exit 4).</string>
       <string id="AllowCapture">Allow packet capture (LLDP/CDP via pktmon)</string>
       <string id="AllowCapture_Help">Disabled: NetPaw never starts a pktmon capture; the Switch tab and 'netpaw-cli switch' are refused.</string>
+      <string id="AllowUpdateCheck">Allow the daily update check (GitHub releases API)</string>
+      <string id="AllowUpdateCheck_Help">Disabled: NetPaw never contacts api.github.com to look for a newer release. Managed fleets that ship NetPaw through Intune/GPO should disable this.</string>
     </stringTable>
     <presentationTable>
       <presentation id="WorkAdapter"><textBox refId="WorkAdapter"><label>Adapter name:</label></textBox></presentation>

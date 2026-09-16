@@ -67,5 +67,9 @@
       <parentCategory ref="NetPaw" /><supportedOn ref="windows:SUPPORTED_Windows_10_0" />
       <enabledValue><decimal value="1" /></enabledValue><disabledValue><decimal value="0" /></disabledValue>
     </policy>
+    <policy name="AllowUpdateCheck" class="Machine" displayName="$(string.AllowUpdateCheck)" explainText="$(string.AllowUpdateCheck_Help)" key="SOFTWARE\Policies\NetPaw" valueName="AllowUpdateCheck">
+      <parentCategory ref="NetPaw" /><supportedOn ref="windows:SUPPORTED_Windows_10_0" />
+      <enabledValue><decimal value="1" /></enabledValue><disabledValue><decimal value="0" /></disabledValue>
+    </policy>
   </policies>
 </policyDefinitions>

@@ -74,7 +74,7 @@ sealed class TrayApp : ApplicationContext
         _menu.Closed += (_, _) => { _menuOpen = false; FlushDeferred(); };
         _tray = new NotifyIcon { Icon = Icons.Paw(Theme.Down), Text = "NetPaw", Visible = true, ContextMenuStrip = _menu };
         _tray.MouseClick += (_, e) => { if (e.Button == MouseButtons.Left) TogglePanel(); };
-        _tray.BalloonTipClicked += (_, _) => OpenLog();
+        _tray.BalloonTipClicked += (_, _) => { if (_balloonAction is { } act) { _balloonAction = null; act(); } else OpenLog(); };
         _refresh.Tick += (_, _) => RefreshState();
         _refresh.Start();
         _hotkeys.ShowRequested += () => ShowPanel();
@@ -87,6 +87,7 @@ sealed class TrayApp : ApplicationContext
         NetworkChange.NetworkAvailabilityChanged += (_, _) => OnNetworkEvent();
         NetworkChange.NetworkAddressChanged += (_, _) => OnNetworkEvent();
         _ = RunCheck();
+        _ = CheckForUpdates();
         var leftovers = _svc.TempAddresses;
         if (leftovers.Count > 0)
             Notify("Temporary addresses from a previous session", $"{leftovers.Count} address{(leftovers.Count == 1 ? "" : "es")} NetPaw added earlier {(leftovers.Count == 1 ? "is" : "are")} still tracked ({string.Join(", ", leftovers.Select(t => t.Address.ToString()))}). Remove them from the panel or tray menu if you are done.", ToolTipIcon.Warning, force: true);
@@ -285,6 +286,34 @@ sealed class TrayApp : ApplicationContext
             }
         }
         finally { _discovering = false; }
+    }
+
+    /// <summary>What a click on the current balloon does (default: open the log). Set right before Notify.</summary>
+    Action? _balloonAction;
+    static readonly HttpClient UpdateHttp = new() { Timeout = TimeSpan.FromSeconds(10) };
+
+    /// <summary>Daily, opt-in, policy-gated: one balloon per newer release, click opens the release page. Never downloads.</summary>
+    public async Task CheckForUpdates(bool manual = false)
+    {
+        try
+        {
+            var version = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "0.0.0";
+            var checker = new Updates.UpdateChecker(async (url, ct) =>
+            {
+                using var req = new HttpRequestMessage(HttpMethod.Get, url);
+                req.Headers.UserAgent.ParseAdd($"NetPaw/{version}"); req.Headers.Accept.ParseAdd("application/vnd.github+json");
+                using var resp = await UpdateHttp.SendAsync(req, ct); resp.EnsureSuccessStatusCode();
+                return await resp.Content.ReadAsStringAsync(ct);
+            }, version);
+            var s = _svc.Settings;
+            if (manual) { s.UpdateLastCheck = null; s.UpdateLastVersionSeen = null; }
+            var info = await Task.Run(() => checker.Run(s, _svc.Allowed(Capability.UpdateCheck), DateTimeOffset.Now));
+            _svc.SaveSettings();
+            if (info is null) { if (manual) Notify("NetPaw is up to date", $"Version {version} is the latest release.", ToolTipIcon.Info, force: true); return; }
+            _balloonAction = () => Process.Start(new ProcessStartInfo(info.Url) { UseShellExecute = true });
+            Notify($"NetPaw {info.Version} is available", (info.Headline is null ? "" : info.Headline + " — ") + "click to open the release page.", ToolTipIcon.Info, force: true);
+        }
+        catch (Exception ex) { _svc.Store.Log("update check: " + ex.Message); if (manual) Notify("Update check failed", ex.Message, ToolTipIcon.Warning, force: true); }
     }
 
     public void UndoAutoSwitch()
