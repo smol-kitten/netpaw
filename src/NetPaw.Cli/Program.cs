@@ -27,6 +27,8 @@ const string Usage = """
       netpaw-cli find-routers [-a X] [--force]    borrow an address in each common subnet, ARP the usual gateways, report who answers (--force: ok to drop a DHCP lease)
       netpaw-cli incidents [-n 30]                show the incident log (enable it in settings: repair.incidentLog)
       netpaw-cli reach <ip[/prefix]> [--replace] [-a X] [-n]
+      netpaw-cli wake <mac> [subnet/prefix]         Wake-on-LAN magic packet (global + subnet broadcast)
+      netpaw-cli routes                             IPv4 route table with interface names
       netpaw-cli trace <host> [--max N]             traceroute (ICMP TTL, no elevation); rc 1 when the target never answers
       netpaw-cli check <host:port> [--timeout ms]   one TCP connect: open / refused / timeout (rc 0/1/2, 3 = unresolved)
                                               make <ip> reachable: pick a covering profile, else a preset,
@@ -135,6 +137,21 @@ try
             var r = NetPaw.Connectivity.PortCheck.Run(new NetPaw.Connectivity.NetworkProbe(), host, port, int.TryParse(timeoutOpt, out var t) ? t : 2000).GetAwaiter().GetResult();
             Console.WriteLine(r.Text);
             return r.ExitCode;
+        }
+        case "wake":
+        {
+            if (argv.Count < 2 || !NetPaw.Net.WakeOnLan.TryParseMac(argv[1], out _)) return Fail("wake needs a MAC address, e.g. wake bc:24:11:2f:f7:33 [10.0.0.0/24]");
+            NetPaw.Model.IpAddr? subnet = argv.Count > 2 && NetPaw.Net.IpMath.TryParseCidr(argv[2], out var sn) ? sn : null;
+            NetPaw.Net.WakeOnLan.Wake(new NetPaw.Net.UdpWol(), argv[1], subnet).GetAwaiter().GetResult();
+            Console.WriteLine($"magic packet sent to {argv[1]} via {string.Join(", ", NetPaw.Net.WakeOnLan.Targets(subnet))} (same segment only)");
+            return 0;
+        }
+        case "routes":
+        {
+            var all = svc.GetAdapters();
+            foreach (var r in NetPaw.Planning.RouteTable.ReadAll(svc.Runner).OrderBy(r => r.Prefix == "0.0.0.0/0" ? 0 : 1).ThenBy(r => r.Prefix))
+                Console.WriteLine($"{r.Prefix,-20} {r.Gateway ?? "on-link",-16} {all.FirstOrDefault(a => a.Index == r.InterfaceIndex)?.Name ?? r.InterfaceName,-24} {r.Metric,5}  {r.Type}");
+            return 0;
         }
         case "trace":
         {

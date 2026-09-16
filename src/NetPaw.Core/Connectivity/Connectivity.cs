@@ -166,6 +166,8 @@ public sealed record Snapshot(
     public Adapters.Dot1xInfo? Dot1x { get; init; }
     /// <summary>Path MTU measured once per link-up (checks on); null = not measured or inconclusive.</summary>
     public MtuResult? PathMtu { get; init; }
+    /// <summary>The route table when the caller attached it (Tray does, once per tick); null otherwise.</summary>
+    public IReadOnlyList<Planning.RouteEntry>? Routes { get; init; }
     public bool GatewayOk => Intranet.Any(p => p.Ok);
     public bool InternetOk => Internet.Any(p => p.Ok);
     public bool DnsOk => DnsCheck?.Ok ?? false;

@@ -4,6 +4,7 @@ using NetPaw.Adapters;
 using NetPaw.Connectivity;
 using NetPaw.Hotkeys;
 using NetPaw.Model;
+using NetPaw.Net;
 using NetPaw.Planning;
 using NetPaw.Reach;
 using NetPaw.Scan;
@@ -129,6 +130,7 @@ sealed class TrayApp : ApplicationContext
             var work = Work;
             var snap = await Task.Run(() => _checker.Check(work, _svc.Settings.Checks));
             if (snap.Adapter is not null && _pathMtu.TryGetValue(snap.Adapter.Name, out var knownMtu)) snap = snap with { PathMtu = knownMtu };
+            if (snap.Link && snap.HasAddress && OperatingSystem.IsWindows()) { try { snap = snap with { Routes = await Task.Run(() => RouteTable.ReadAll(_svc.Runner)) }; } catch (Exception ex) { _svc.Store.Log("routes: " + ex.Message); } }
             _previous = _snapshot; _snapshot = snap;
             _advisories = _svc.Settings.Repair.DhcpAdvisory ? Advisor.Analyze(snap, _adapters) : [];
             var secondaries = AdapterSelector.Secondaries(_adapters, work);
@@ -376,6 +378,23 @@ sealed class TrayApp : ApplicationContext
         var live = _svc.GetAdapters().FirstOrDefault(a => a.Name == adapter.Name) ?? adapter;
         return await MakeSwitcher(live).Learn(live);
     }
+
+    /// <summary>Wake-on-LAN towards the subnet the MAC was seen on. Nothing to verify — the target answers ARP a few seconds later if it worked.</summary>
+    public async Task Wake(string mac, IpAddr? subnet)
+    {
+        try
+        {
+            await WakeOnLan.Wake(new UdpWol(), mac, subnet);
+            _svc.Store.Log($"wake {mac} via {string.Join(", ", WakeOnLan.Targets(subnet))}");
+            Status?.Invoke($"Magic packet sent to {mac}. Re-check the map in a few seconds.", "ok"); Notify("Wake-on-LAN", $"Magic packet sent to {mac} ({string.Join(", ", WakeOnLan.Targets(subnet).Select(t => t.Address))}). Same segment only — routers do not forward it.", ToolTipIcon.Info, force: true);
+            TelemetryHost.Event("map", "wake");
+        }
+        catch (Exception ex) { Status?.Invoke("Wake failed: " + ex.Message, "error"); }
+    }
+
+    /// <summary>Route table for the map's Routes tab and the "delete this stale route" action.</summary>
+    public IReadOnlyList<RouteEntry> ReadRoutes() { try { return OperatingSystem.IsWindows() ? RouteTable.ReadAll(_svc.Runner) : []; } catch (Exception ex) { _svc.Store.Log("routes: " + ex.Message); return []; } }
+    public void DeleteRoute(RouteEntry r) => Execute(ApplyPlanner.PlanDeleteRoute(r, _adapters.FirstOrDefault(a => a.Index == r.InterfaceIndex)?.Name ?? r.InterfaceName), subtitle: "Removes one route; the adapter's own routes come back with the next apply or renew.");
 
     /// <summary>Traceroute window; the probe is the same one the monitor uses.</summary>
     public void ShowTrace(string host) { var f = new TraceForm(Probe, host); f.Show(); Native.ForceForeground(f.Handle); }
@@ -629,6 +648,7 @@ sealed class TrayApp : ApplicationContext
             RepairKind.Reset => ApplyPlanner.PlanResetAdapter(target),
             RepairKind.Prefer => Advisor.PlanPrefer(target, _adapters),
             RepairKind.SetMtu => Advisor.PlanSetMtu(target, adv.Value ?? 1500),
+            RepairKind.DeleteRoute when adv.Route is { } route => ApplyPlanner.PlanDeleteRoute(route, target.Name),
             _ => null,
         };
         if (plan is null) return;

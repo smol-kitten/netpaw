@@ -6,7 +6,7 @@ namespace NetPaw.Connectivity;
 public enum AdvisorySeverity { Info, Warning, Error }
 
 /// <summary>A plain-language finding about the current configuration and whether a DHCP renew could fix it.</summary>
-public enum RepairKind { None, Renew, Release, Reset, Prefer, SetMtu }
+public enum RepairKind { None, Renew, Release, Reset, Prefer, SetMtu, DeleteRoute }
 
 public sealed record Advisory(AdvisorySeverity Severity, string Title, string Text, bool CanRenew)
 {
@@ -17,6 +17,8 @@ public sealed record Advisory(AdvisorySeverity Severity, string Title, string Te
     public string? Adapter { get; init; }
     /// <summary>Numeric argument for the repair (the MTU for <see cref="RepairKind.SetMtu"/>).</summary>
     public int? Value { get; init; }
+    /// <summary>The route a <see cref="RepairKind.DeleteRoute"/> repair removes.</summary>
+    public Planning.RouteEntry? Route { get; init; }
     public override string ToString() => $"{Title}: {Text}";
 }
 
@@ -61,6 +63,16 @@ public static class Advisor
         }
         if (s.Dot1x is { InProgress: true } && !s.HasAddress)
             list.Add(new(AdvisorySeverity.Info, "802.1X authentication in progress", $"{a.Name} is still authenticating with the switch; DHCP follows once the port opens.", CanRenew: false));
+        // Two manual default routes on this interface: the older one (a VPN or a lab session) is stale and steals traffic by metric.
+        if (s.Routes is { Count: > 0 })
+        {
+            var defaults = s.Routes.Where(r => r.Default && r.Manual && r.InterfaceIndex == a.Index).OrderBy(r => r.Metric).ToList();
+            if (defaults.Count > 1)
+            {
+                var stale = defaults.Skip(1).First(); var kept = defaults[0];
+                list.Add(new(AdvisorySeverity.Warning, $"Two default routes on {a.Name}", $"0.0.0.0/0 via {kept.Gateway} (metric {kept.Metric}) and via {stale.Gateway} (metric {stale.Metric}) are both manual. The second one is a leftover; delete it.", CanRenew: false) { Repair = RepairKind.DeleteRoute, RepairAdapter = a.Name, Route = stale });
+            }
+        }
         if (a.VSwitchUplink)
         {
             list.Add(new(AdvisorySeverity.Info, "Bound to a Hyper-V virtual switch", $"{a.Name} carries the external switch and has no host address by design. Configure the host on its vEthernet adapter instead — pick it as the work adapter (tray menu → Work adapter).", CanRenew: false));

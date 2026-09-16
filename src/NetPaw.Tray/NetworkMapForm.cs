@@ -22,6 +22,9 @@ sealed class NetworkMapForm : Form
     readonly Label _status = new() { Dock = DockStyle.Bottom, Height = 24, Padding = new Padding(12, 4, 0, 0), ForeColor = Theme.Muted, Font = Theme.Small };
     readonly Button _refresh = new() { Text = "Refresh cache", Width = 120, Height = 28 }, _check = new() { Text = "Re-check (ARP)", Width = 130, Height = 28 }, _sweep = new() { Text = "Sweep subnet", Width = 120, Height = 28 };
     readonly Button _find = new() { Text = "Find routers", Width = 130, Height = 28 }, _copy = new() { Text = "Copy", Width = 70, Height = 28 };
+    readonly ListView _routes = new() { Dock = DockStyle.Fill, View = View.Details, FullRowSelect = true, BorderStyle = BorderStyle.None, MultiSelect = false };
+    readonly Button _routesRefresh = new() { Text = "Refresh", Width = 90, Height = 28 }, _routeDelete = new() { Text = "Delete route", Width = 110, Height = 28, Enabled = false };
+    readonly Dictionary<ListViewItem, NetPaw.Planning.RouteEntry> _routeRows = [];
     CancellationTokenSource? _cts;
 
     public NetworkMapForm(TrayApp app, AdapterInfo adapter)
@@ -47,7 +50,24 @@ sealed class NetworkMapForm : Form
         var hint = new Label { Text = "Borrows a temporary address in each common subnet, ARPs .1/.254 and vendor defaults, then removes it. ~1-2 s per subnet.", AutoSize = true, ForeColor = Theme.Muted, Font = Theme.Small, Margin = new Padding(8, 8, 0, 0) };
         bar2.Controls.AddRange([_find, hint]);
         t1.Controls.Add(_hosts); t1.Controls.Add(bar1); t2.Controls.Add(_routers); t2.Controls.Add(bar2);
-        _tabs.TabPages.Add(t1); _tabs.TabPages.Add(t2); _tabs.TabPages.Add(t3);
+        // Routes tab: the live table, delete for manual rows (the stale VPN default, the leftover lab route).
+        var t4 = new TabPage("Routes") { BackColor = Theme.Bg };
+        foreach (var (h, w) in new[] { ("Prefix", 150), ("Next hop", 130), ("Interface", 180), ("Metric", 70), ("Type", 80) }) _routes.Columns.Add(h, w);
+        _routes.BackColor = Theme.Panel; _routes.ForeColor = Theme.Text; _routes.Font = Theme.Base;
+        var bar4 = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 40, Padding = new Padding(8, 6, 8, 0) };
+        var hint4 = new Label { Text = "Manual routes can be deleted here; system routes come from addresses and leases.", AutoSize = true, ForeColor = Theme.Muted, Font = Theme.Small, Margin = new Padding(8, 8, 0, 0) };
+        bar4.Controls.AddRange([_routesRefresh, _routeDelete, hint4]);
+        t4.Controls.Add(_routes); t4.Controls.Add(bar4);
+        _routesRefresh.Click += (_, _) => LoadRoutes();
+        _routes.SelectedIndexChanged += (_, _) => _routeDelete.Enabled = _routes.SelectedItems.Count == 1 && _routeRows.TryGetValue(_routes.SelectedItems[0], out var sel) && sel.Manual;
+        _routeDelete.Click += (_, _) => { if (_routes.SelectedItems.Count == 1 && _routeRows.TryGetValue(_routes.SelectedItems[0], out var r)) { _app.DeleteRoute(r); Close(); } };
+        _tabs.SelectedIndexChanged += (_, _) => { if (_tabs.SelectedTab == t4 && _routes.Items.Count == 0) LoadRoutes(); };
+        // Wake-on-LAN from a neighbour row: right-click → Wake.
+        var wake = new ContextMenuStrip { Renderer = new DarkMenuRenderer() };
+        wake.Items.Add("Wake (magic packet)", null, async (_, _) => { if (_hosts.SelectedItems.Count == 1 && _hosts.SelectedItems[0].SubItems.Count > 1) await _app.Wake(_hosts.SelectedItems[0].SubItems[1].Text, _adapter.Addresses.FirstOrDefault(x => x.Contains(_hosts.SelectedItems[0].Text))); });
+        wake.Items.Add("Copy MAC", null, (_, _) => { if (_hosts.SelectedItems.Count == 1) Clipboard.SetText(_hosts.SelectedItems[0].SubItems[1].Text); });
+        _hosts.MouseClick += (_, e) => { if (e.Button == MouseButtons.Right && _hosts.GetItemAt(e.X, e.Y) is { } it && it.Tag is null) { it.Selected = true; wake.Show(_hosts, e.Location); } };
+        _tabs.TabPages.Add(t1); _tabs.TabPages.Add(t2); _tabs.TabPages.Add(t3); _tabs.TabPages.Add(t4);
         Controls.Add(_tabs); Controls.Add(_status);
         _refresh.Click += (_, _) => { if (_cts is not null) _cts.Cancel(); else LoadCache(); };
         _check.Click += async (_, _) => await Recheck(sweep: false);
@@ -58,6 +78,19 @@ sealed class NetworkMapForm : Form
         FormClosing += (_, _) => _cts?.Cancel();
         Theme.Apply(this); Theme.Primary(_find);
         Load += (_, _) => { Native.Dress(this); Native.ForceForeground(Handle); LoadCache(); };
+    }
+
+    void LoadRoutes()
+    {
+        _routes.BeginUpdate(); _routes.Items.Clear(); _routeRows.Clear();
+        var adapters = _app.Service.GetAdapters();
+        foreach (var r in _app.ReadRoutes().OrderBy(r => r.Prefix == "0.0.0.0/0" ? 0 : 1).ThenBy(r => r.Prefix))
+        {
+            var iface = adapters.FirstOrDefault(a => a.Index == r.InterfaceIndex)?.Name ?? (r.InterfaceName.Length > 0 ? r.InterfaceName : r.InterfaceIndex.ToString());
+            var item = new ListViewItem([r.Prefix, r.Gateway ?? "on-link", iface, r.Metric.ToString(), r.Type]) { ForeColor = r.Manual ? Theme.Text : Theme.Muted };
+            _routeRows[item] = r; _routes.Items.Add(item);
+        }
+        _routes.EndUpdate(); _routeDelete.Enabled = false;
     }
 
     void LoadCache()

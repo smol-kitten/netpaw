@@ -74,6 +74,14 @@ public static class ApplyPlanner
     }
 
     /// <summary>Disable → enable: the documented cure for the Windows "static applied but ipconfig still shows DHCP / two gateways" state. Never automatic.</summary>
+    /// <summary>Delete one route (the stale VPN default, the leftover lab route). Interface by index so renamed adapters do not matter.</summary>
+    public static ApplyPlan PlanDeleteRoute(RouteEntry r, string adapterName)
+    {
+        var plan = new ApplyPlan { Title = $"delete route {r.Prefix}", Adapter = adapterName };
+        plan.Steps.Add(Step.Netsh($"Delete route {r.Prefix}{(r.Gateway is null ? "" : " via " + r.Gateway)}", $"interface ipv4 delete route prefix={r.Prefix} interface={r.InterfaceIndex}{(r.Gateway is null ? "" : " nexthop=" + r.Gateway)}"));
+        return plan;
+    }
+
     public static ApplyPlan PlanResetAdapter(AdapterInfo adapter)
     {
         var plan = new ApplyPlan { Title = "reset adapter", Adapter = adapter.Name };

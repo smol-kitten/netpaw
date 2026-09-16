@@ -34,9 +34,10 @@ public class RouteTableTests
     {
         var r = RouteTable.Parse(ShowRoute);
         Assert.Equal(5, r.Count);
-        Assert.Equal(new RouteEntry("10.20.0.0/16", 12, "192.168.1.254", 10), r[2]);
+        Assert.Equal(new RouteEntry("10.20.0.0/16", 12, "192.168.1.254", 10, "Manual"), r[2]);
         Assert.Null(r[3].Gateway);                       // on-link route names the interface, not a hop
-        Assert.Equal(new RouteEntry("10.30.0.5/32", 7, "10.9.9.1", 5), r[4]);
+        Assert.Equal(new RouteEntry("10.30.0.5/32", 7, "10.9.9.1", 5, "Manual"), r[4]);
+        Assert.Equal("Ethernet", r[3].InterfaceName);
         var m = RouteTable.ParseInterfaceMetrics(ShowInterfaces);
         Assert.Equal(25, m[12]); Assert.Equal(35, m[7]);
         Assert.Empty(RouteTable.Parse("")); Assert.Empty(RouteTable.ParseInterfaceMetrics("garbage\nmore garbage"));
