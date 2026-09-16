@@ -1,5 +1,4 @@
 {
- "ok": true,
  "readme": "README.md",
  "type": "generic",
  "type_detected": "generic",
@@ -8,50 +7,65 @@
  ],
  "type_confident": false,
  "type_override": null,
- "scanned_ts": 1789507989,
+ "scanned_ts": 1789549160,
  "sections": [
   {
-   "title": "Install",
-   "anchor": "install",
-   "hash": "ee73e6c865d5",
-   "chars": 864
+   "title": "\ud83d\udcd6 Description",
+   "anchor": "-description",
+   "hash": "6f5dfc2cf1d7",
+   "chars": 466
   },
   {
-   "title": "Use",
-   "anchor": "use",
-   "hash": "27c7b21469e3",
-   "chars": 4953
+   "title": "\ud83d\udce6 Installation",
+   "anchor": "-installation",
+   "hash": "3884ec3e4819",
+   "chars": 869
+  },
+  {
+   "title": "\ud83d\ude80 Usage",
+   "anchor": "-usage",
+   "hash": "80c3bf3f2429",
+   "chars": 7113
+  },
+  {
+   "title": "\ud83d\ude4c Acknowledgements",
+   "anchor": "-acknowledgements",
+   "hash": "292042e52c3d",
+   "chars": 71
   },
   {
    "title": "Files",
    "anchor": "files",
-   "hash": "a722296583e1",
-   "chars": 1113
+   "hash": "968bf11dd1ff",
+   "chars": 1118
   },
   {
    "title": "What it runs",
    "anchor": "what-it-runs",
-   "hash": "1a6fac3824f1",
-   "chars": 897
+   "hash": "5a6ab9c49ccf",
+   "chars": 902
   },
   {
    "title": "Build",
    "anchor": "build",
-   "hash": "1128ea3f7dde",
-   "chars": 634
+   "hash": "6e5e3445ce1f",
+   "chars": 639
   },
   {
    "title": "Not (yet) in scope",
    "anchor": "not-yet-in-scope",
-   "hash": "5636698e254a",
-   "chars": 186
+   "hash": "e07e11eb5935",
+   "chars": 191
+  },
+  {
+   "title": "\ud83d\udcc4 License",
+   "anchor": "-license",
+   "hash": "08432f4de7ad",
+   "chars": 188
   }
  ],
  "changed_since_last": [
-  "install",
-  "use",
-  "files",
-  "build"
+  "-description"
  ],
  "findings": [
   {
