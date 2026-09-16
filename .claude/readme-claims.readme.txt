@@ -62,7 +62,7 @@ MIT licensed. Windows 10/11, .NET 10.
 
 [![CI](https://github.com/smol-kitten/netpaw/actions/workflows/ci.yml/badge.svg)](https://github.com/smol-kitten/netpaw/actions/workflows/ci.yml) ![C#](https://img.shields.io/badge/C%23-239120?style=for-the-badge&logo=csharp&logoColor=white) ![License](https://img.shields.io/badge/license-MIT-blue?style=for-the-badge)
 
-**Contents:** [📖 Description](#-description) · [📦 Installation](#-installation) · [🚀 Usage](#-usage) · [Files](#files) · [What it runs](#what-it-runs) · [Build](#build) · [Not (yet) in scope](#not-yet-in-scope) · [📄 License](#-license)
+**Contents:** [📖 Description](#-description) · [📦 Installation](#-installation) · [🚀 Usage](#-usage) · [🙌 Acknowledgements](#-acknowledgements) · [Files](#files) · [What it runs](#what-it-runs) · [Build](#build) · [Not (yet) in scope](#not-yet-in-scope) · [📄 License](#-license)
 
 ## 📖 Description
 
@@ -105,6 +105,12 @@ Typing `192.168.88.1` does, in order:
 → Full page: [🚀 Usage](docs/usage.md)
 <!-- readme_kit split: full page in docs/ -->
 
+
+## 🙌 Acknowledgements
+
+- This project is licensed under **MIT** — see [LICENSE](LICENSE).
+
+---
 
 ## Files
 

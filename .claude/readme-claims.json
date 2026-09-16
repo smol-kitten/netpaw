@@ -1,0 +1,141 @@
+{
+ "readme": "README.md",
+ "model": "nano",
+ "claims": [
+  {
+   "line": 23,
+   "text": "**Tiny and fast** — two executables, ~1.5 MB together, no installer, no service, no telemetry.",
+   "kind": "size",
+   "check": {
+    "pattern": "out/netpaw-win-x64.zip",
+    "max_mb": 2.0
+   },
+   "id": "c1"
+  },
+  {
+   "line": 81,
+   "text": "| `netpaw-win-x64-standalone.zip` | nothing | ~110 MB |",
+   "kind": "size",
+   "check": {
+    "pattern": "out/netpaw-win-x64-standalone.zip",
+    "max_mb": 120.0
+   },
+   "id": "c3"
+  },
+  {
+   "line": 82,
+   "text": "| `NetPaw-<version>.msi` | [.NET 10 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/10.0) | ~1 MB, per-machine, for Intune/GPO |",
+   "kind": "file",
+   "check": {
+    "path": "deploy/msi/Package.wxs"
+   },
+   "id": "c4"
+  },
+  {
+   "line": 43,
+   "text": "MIT licensed. Windows 10/11, .NET 10.",
+   "kind": "grep",
+   "check": {
+    "path": "src/NetPaw.Tray/NetPaw.Tray.csproj",
+    "regex": "net10\\.0-windows",
+    "min": 1,
+    "max": 1
+   },
+   "id": "c5"
+  },
+  {
+   "line": 40,
+   "text": "**Enterprise-ready** — MSI for Intune/GPO, read-only managed profiles from `%ProgramData%`, registry policy with ADMX (pin the adapter/hotkey, deny reach/DHCP/user profiles). See [docs/ENTERPRISE.md](docs/ENTERPRISE.md).",
+   "kind": "file",
+   "check": {
+    "path": "docs/ENTERPRISE.md"
+   },
+   "id": "c6"
+  },
+  {
+   "line": 41,
+   "text": "**Online profile packs** — subscribe to signed `index.json` repositories (the community pack in this repo, or your company's). Fetched only when you click *Sync*, cached, never auto-applied. See [docs/PACK-FORMAT.md](docs/PACK-FORMAT.md).",
+   "kind": "file",
+   "check": {
+    "path": "docs/PACK-FORMAT.md"
+   },
+   "id": "c7"
+  },
+  {
+   "line": 188,
+   "text": "MIT — see [LICENSE](LICENSE).",
+   "kind": "file",
+   "check": {
+    "path": "LICENSE"
+   },
+   "id": "c9"
+  },
+  {
+   "line": 63,
+   "text": "[![CI](https://github.com/smol-kitten/netpaw/actions/workflows/ci.yml/badge.svg)](https://github.com/smol-kitten/netpaw/actions/workflows/ci.yml) ![C#](https://img.shields.io/badge/C%23-239120?style=for-the-badge&logo=csharp&logoColor=white) ![License](https://img.shields.io/badge/license-MIT-blue?style=for-the-badge)",
+   "kind": "url",
+   "check": {
+    "url": "https://github.com/smol-kitten/netpaw/actions/workflows/ci.yml"
+   },
+   "id": "c10"
+  },
+  {
+   "line": 80,
+   "text": "| `netpaw-win-x64.zip` | [.NET 10 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/10.0) | ~1.5 MB |",
+   "kind": "url",
+   "check": {
+    "url": "https://dotnet.microsoft.com/download/dotnet/10.0"
+   },
+   "id": "c11"
+  },
+  {
+   "line": 76,
+   "text": "Grab a zip from [Releases](../../releases):",
+   "kind": "url",
+   "check": {
+    "url": "https://github.com/smol-kitten/netpaw/releases"
+   },
+   "id": "c13"
+  },
+  {
+   "line": 15,
+   "text": "- **Device presets** — factory default addresses of ~60 common routers, switches, firewalls,",
+   "kind": "grep",
+   "check": {
+    "path": "src/NetPaw.Core/Presets/presets.json",
+    "regex": "\"vendor\"",
+    "min": 50,
+    "max": 100
+   },
+   "id": "c14"
+  },
+  {
+   "line": 15,
+   "text": "- **Device presets** — factory default addresses of ~60 common routers, switches, firewalls,",
+   "kind": "grep",
+   "check": {
+    "path": "src/NetPaw.Core/Presets/presets.json",
+    "regex": "\"ip\"",
+    "min": 50,
+    "max": 100
+   },
+   "id": "c15"
+  },
+  {
+   "line": 15,
+   "text": "- **Device presets** — factory default addresses of ~60 common routers, switches, firewalls,",
+   "kind": "grep",
+   "check": {
+    "path": "src/NetPaw.Core/Presets/presets.json",
+    "regex": "\"model\"",
+    "min": 50,
+    "max": 100
+   },
+   "id": "c16"
+  }
+ ],
+ "readme_sha": "d1c2ceb1c5663c39",
+ "extracted": 1789549217,
+ "incremental": false,
+ "readme_lines": 200
+}
