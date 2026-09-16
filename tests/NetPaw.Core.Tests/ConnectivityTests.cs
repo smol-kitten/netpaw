@@ -21,6 +21,15 @@ class FakeProbe : IProbe
         var hop = path[ttl - 1];
         return Task.FromResult(new ProbeResult(host, hop == host, ttl * 2, hop ?? "*"));
     }
+    /// <summary>host → path MTU; hosts not listed never answer a DF ping (ICMP blocked).</summary>
+    public Dictionary<string, int> PathMtu { get; } = [];
+    public int DfProbes;
+    public Task<ProbeResult> PingDf(string host, int payload, int timeoutMs, CancellationToken ct)
+    {
+        DfProbes++;
+        var ok = PathMtu.TryGetValue(host, out var mtu) && payload + Mtu.Overhead <= mtu;
+        return Task.FromResult(new ProbeResult(host, ok, 3, ok ? "Success" : PathMtu.ContainsKey(host) ? "too big" : "TimedOut"));
+    }
     public HashSet<string> OpenPorts { get; } = [];
     public HashSet<string> RefusedPorts { get; } = [];
     public HashSet<string> UnreachableHosts { get; } = [];

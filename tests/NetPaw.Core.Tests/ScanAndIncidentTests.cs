@@ -322,7 +322,7 @@ public class FingerprintScoreTests
             """;
         var l = Wlan.Parse(text);
         Assert.Equal(2, l.Count);
-        Assert.Equal(new WlanInfo("Wi-Fi", "Corp WLAN", "10:20:30:40:50:60"), l[0]);
+        Assert.Equal(new WlanInfo("Wi-Fi", "Corp WLAN", "10:20:30:40:50:60", Radio: "802.11ax"), l[0]);
         Assert.Null(l[1].Bssid);
         Assert.Equal("10:20:30:40:50:60", Wlan.Parse(text.Replace("10:20:30:40:50:60", "10-20-30-40-50-60"))[0].Bssid);
     }

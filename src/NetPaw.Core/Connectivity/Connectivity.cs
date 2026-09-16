@@ -20,6 +20,8 @@ public interface IProbe
     Task<ProbeResult> DnsQuery(string server, string name, int timeoutMs, CancellationToken ct) => Task.FromResult(new ProbeResult(server, false, 0, "not implemented"));
     /// <summary>Ping with a TTL. Ok = the target itself answered; Detail = the replying hop's address, or "*" for silence.</summary>
     Task<ProbeResult> PingTtl(string host, int ttl, int timeoutMs, CancellationToken ct) => Task.FromResult(new ProbeResult(host, false, 0, "*"));
+    /// <summary>Ping with Don't-Fragment and <paramref name="payload"/> bytes. Ok = answered; Detail "too big" when a hop refused the size.</summary>
+    Task<ProbeResult> PingDf(string host, int payload, int timeoutMs, CancellationToken ct) => Task.FromResult(new ProbeResult(host, false, 0, "not implemented"));
 }
 
 public sealed class NetworkProbe : IProbe
@@ -72,6 +74,18 @@ public sealed class NetworkProbe : IProbe
     }
 
     public Task<ProbeResult> DnsQuery(string server, string name, int timeoutMs, CancellationToken ct) => Connectivity.DnsQuery.Ask(server, name, timeoutMs, ct);
+
+    public async Task<ProbeResult> PingDf(string host, int payload, int timeoutMs, CancellationToken ct)
+    {
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        try
+        {
+            using var p = new System.Net.NetworkInformation.Ping();
+            var r = await p.SendPingAsync(host, TimeSpan.FromMilliseconds(timeoutMs), new byte[Math.Max(0, payload)], new PingOptions(128, true), ct);
+            return new ProbeResult(host, r.Status == IPStatus.Success, (int)sw.ElapsedMilliseconds, r.Status == IPStatus.PacketTooBig ? "too big" : r.Status.ToString());
+        }
+        catch (Exception ex) when (ex is PingException or System.Net.Sockets.SocketException or InvalidOperationException) { return new ProbeResult(host, false, (int)sw.ElapsedMilliseconds, ex.GetBaseException().Message); }
+    }
 
     public async Task<ProbeResult> PingTtl(string host, int ttl, int timeoutMs, CancellationToken ct)
     {
@@ -146,6 +160,12 @@ public sealed record Snapshot(
     /// <summary>One result per configured DNS server (Ok = it replied at all). Empty when checks are off.</summary>
     public IReadOnlyList<ProbeResult> DnsServers { get; init; } = [];
     public bool AnyDnsServerAnswers => DnsServers.Any(d => d.Ok);
+    /// <summary>Wi-Fi association details for a wireless adapter (netsh wlan), null otherwise.</summary>
+    public Adapters.WlanInfo? Wlan { get; init; }
+    /// <summary>Wired 802.1X state, read only when the adapter is up without an address.</summary>
+    public Adapters.Dot1xInfo? Dot1x { get; init; }
+    /// <summary>Path MTU measured once per link-up (checks on); null = not measured or inconclusive.</summary>
+    public MtuResult? PathMtu { get; init; }
     public bool GatewayOk => Intranet.Any(p => p.Ok);
     public bool InternetOk => Internet.Any(p => p.Ok);
     public bool DnsOk => DnsCheck?.Ok ?? false;
@@ -211,13 +231,21 @@ public sealed class CheckSettings
 /// <summary>Runs one round of probes for an adapter. Pure orchestration; probes injected.</summary>
 public sealed class ConnectivityChecker(IProbe probe)
 {
+    /// <summary>netsh wlan on Windows (through the step runner); null elsewhere. Tests inject.</summary>
+    public Func<string, Adapters.WlanInfo?>? WlanReader { get; set; }
+    /// <summary>netsh lan on Windows; null elsewhere or when the Wired AutoConfig service is off.</summary>
+    public Func<string, Adapters.Dot1xInfo?>? Dot1xReader { get; set; }
+
+    Adapters.WlanInfo? Wlan(AdapterInfo a) { try { return a.Wireless && a.Up ? WlanReader?.Invoke(a.Name) : null; } catch (Exception) { return null; } }
+    Adapters.Dot1xInfo? Dot1x(AdapterInfo a, bool hasAddr) { try { return !a.Wireless && a.IsPhysical && a.Up && !hasAddr ? Dot1xReader?.Invoke(a.Name) : null; } catch (Exception) { return null; } }
+
     public async Task<Snapshot> Check(AdapterInfo? adapter, CheckSettings s, CancellationToken ct = default)
     {
         var now = DateTimeOffset.Now;
         if (adapter is null) return new Snapshot(now, null, false, false, false, [], [], null, s.Enabled);
         // A 169.254.x.x self-assigned address means "DHCP did not answer", not "configured".
         var link = adapter.Up; var hasAddr = adapter.Addresses.Any(a => !a.Address.StartsWith("169.254.")); var hasGw = adapter.HasGateway;
-        if (!s.Enabled || !link || !hasAddr) return new Snapshot(now, adapter, link, hasAddr, hasGw, [], [], null, s.Enabled);
+        if (!s.Enabled || !link || !hasAddr) return new Snapshot(now, adapter, link, hasAddr, hasGw, [], [], null, s.Enabled) { Wlan = Wlan(adapter), Dot1x = Dot1x(adapter, hasAddr) };
 
         var intranetTargets = adapter.Gateways.Take(1).Concat(s.IntranetTargets).Where(t => !string.IsNullOrWhiteSpace(t)).Distinct().ToList();
         var intranet = await Task.WhenAll(intranetTargets.Select(t => probe.Ping(t, s.TimeoutMs, ct)));
@@ -228,7 +256,7 @@ public sealed class ConnectivityChecker(IProbe probe)
         // Each configured server on its own: the resolver hides which one is dead (and waits for it on every lookup).
         var name = string.IsNullOrWhiteSpace(s.DnsCheckHost) ? "www.msftconnecttest.com" : s.DnsCheckHost;
         var servers = await Task.WhenAll(adapter.Dns.Distinct().Select(d => probe.DnsQuery(d, name, s.TimeoutMs, ct)));
-        return new Snapshot(now, adapter, link, hasAddr, hasGw, intranet, internet, dns, true, captive) { DnsServers = servers };
+        return new Snapshot(now, adapter, link, hasAddr, hasGw, intranet, internet, dns, true, captive) { DnsServers = servers, Wlan = Wlan(adapter) };
     }
 
     /// <summary>

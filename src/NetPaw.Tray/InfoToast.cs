@@ -92,6 +92,9 @@ sealed class InfoToast : Form
         if (a is not null)
         {
             Row("Link", a.Up ? "up" : "down", a.Up);
+            if (s!.Wlan is { } wl) Row("Wi-Fi", wl.Summary, wl.Signal is null ? null : !wl.Weak);
+            if (s.Dot1x is { } dx && (dx.Failed || dx.InProgress)) Row("802.1X", dx.State, !dx.Failed);
+            if (s.PathMtu is { } pm) Row("Path MTU", $"{pm.Mtu} to {pm.Host}", !pm.Reduced);
             Row("Address", a.Addresses.Count == 0 ? "none" : string.Join(", ", a.Addresses.Select(x => x.ToString())) + (a.Dhcp ? "  (DHCP)" : "") + (s.HasAddress ? "" : "  self-assigned"), s.HasAddress);
             Row("Gateway", a.HasGateway ? a.Gateways[0] + (s!.ChecksEnabled && s.Intranet.Count > 0 ? (s.GatewayOk ? $"  {s.Intranet[0].Ms} ms" : "  no reply") : "") : "not set", a.HasGateway && (!s!.ChecksEnabled || s.Intranet.Count == 0 || s.GatewayOk));
             // With checks on, each server carries its own verdict: "10.0.0.53 ✗, 10.0.0.54 ✓ 3 ms".

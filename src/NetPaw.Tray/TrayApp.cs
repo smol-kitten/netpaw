@@ -69,7 +69,7 @@ sealed class TrayApp : ApplicationContext
 
     public TrayApp(NetPawService svc, bool showPanelAtStart)
     {
-        _checker = new ConnectivityChecker(Probe);
+        _checker = new ConnectivityChecker(Probe) { WlanReader = n => Wlan.Read(_svc.Runner, n), Dot1xReader = n => Dot1x.Read(_svc.Runner, n) };
         _svc = svc;
         _menu = new ContextMenuStrip { Renderer = new DarkMenuRenderer(), Font = Theme.Base, ShowImageMargin = true, ShowCheckMargin = false };
         _menu.Opening += (_, _) => { _menuOpen = true; BuildMenu(); };
@@ -128,6 +128,7 @@ sealed class TrayApp : ApplicationContext
             try { _adapters = _svc.GetAdapters(); } catch (Exception ex) { _svc.Store.Log("adapters: " + ex.Message); }
             var work = Work;
             var snap = await Task.Run(() => _checker.Check(work, _svc.Settings.Checks));
+            if (snap.Adapter is not null && _pathMtu.TryGetValue(snap.Adapter.Name, out var knownMtu)) snap = snap with { PathMtu = knownMtu };
             _previous = _snapshot; _snapshot = snap;
             _advisories = _svc.Settings.Repair.DhcpAdvisory ? Advisor.Analyze(snap, _adapters) : [];
             var secondaries = AdapterSelector.Secondaries(_adapters, work);
@@ -199,6 +200,20 @@ sealed class TrayApp : ApplicationContext
                     }
                 }
             }
+            // Path MTU once per link-up (checks on): ~10 DF pings, then the advisor sees it on every later tick.
+            if (linkUp && snap.ChecksEnabled && snap.HasAddress && snap.InternetOk && snap.Internet.FirstOrDefault(p => p.Ok) is { } via && !_pathMtu.ContainsKey(snap.Adapter!.Name))
+            {
+                var name = snap.Adapter.Name;
+                var m = await Task.Run(() => Mtu.Discover(Probe, via.Target));
+                if (m is not null && _snapshot?.Adapter?.Name == name)
+                {
+                    _pathMtu[name] = m; _svc.Store.Log($"path mtu on {name}: {m.Mtu} via {m.Host} ({m.Probes} probes)");
+                    _snapshot = snap = snap with { PathMtu = m };
+                    _advisories = _svc.Settings.Repair.DhcpAdvisory ? Advisor.Analyze(snap, _adapters) : [];
+                    _toast?.Render(snap); RefreshState();
+                }
+            }
+            if (!snap.Link && snap.Adapter is not null) _pathMtu.Remove(snap.Adapter.Name);
             if (_svc.Settings.Checks.StickyAlerts && !_menuOpen)
             {
                 var problem = Snapshot.IsProblem(snap.State);
@@ -317,6 +332,8 @@ sealed class TrayApp : ApplicationContext
         s.UpdateCheck = answer == DialogResult.Yes; s.UpdateCheckAsked = true; _svc.SaveSettings();
         TelemetryHost.Event("updates", s.UpdateCheck ? "opt-in" : "opt-out");
     }
+
+    readonly Dictionary<string, MtuResult> _pathMtu = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>What a click on the current balloon does (default: open the log). Set right before Notify.</summary>
     Action? _balloonAction;
@@ -611,6 +628,7 @@ sealed class TrayApp : ApplicationContext
             RepairKind.Release => Advisor.PlanRelease(target),
             RepairKind.Reset => ApplyPlanner.PlanResetAdapter(target),
             RepairKind.Prefer => Advisor.PlanPrefer(target, _adapters),
+            RepairKind.SetMtu => Advisor.PlanSetMtu(target, adv.Value ?? 1500),
             _ => null,
         };
         if (plan is null) return;
