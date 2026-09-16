@@ -17,3 +17,6 @@ Static-IP profiles for network admins, in the tray. One hotkey opens the **quick
 - Log of every command NetPaw ran: `%APPDATA%\NetPaw\netpaw.log`.
 
 Press **F1** anywhere in NetPaw to open this help on the current view. Alt+Left goes back.
+
+## Tools
+Tray menu → **Tools** (or type the name in the panel): *Which switch port am I on? (LLDP/CDP)*, *Route table*, *Find routers*, *Trace route*, *Check a TCP port*, *Wake-on-LAN*, *Export diagnostics*. Wi-Fi signal, 802.1X, path MTU, per-server DNS and "X cannot reach Y" advice live on the info card (`Ctrl+Alt+I`).

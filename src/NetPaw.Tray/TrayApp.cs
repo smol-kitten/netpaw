@@ -512,13 +512,20 @@ sealed class TrayApp : ApplicationContext
     /// <summary>Traceroute window; the probe is the same one the monitor uses.</summary>
     public void ShowTrace(string host) { var f = new TraceForm(Probe, host); f.Show(); Native.ForceForeground(f.Handle); }
 
-    public void ShowMap()
+    public void ShowMap() => ShowMap(0);
+    /// <param name="tab">0 neighbours, 1 find routers, 2 switch (LLDP/CDP), 3 routes.</param>
+    public void ShowMap(int tab)
     {
         var w = Work; if (w is null) { Notify("No adapter", "Pick a work adapter first.", ToolTipIcon.Warning); return; }
-        using var f = new NetworkMapForm(this, w);
+        using var f = new NetworkMapForm(this, w, tab);
         f.ShowDialog();
         RefreshState();
     }
+
+    // ---- tools that take one input: a prompt, then the existing action ------------------------
+    public void AskTrace() { var host = Prompt.Ask("Trace route", "Host or address:", _snapshot?.Internet.FirstOrDefault()?.Target ?? "1.1.1.1"); if (!string.IsNullOrWhiteSpace(host)) ShowTrace(host.Trim()); }
+    public void AskCheckPort() { var t = Prompt.Ask("Check a TCP port", "host:port, e.g. 10.0.0.5:443 or nas:22", ""); if (t is not null && PortCheck.TryParse(t, out var h, out var p)) _ = Guarded("port-check", () => CheckPort(h, p)); else if (!string.IsNullOrWhiteSpace(t)) Notify("Check port", $"'{t}' is not host:port", ToolTipIcon.Warning); }
+    public void AskWake() { var mac = Prompt.Ask("Wake-on-LAN", "MAC address (aa:bb:cc:dd:ee:ff):", ""); if (mac is not null && WakeOnLan.TryParseMac(mac, out _)) _ = Guarded("wake", () => Wake(mac.Trim(), Work?.RealAddress)); else if (!string.IsNullOrWhiteSpace(mac)) Notify("Wake-on-LAN", $"'{mac}' is not a MAC address", ToolTipIcon.Warning); }
 
     public void ShowInfo()
     {
@@ -644,13 +651,25 @@ sealed class TrayApp : ApplicationContext
         _menu.Items.Add(new ToolStripMenuItem("Network info", null, (_, _) => ShowInfo()) { ShortcutKeyDisplayString = _svc.Settings.InfoHotkey });
         if (_svc.Allowed(Capability.Scan))
             _menu.Items.Add(new ToolStripMenuItem("Scan for a working profile…", null, (_, _) => ShowScan()));
-        _menu.Items.Add(new ToolStripMenuItem("Network map (ARP / find routers)…", null, (_, _) => ShowMap()));
+        _menu.Items.Add(new ToolStripMenuItem("Network map — neighbours, routers, switch, routes…", null, (_, _) => ShowMap()));
+        // Every tool in one place; the panel finds them by name too ("lldp", "trace", "routes", "check", "wake", "diag").
+        var tools = new ToolStripMenuItem("Tools");
+        tools.DropDownItems.Add(new ToolStripMenuItem("Which switch port am I on? (LLDP/CDP)…", null, (_, _) => ShowMap(2)) { Enabled = _svc.Allowed(Capability.Capture) });
+        tools.DropDownItems.Add(new ToolStripMenuItem("Route table…", null, (_, _) => ShowMap(3)));
+        tools.DropDownItems.Add(new ToolStripMenuItem("Find routers on this cable…", null, (_, _) => ShowMap(1)) { Enabled = _svc.Allowed(Capability.Scan) });
+        tools.DropDownItems.Add(new ToolStripSeparator());
+        tools.DropDownItems.Add(new ToolStripMenuItem("Trace route…", null, (_, _) => AskTrace()));
+        tools.DropDownItems.Add(new ToolStripMenuItem("Check a TCP port…", null, (_, _) => AskCheckPort()));
+        tools.DropDownItems.Add(new ToolStripMenuItem("Wake-on-LAN…", null, (_, _) => AskWake()));
+        tools.DropDownItems.Add(new ToolStripSeparator());
+        tools.DropDownItems.Add(new ToolStripMenuItem("Export diagnostics…", null, (_, _) => ExportDiagnostics()));
+        tools.DropDown.Renderer = new DarkMenuRenderer();
+        _menu.Items.Add(tools);
         if (_svc.Settings.Repair.IncidentLog)
             _menu.Items.Add(new ToolStripMenuItem("Open incident log", null, (_, _) => { if (File.Exists(_svc.Store.IncidentsFile)) Process.Start(new ProcessStartInfo(_svc.Store.IncidentsFile) { UseShellExecute = true }); }));
         _menu.Items.Add(new ToolStripMenuItem("Manage profiles…", null, (_, _) => ShowEditor()));
         _menu.Items.Add(new ToolStripMenuItem("Settings…", null, (_, _) => ShowSettings()));
         _menu.Items.Add(new ToolStripMenuItem("Open log", null, (_, _) => OpenLog()));
-        _menu.Items.Add(new ToolStripMenuItem("Export diagnostics…", null, (_, _) => ExportDiagnostics()));
         _menu.Items.Add(new ToolStripMenuItem("Help", null, (_, _) => ShowHelp("overview")) { ShortcutKeyDisplayString = "F1" });
         _menu.Items.Add(new ToolStripSeparator());
         _menu.Items.Add(new ToolStripMenuItem("Exit", null, (_, _) => Quit()));

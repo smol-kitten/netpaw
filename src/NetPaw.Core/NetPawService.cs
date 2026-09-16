@@ -50,9 +50,13 @@ public sealed class NetPawService
 
     public static NetPawService CreateDefault(string? dir = null)
     {
-        IVlanProvider vlan = OperatingSystem.IsWindows() ? new WmiVlanProvider() : new NullVlanProvider();
         var store = new JsonStore(dir ?? JsonStore.DefaultDirectory());
-        return new NetPawService(store, new NetworkInterfaceAdapterProvider(), vlan, new ProcessStepRunner { Timeout = cmd => store.Error("runner", $"killed after 30 s: {cmd}") });
+        var runner = new ProcessStepRunner { Timeout = cmd => store.Error("runner", $"killed after 30 s: {cmd}") };
+        var adapters = new NetworkInterfaceAdapterProvider();
+        IVlanProvider vlan = OperatingSystem.IsWindows()
+            ? new RegistryVlanProvider(name => adapters.GetAdapters().FirstOrDefault(x => string.Equals(x.Name, name, StringComparison.OrdinalIgnoreCase))?.Id, new PowerShellVlanProvider(runner))
+            : new NullVlanProvider();
+        return new NetPawService(store, adapters, vlan, runner);
     }
 
     /// <summary>Policy values win over the user's settings.json; the UI greys those fields.</summary>

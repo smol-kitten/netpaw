@@ -154,8 +154,24 @@ sealed class QuickPanel : Form
                 _items.Add(new Item("Manage profiles…", "Create, edit, hotkeys, routes, VLAN", Theme.Muted, () => _app.ShowEditor(), OpensWindow: true));
             if (w is { Dhcp: true } && (q.Length == 0 || Word(q, "renew", "lease")))
                 _items.Add(new Item("Renew DHCP lease", $"ipconfig /renew on {w.Name}" + (_app.Advisories.FirstOrDefault(a => a.CanRenew) is { } adv ? "   ·   " + adv.Title : ""), Theme.Dhcp, () => _app.Renew(manual: true)));
-            if (Word(q, "arp", "map", "network map", "find router", "neighbours", "switch", "lldp"))
+            if (Word(q, "arp", "map", "network map", "neighbours"))
                 _items.Add(new Item("Network map…", "ARP neighbours per network, active re-check/sweep, find routers on this cable", Theme.Accent, _app.ShowMap, OpensWindow: true));
+            if (Word(q, "switch", "lldp", "cdp", "port"))
+                _items.Add(new Item("Which switch port am I on? (LLDP/CDP)…", "Listens 35 s for the switch's own announcements via pktmon — name, port, VLAN", Theme.Accent, () => _app.ShowMap(2), OpensWindow: true));
+            if (Word(q, "find router", "router", "gateway"))
+                _items.Add(new Item("Find routers on this cable…", "Borrows a temporary address per common subnet and ARPs the usual gateway addresses", Theme.Accent, () => _app.ShowMap(1), OpensWindow: true));
+            if (Word(q, "route", "routes", "route table"))
+                _items.Add(new Item("Route table…", "Live IPv4 routes with interface names; delete a stale manual route", Theme.Accent, () => _app.ShowMap(3), OpensWindow: true));
+            if (Word(q, "trace", "traceroute", "path", "hops"))
+                _items.Add(new Item("Trace route…", "Where does the path stop? Three ICMP probes per hop", Theme.Accent, _app.AskTrace, OpensWindow: true));
+            if (Word(q, "check", "port", "open"))
+                _items.Add(new Item("Check a TCP port…", "One connect: open / refused / timeout — or just type host:port here", Theme.Accent, _app.AskCheckPort, OpensWindow: true));
+            if (Word(q, "wake", "wol", "magic"))
+                _items.Add(new Item("Wake-on-LAN…", "Magic packet to a MAC on this segment", Theme.Accent, _app.AskWake, OpensWindow: true));
+            if (Word(q, "diag", "diagnostics", "export", "support", "zip"))
+                _items.Add(new Item("Export diagnostics…", "One zip for the helpdesk: ipconfig, routes, arp, netsh, log, incidents", Theme.Accent, _app.ExportDiagnostics, OpensWindow: true));
+            if (Word(q, "mtu", "wifi", "wi-fi", "802.1x", "dns", "stuck", "intent"))
+                _items.Add(new Item("Network info", "Wi-Fi signal, 802.1X, path MTU, per-server DNS and 'X cannot reach Y' advice live on the info card", Theme.Muted, _app.ShowInfo, OpensWindow: true));
             if (Word(q, "scan", "find working"))
                 _items.Add(new Item("Scan for a working profile…", "Try DHCP and your profiles on this port, keep the one that works", Theme.Accent, _app.ShowScan, OpensWindow: true));
             if (q.Length == 0 || Word(q, "network info", "status", "info"))
@@ -163,7 +179,9 @@ sealed class QuickPanel : Form
             if (Word(q, "help"))
                 _items.Add(new Item("Help  (F1)", "Topics for every view", Theme.Muted, () => _app.ShowHelp("overview"), OpensWindow: true));
             if (Word(q, "settings", "options"))
-                _items.Add(new Item("Settings…", "Work adapter, hotkey, confirm, startup", Theme.Muted, _app.ShowSettings, OpensWindow: true));
+                _items.Add(new Item("Settings…", "Work adapter, hotkeys, info card rows, checks, repair, log level", Theme.Muted, _app.ShowSettings, OpensWindow: true));
+            if (q.Length == 0)
+                _items.Add(new Item("Tools…", "Switch port (LLDP), route table, trace, port check, wake, diagnostics — type any of them", Theme.Muted, () => _app.ShowMap(2), OpensWindow: true));
         }
         _list.BeginUpdate();
         _list.Items.Clear();
