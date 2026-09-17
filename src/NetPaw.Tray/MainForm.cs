@@ -27,7 +27,6 @@ sealed class MainForm : Form
     {
         _app = app;
         Text = "NetPaw"; MinimumSize = new Size(640, 400); StartPosition = FormStartPosition.Manual; KeyPreview = true; DoubleBuffered = true;
-        Icon = Icons.Paw(Theme.Static);
         var split = new SplitContainer { Dock = DockStyle.Fill, FixedPanel = FixedPanel.Panel1, SplitterDistance = 180, IsSplitterFixed = true, SplitterWidth = 1 };
         split.Panel1.BackColor = Theme.Panel; split.Panel2.BackColor = Theme.Bg;
         _nav.BackColor = Theme.Panel; _nav.ForeColor = Theme.Text;
@@ -122,7 +121,7 @@ sealed class MainForm : Form
         readonly TextBox _reach = new() { Width = 220, PlaceholderText = "IP, IP/prefix or host:port" };
         public OverviewPage(TrayApp app)
         {
-            _app = app; _card = new InfoCardPanel(app) { Dock = DockStyle.Top, TextWidth = 560, BackColor = Theme.Bg };
+            _app = app; _card = new InfoCardPanel(app) { Dock = DockStyle.Top, TextWidth = 560, BackColor = Theme.Bg, AutoSize = false };
             var actions = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, Padding = new Padding(0, 6, 0, 0) };
             actions.Controls.Add(Btn("DHCP now", app.ApplyDhcp, 110)); actions.Controls.Add(Btn("Renew lease", () => app.Renew(manual: true), 110));
             actions.Controls.Add(Btn("Reset adapter", () => app.ResetAdapter(), 120)); actions.Controls.Add(Btn("Re-check now", () => _ = app.RunCheck(), 120));
@@ -130,7 +129,12 @@ sealed class MainForm : Form
             _reach.KeyDown += (_, e) => { if (e.KeyCode == Keys.Enter && _reach.Text.Trim().Length > 0) { app.Reach(_reach.Text.Trim()); e.SuppressKeyPress = true; } };
             Controls.Add(actions); Controls.Add(_card); Controls.Add(_state); Controls.Add(_title);
         }
-        public new void Refresh() { _card.Render(_app.LastSnapshot); _title.Text = _card.TitleText; _state.Text = _card.StateText; _state.ForeColor = _card.StateColor; }
+        public new void Refresh()
+        {
+            // Size the card from its rows after every render (like the toast does): an AutoSize control with a docked grid does not grow reliably.
+            _card.Render(_app.LastSnapshot); _card.Height = _card.PreferredHeight + 8; _card.PerformLayout();
+            _title.Text = _card.TitleText; _state.Text = _card.StateText; _state.ForeColor = _card.StateColor;
+        }
     }
 
     // ---- Profiles: the list with apply/edit, the editor stays the place for details ---------------------

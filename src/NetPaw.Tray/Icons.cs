@@ -2,10 +2,22 @@ using System.Drawing.Drawing2D;
 
 namespace NetPaw.Tray;
 
-/// <summary>Tray icons are drawn at runtime (a paw tinted by adapter state) so the repo ships no binary assets.</summary>
+/// <summary>Tray icons are drawn at runtime (a paw tinted by adapter state). Windows get the exe's own icon (netpaw.ico, rendered by tools/make-icon.py from the same geometry).</summary>
 static class Icons
 {
     static readonly Dictionary<(Color, Color?), Icon> Cache = [];
+    static Icon? _app;
+
+    /// <summary>The window/taskbar icon: the icon embedded in the exe, so title bars match Explorer and the taskbar; the runtime paw as fallback.</summary>
+    public static Icon App
+    {
+        get
+        {
+            if (_app is not null) return _app;
+            try { if (Environment.ProcessPath is { } exe && Icon.ExtractAssociatedIcon(exe) is { } ic) return _app = ic; } catch (Exception) { }
+            return _app = Paw(Color.FromArgb(120, 170, 255));
+        }
+    }
 
     /// <param name="dot">Optional status dot (bottom-right) — red while monitor mode sees a problem.</param>
     public static Icon Paw(Color tint, Color? dot = null)
