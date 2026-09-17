@@ -185,9 +185,10 @@ CLAIMS = [
   "text": "- **Quiet by default** \u2014 every info-card row has a mode (*never / on issue / always*), so a healthy network shows five lines and a dock, Wi-Fi, VPN or switch row appears only when it has something to say. Errors always show. Auto-pin uses the same modes.",
   "kind": "grep",
   "check": {
-   "path": "src/NetPaw.Tray/InfoCardPanel.cs",
-   "regex": "never|on issue|always|Auto-pin",
-   "min": 1
+   "path": "src/NetPaw.Core/Model/Settings.cs",
+   "regex": "Never|OnIssue|Always|AutoPin",
+   "min": 1,
+   "max": 1000000000
   },
   "id": "c18"
  },
