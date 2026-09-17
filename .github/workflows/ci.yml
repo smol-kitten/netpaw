@@ -129,12 +129,50 @@ jobs:
           function HasMeta($f) { [Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes($f)).Contains('TelemetryToken') }
           if (-not (HasMeta 'out/bin-telemetry/NetPaw.exe')) { throw "telemetry metadata missing from the variant" }
           if (HasMeta 'out/bin/NetPaw.exe') { throw "default build must not carry telemetry metadata" }
+      - name: Winget facts (release asset the catwinget sync reads — no MSI parsing on Linux needed)
+        shell: pwsh
+        run: |
+          $ver = '${{ steps.ver.outputs.version }}'
+          $msi = Get-Item "out/NetPaw-$ver.msi"
+          $wi = New-Object -ComObject WindowsInstaller.Installer
+          $db = $wi.GetType().InvokeMember('OpenDatabase', 'InvokeMethod', $null, $wi, @($msi.FullName, 0))
+          function Prop($name) {
+            $v = $db.GetType().InvokeMember('OpenView', 'InvokeMethod', $null, $db, @("SELECT Value FROM Property WHERE Property='$name'"))
+            $v.GetType().InvokeMember('Execute', 'InvokeMethod', $null, $v, $null) | Out-Null
+            $r = $v.GetType().InvokeMember('Fetch', 'InvokeMethod', $null, $v, $null)
+            if ($r) { $r.GetType().InvokeMember('StringData', 'GetProperty', $null, $r, @(1)) } else { '' }
+          }
+          $facts = [ordered]@{
+            packageIdentifier = 'smol-kitten.NetPaw'; version = $ver; tag = "v$ver"
+            installerUrl = "https://github.com/smol-kitten/netpaw/releases/download/v$ver/NetPaw-$ver.msi"
+            installerSha256 = (Get-FileHash $msi -Algorithm SHA256).Hash
+            installerType = 'wix'; scope = 'machine'; architecture = 'x64'
+            productCode = (Prop 'ProductCode'); upgradeCode = (Prop 'UpgradeCode'); productName = (Prop 'ProductName'); publisher = (Prop 'Manufacturer')
+            dependencies = @('Microsoft.DotNet.DesktopRuntime.10')
+            releaseNotesUrl = "https://github.com/smol-kitten/netpaw/releases/tag/v$ver"
+          }
+          $facts | ConvertTo-Json -Depth 4 | Set-Content "out/NetPaw-$ver.winget.json"
+          Get-Content "out/NetPaw-$ver.winget.json"
       - uses: actions/upload-artifact@v7
         with:
           name: netpaw-msi
-          path: out/*.msi
+          path: |
+            out/*.msi
+            out/*.winget.json
       - name: Release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
-          files: out/*.msi
+          files: |
+            out/*.msi
+            out/*.winget.json
+      - name: Tell catwinget (repository_dispatch; needs the CATWINGET_DISPATCH_TOKEN secret — polling is the fallback)
+        if: startsWith(github.ref, 'refs/tags/v') && env.DISPATCH != ''
+        shell: pwsh
+        env:
+          DISPATCH: ${{ secrets.CATWINGET_DISPATCH_TOKEN }}
+        run: |
+          $ver = '${{ steps.ver.outputs.version }}'
+          $body = @{ event_type = 'netpaw-release'; client_payload = @{ version = $ver; facts = "https://github.com/smol-kitten/netpaw/releases/download/v$ver/NetPaw-$ver.winget.json" } } | ConvertTo-Json -Depth 4
+          Invoke-RestMethod -Method Post -Uri 'https://api.github.com/repos/polo-nyan/catwinget/dispatches' -Headers @{ Authorization = "Bearer $env:DISPATCH"; Accept = 'application/vnd.github+json' } -Body $body -ContentType 'application/json'
+          "dispatched netpaw-release $ver to polo-nyan/catwinget"
