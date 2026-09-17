@@ -8,6 +8,7 @@
     <RootNamespace>NetPaw.Cli</RootNamespace>
     <InvariantGlobalization>true</InvariantGlobalization>
     <NoWarn>$(NoWarn);CA1416</NoWarn>
+    <ApplicationIcon>../NetPaw.Tray/netpaw.ico</ApplicationIcon>
     <PublishSingleFile>true</PublishSingleFile>
     <!-- Self-contained builds carry the whole runtime; compressing the bundle roughly halves the exe. Framework-dependent builds are tiny either way. -->
     <EnableCompressionInSingleFile Condition="'$(SelfContained)' == 'true'">true</EnableCompressionInSingleFile>

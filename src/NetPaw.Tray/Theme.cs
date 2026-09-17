@@ -57,6 +57,7 @@ static class Theme
         {
             case Form f:
                 f.BackColor = Bg; f.ForeColor = Text;
+                if (f.ShowIcon) f.Icon = Icons.App;                       // every window: the paw, not the WinForms default
                 if (f.IsHandleCreated) Native.Dress(f); else f.HandleCreated += (_, _) => Native.Dress(f);
                 break;
             case Button b:

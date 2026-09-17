@@ -27,7 +27,6 @@ sealed class MainForm : Form
     {
         _app = app;
         Text = "NetPaw"; MinimumSize = new Size(640, 400); StartPosition = FormStartPosition.Manual; KeyPreview = true; DoubleBuffered = true;
-        Icon = Icons.Paw(Theme.Static);
         var split = new SplitContainer { Dock = DockStyle.Fill, FixedPanel = FixedPanel.Panel1, SplitterDistance = 180, IsSplitterFixed = true, SplitterWidth = 1 };
         split.Panel1.BackColor = Theme.Panel; split.Panel2.BackColor = Theme.Bg;
         _nav.BackColor = Theme.Panel; _nav.ForeColor = Theme.Text;
