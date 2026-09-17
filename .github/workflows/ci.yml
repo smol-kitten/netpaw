@@ -39,6 +39,16 @@ jobs:
         run: |
           dotnet publish src/NetPaw.Tray -c Release -r win-x64 --self-contained false -o out/netpaw-win-x64
           dotnet publish src/NetPaw.Cli  -c Release -r win-x64 --self-contained false -o out/netpaw-win-x64
+      - name: Default build carries no telemetry strings
+        # The opt-in telemetry variant is the only binary allowed to know the hub; the default exe must scan clean.
+        run: |
+          python3 - <<'EOF'
+          import sys
+          bad = [n for f in ("out/netpaw-win-x64/NetPaw.exe", "out/netpaw-win-x64/netpaw-cli.exe")
+                 for n in (b"catboy", b"telemetry.") if (lambda b: b.count(n) + b.count(n.decode().encode("utf-16-le")))(open(f, "rb").read())]
+          print("telemetry strings in default build:", bad or "none")
+          sys.exit(1 if bad else 0)
+          EOF
       - name: Publish (self-contained, no runtime needed)
         run: |
           dotnet publish src/NetPaw.Tray -c Release -r win-x64 --self-contained true -p:IncludeNativeLibrariesForSelfExtract=true -o out/netpaw-win-x64-standalone

@@ -8,7 +8,7 @@
  ],
  "type_confident": false,
  "type_override": null,
- "scanned_ts": 1789553134,
+ "scanned_ts": 1789596348,
  "sections": [
   {
    "title": "\ud83d\udcd6 Description",
@@ -65,11 +65,7 @@
    "chars": 66
   }
  ],
- "changed_since_last": [
-  "-installation",
-  "-usage",
-  "-documentation"
- ],
+ "changed_since_last": [],
  "findings": [
   {
    "check": "commands",
@@ -97,5 +93,5 @@
    "msg": "`powershell` \u2014 not on PATH here (fine if users install it)"
   }
  ],
- "verified_ts": 1789553134
+ "verified_ts": 1789596348
 }

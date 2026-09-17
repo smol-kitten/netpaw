@@ -130,10 +130,10 @@ sealed class SettingsForm : Form
         Row("", renewRow);
 
         CheckBox? telemetry = null;
-        if (TelemetryHost.IsTelemetryBuild)
+#if TELEMETRY
         {
             grid = gTelemetry!;
-            telemetry = new CheckBox { Text = "send crash reports and anonymous usage counts to telemetry.catboy.systems", Checked = s.TelemetryEnabled, AutoSize = true, Enabled = !pol.IsSet("AllowTelemetry") };
+            telemetry = new CheckBox { Text = $"send crash reports and anonymous usage counts to {TelemetryHost.EndpointHost}", Checked = s.TelemetryEnabled, AutoSize = true, Enabled = !pol.IsSet("AllowTelemetry") };
             var what = new LinkLabel { Text = "what is sent (docs/TELEMETRY.md)", AutoSize = true, Font = Theme.Small };
             what.LinkClicked += (_, _) => Process.Start(new ProcessStartInfo("https://github.com/smol-kitten/netpaw/blob/main/docs/TELEMETRY.md") { UseShellExecute = true });
             var box = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.TopDown, WrapContents = false, Margin = Padding.Empty };
@@ -155,6 +155,7 @@ sealed class SettingsForm : Form
                 return null;
             };
         }
+#endif
 
         grid = gGeneral;
         var folder = new Button { Text = "Open config folder", Width = 150, Height = 28 };

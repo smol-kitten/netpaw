@@ -105,11 +105,14 @@ sealed class TrayApp : ApplicationContext
         var leftovers = _svc.TempAddresses;
         if (leftovers.Count > 0)
             Notify("Temporary addresses from a previous session", $"{leftovers.Count} address{(leftovers.Count == 1 ? "" : "es")} NetPaw added earlier {(leftovers.Count == 1 ? "is" : "are")} still tracked ({string.Join(", ", leftovers.Select(t => t.Address.ToString()))}). Remove them from the panel or tray menu if you are done.", ToolTipIcon.Warning, force: true);
-        if (TelemetryHost.IsTelemetryBuild && !_svc.Settings.TelemetryNoticeShown)
+#if TELEMETRY
+        // Only the telemetry build carries this text (and the hub hostname); the default binary has no telemetry strings at all.
+        if (!_svc.Settings.TelemetryNoticeShown)
         {
             _svc.Settings.TelemetryNoticeShown = true; _svc.SaveSettings();
-            Notify("Telemetry build", "This build sends crash reports and anonymous usage counts to telemetry.catboy.systems (no addresses, no names). Settings → Telemetry turns it off.", ToolTipIcon.Info, force: true);
+            Notify("Telemetry build", $"This build sends crash reports and anonymous usage counts to {TelemetryHost.EndpointHost} (no addresses, no names). Settings → Telemetry turns it off.", ToolTipIcon.Info, force: true);
         }
+#endif
         if (showPanelAtStart) { var once = new System.Windows.Forms.Timer { Interval = 200 }; once.Tick += (_, _) => { once.Dispose(); ShowPanel(); }; once.Start(); }
     }
 

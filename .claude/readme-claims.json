@@ -13,7 +13,7 @@
    "id": "c1"
   },
   {
-   "line": 83,
+   "line": 93,
    "text": "| `netpaw-win-x64-standalone.zip` | nothing | ~85 MB (tray 49 MB + CLI 38 MB, compressed single files) |",
    "kind": "size",
    "check": {
@@ -23,7 +23,7 @@
    "id": "c2"
   },
   {
-   "line": 84,
+   "line": 94,
    "text": "| `NetPaw-<version>.msi` | [.NET 10 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/10.0) | ~1 MB, per-machine, for Intune/GPO |",
    "kind": "file",
    "check": {
@@ -32,7 +32,7 @@
    "id": "c3"
   },
   {
-   "line": 45,
+   "line": 47,
    "text": "MIT licensed. Windows 10/11, .NET 10.",
    "kind": "grep",
    "check": {
@@ -44,7 +44,7 @@
    "id": "c4"
   },
   {
-   "line": 42,
+   "line": 44,
    "text": "**Enterprise-ready** \u2014 MSI for Intune/GPO, read-only managed profiles from `%ProgramData%`, registry policy with ADMX (pin the adapter/hotkey, deny reach/DHCP/user profiles). See [docs/ENTERPRISE.md](docs/ENTERPRISE.md).",
    "kind": "file",
    "check": {
@@ -53,7 +53,7 @@
    "id": "c5"
   },
   {
-   "line": 43,
+   "line": 45,
    "text": "**Online profile packs** \u2014 subscribe to signed `index.json` repositories (the community pack in this repo, or your company's). Fetched only when you click *Sync*, cached, never auto-applied. See [docs/PACK-FORMAT.md](docs/PACK-FORMAT.md).",
    "kind": "file",
    "check": {
@@ -62,7 +62,7 @@
    "id": "c6"
   },
   {
-   "line": 184,
+   "line": 194,
    "text": "MIT \u2014 see [LICENSE](LICENSE).",
    "kind": "file",
    "check": {
@@ -71,7 +71,7 @@
    "id": "c7"
   },
   {
-   "line": 65,
+   "line": 75,
    "text": "[![CI](https://github.com/smol-kitten/netpaw/actions/workflows/ci.yml/badge.svg)](https://github.com/smol-kitten/netpaw/actions/workflows/ci.yml) ![C#](https://img.shields.io/badge/C%23-239120?style=for-the-badge&logo=csharp&logoColor=white) ![License](https://img.shields.io/badge/license-MIT-blue?style=for-the-badge)",
    "kind": "url",
    "check": {
@@ -80,7 +80,7 @@
    "id": "c8"
   },
   {
-   "line": 82,
+   "line": 92,
    "text": "| `netpaw-win-x64.zip` | [.NET 10 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/10.0) | ~1.5 MB |",
    "kind": "url",
    "check": {
@@ -89,7 +89,7 @@
    "id": "c9"
   },
   {
-   "line": 78,
+   "line": 88,
    "text": "Grab a zip from [Releases](../../releases):",
    "kind": "url",
    "check": {
@@ -135,73 +135,73 @@
   },
   {
    "line": 31,
-   "text": "Auto-switch (opt-in per profile) \u2014 learn a network's fingerprint (gateway MAC, subnet, DHCP server, DNS suffix, ARP neighbours, plus the LLDP/CDP switch port and Wi-Fi BSSID when known \u2014 weighted, so a shared VRRP MAC or a common subnet alone never triggers); on link-up NetPaw applies the profile that scores best by a clear margin.",
+   "text": "- **Auto-switch** (opt-in per profile) \u2014 learn a network's fingerprint (gateway MAC, subnet, DHCP server, DNS suffix, ARP neighbours, plus the LLDP/CDP switch port and Wi-Fi BSSID when known \u2014 weighted, so a shared VRRP MAC or a common subnet alone never triggers); on link-up NetPaw applies the profile that scores best by a clear margin. Asks once, undo in the menu, never on ambiguity.",
    "kind": "grep",
    "check": {
     "path": "src/NetPaw.Core/Scan/AutoSwitcher.cs",
-    "regex": "gateway MAC|subnet|DHCP server|DNS suffix|ARP neighbours|LLDP|CDP|BSSID|VRRP",
+    "regex": "VRRP|BSSID|LLDP|CDP|gateway MAC|subnet|DHCP server|DNS suffix|ARP neighbours",
     "min": 1
    },
    "id": "c14"
   },
   {
    "line": 32,
-   "text": "Update check (opt-in \u2014 asked once on first start; one GitHub API call a day, never downloads) \u2014 a balloon once per newer release; click opens the release page.",
+   "text": "- **Update check** (opt-in \u2014 asked once on first start; one GitHub API call a day, never downloads) \u2014 a balloon once per newer release; click opens the release page. *Settings \u2192 Updates* or policy `AllowUpdateCheck=0` turns it off.",
    "kind": "grep",
    "check": {
     "path": "src/NetPaw.Core/Updates/UpdateChecker.cs",
-    "regex": "GitHub|api|release|balloon|once",
+    "regex": "AllowUpdateCheck|GitHub|API|balloon|release",
     "min": 1
    },
    "id": "c15"
   },
   {
    "line": 33,
-   "text": "Quiet by default \u2014 every info-card row has a mode (*never / on issue / always*), so a healthy network shows five lines and a dock, Wi-Fi, VPN or switch row appears only when it has something to say.",
+   "text": "- **Main window** (optional) \u2014 Overview \u00b7 Profiles \u00b7 Tools \u00b7 Map \u00b7 Log in one resizable dark window; tray menu, double-click, `--main`, or make the tray click open it. The tray, hotkeys and quick panel stay as they are.",
    "kind": "grep",
    "check": {
-    "path": "src/NetPaw.Tray/QuickPanel.cs",
-    "regex": "never|on issue|always|mode",
+    "path": "src/NetPaw.Tray/MainForm.cs",
+    "regex": "Overview|Profiles|Tools|Map|Log|resizable|dark",
     "min": 1
    },
    "id": "c16"
   },
   {
    "line": 34,
-   "text": "Self-watching \u2014 the check loop backs off on a stable network (30 \u2192 120 s), returns to the fast rate on any change, cancels a hung round after twice the interval, and tells you when its last result is stale.",
+   "text": "- **Intent watcher** \u2014 \"msedge cannot reach 192.168.88.1:80 \u2014 no reply for 4 s. Profile *MikroTik lab* covers it\" with a one-click *Reach*. Reads the local TCP table every 2 s (one call, nothing sent), tells host-silent from nobody-beyond-the-gateway, never acts by itself.",
    "kind": "grep",
    "check": {
-    "path": "src/NetPaw.Core/Connectivity/Cadence.cs",
-    "regex": "30|120|backoff|interval|stale",
+    "path": "src/NetPaw.Core/Connectivity/IntentWatcher.cs",
+    "regex": "TCP table|2 s|host-silent|nobody-beyond-the-gateway|Reach",
     "min": 1
    },
    "id": "c17"
   },
   {
    "line": 35,
-   "text": "Verify after apply \u2014 every change (profile, DHCP, undo, repair, CLI) re-reads the adapter 2 s later, including static routes and the interface metric; the Windows \"static applied but still shows DHCP / two gateways\" state and a route Windows refused are caught, and *Reset adapter* clears it.",
+   "text": "- **Quiet by default** \u2014 every info-card row has a mode (*never / on issue / always*), so a healthy network shows five lines and a dock, Wi-Fi, VPN or switch row appears only when it has something to say. Errors always show. Auto-pin uses the same modes.",
    "kind": "grep",
    "check": {
-    "path": "src/NetPaw.Core/Planning/ApplyVerifier.cs",
-    "regex": "2|static|DHCP|gateway|route|Reset",
+    "path": "src/NetPaw.Tray/InfoCardPanel.cs",
+    "regex": "never|on issue|always|Auto-pin",
     "min": 1
    },
    "id": "c18"
   },
   {
    "line": 36,
-   "text": "VPN status \u2014 WireGuard, OpenVPN, Windows native, Tailscale, ZeroTier: up/down, full vs split tunnel, change notifications.",
+   "text": "- **Self-watching** \u2014 the check loop backs off on a stable network (30 \u2192 120 s), returns to the fast rate on any change, cancels a hung round after twice the interval, and tells you when its last result is stale. Every background task is guarded: a failure is logged with its name (and, in the telemetry build, reported with the last 40 log lines and the network state).",
    "kind": "grep",
    "check": {
-    "path": "src/NetPaw.Core/Connectivity/Vpn.cs",
-    "regex": "WireGuard|OpenVPN|Tailscale|ZeroTier|split|tunnel",
+    "path": "src/NetPaw.Core/Connectivity/Connectivity.cs",
+    "regex": "30|120|stale|40 log lines|network state",
     "min": 1
    },
    "id": "c19"
   }
  ],
- "readme_sha": "a3e07840c59a3f0a",
- "extracted": 1789553148,
+ "readme_sha": "1dcf7adcd620f03d",
+ "extracted": 1789596361,
  "incremental": true,
- "readme_lines": 196
+ "readme_lines": 206
 }

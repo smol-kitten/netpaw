@@ -6,14 +6,13 @@ using System.Text.Json.Serialization;
 namespace NetPaw.Telemetry;
 
 /// <summary>
-/// Minimal CatTelemetry ingest client (telemetry.catboy.systems). Used only by the opt-in
+/// Minimal CatTelemetry ingest client. The endpoint comes from the telemetry build (assembly metadata); the default build never sees a hostname. Used only by the opt-in
 /// telemetry build of the tray and by <c>netpaw-cli telemetry adopt</c>. Everything sent is
 /// listed in docs/TELEMETRY.md: no addresses, no adapter or host names, no profile contents.
 /// The "machine" identity is a random install id, not the computer name.
 /// </summary>
 public sealed class TelemetryClient : IDisposable
 {
-    public const string DefaultEndpoint = "https://telemetry.catboy.systems";
     static readonly JsonSerializerOptions Json = new() { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower, DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull };
 
     readonly HttpClient _http;
