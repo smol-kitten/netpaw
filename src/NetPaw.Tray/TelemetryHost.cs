@@ -14,12 +14,14 @@ static class TelemetryHost
     public static LogExporter? Exporter { get; private set; }
     public static bool IsTelemetryBuild => true;
     public static string Token => Assembly.GetExecutingAssembly().GetCustomAttributes<AssemblyMetadataAttribute>().FirstOrDefault(a => a.Key == "TelemetryToken")?.Value ?? "";
-    public static string Endpoint => Assembly.GetExecutingAssembly().GetCustomAttributes<AssemblyMetadataAttribute>().FirstOrDefault(a => a.Key == "TelemetryEndpoint")?.Value is { Length: > 0 } e ? e : TelemetryClient.DefaultEndpoint;
+    public static string Endpoint => Assembly.GetExecutingAssembly().GetCustomAttributes<AssemblyMetadataAttribute>().FirstOrDefault(a => a.Key == "TelemetryEndpoint")?.Value ?? "";
+    /// <summary>Hostname for UI text ("… to telemetry.example.org").</summary>
+    public static string EndpointHost => Uri.TryCreate(Endpoint, UriKind.Absolute, out var u) ? u.Host : Endpoint;
 
     public static void Init(NetPawService svc)
     {
         Refresh(svc); // exporter is independent of the hub token
-        if (Token.Length == 0) { svc.Store.Log("telemetry build without a token — nothing will be sent to the hub"); return; }
+        if (Token.Length == 0 || Endpoint.Length == 0) { svc.Store.Log("telemetry build without a token/endpoint — nothing will be sent to the hub"); return; }
         var version = Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "0";
         Client = new TelemetryClient(Endpoint, Token, version, svc.InstallId()) { Log = svc.Store.Log, Enabled = Active(svc) };
         AppDomain.CurrentDomain.UnhandledException += (_, e) => { if (e.ExceptionObject is Exception ex) { Client.Error(ex.GetType().FullName ?? "Exception", ex.Message, "critical", ex: ex); Client.FlushAsync().GetAwaiter().GetResult(); } };
@@ -65,6 +67,7 @@ namespace NetPaw.Tray;
 static class TelemetryHost
 {
     public static bool IsTelemetryBuild => false;
+    public static string EndpointHost => "";
     public static void Init(NetPawService svc) { }
     public static void Refresh(NetPawService svc) { }
     public static void Export(NetPawService svc, string severity, string body, Dictionary<string, object?> attrs, bool isIncident) { }

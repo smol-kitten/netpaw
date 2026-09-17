@@ -30,6 +30,8 @@ keystroke instead of a trip through *Control Panel → Network → Adapter → P
 - **Network map** — ARP neighbours bundled per subnet (passive), active re-check or subnet sweep, and *find routers*: borrow an address in each common/vendor subnet, ARP the usual gateways, report who answers with vendor hints.
 - **Auto-switch** (opt-in per profile) — learn a network's fingerprint (gateway MAC, subnet, DHCP server, DNS suffix, ARP neighbours, plus the LLDP/CDP switch port and Wi-Fi BSSID when known — weighted, so a shared VRRP MAC or a common subnet alone never triggers); on link-up NetPaw applies the profile that scores best by a clear margin. Asks once, undo in the menu, never on ambiguity.
 - **Update check** (opt-in — asked once on first start; one GitHub API call a day, never downloads) — a balloon once per newer release; click opens the release page. *Settings → Updates* or policy `AllowUpdateCheck=0` turns it off.
+- **Main window** (optional) — Overview · Profiles · Tools · Map · Log in one resizable dark window; tray menu, double-click, `--main`, or make the tray click open it. The tray, hotkeys and quick panel stay as they are.
+- **Intent watcher** — "msedge cannot reach 192.168.88.1:80 — no reply for 4 s. Profile *MikroTik lab* covers it" with a one-click *Reach*. Reads the local TCP table every 2 s (one call, nothing sent), tells host-silent from nobody-beyond-the-gateway, never acts by itself.
 - **Quiet by default** — every info-card row has a mode (*never / on issue / always*), so a healthy network shows five lines and a dock, Wi-Fi, VPN or switch row appears only when it has something to say. Errors always show. Auto-pin uses the same modes.
 - **Self-watching** — the check loop backs off on a stable network (30 → 120 s), returns to the fast rate on any change, cancels a hung round after twice the interval, and tells you when its last result is stale. Every background task is guarded: a failure is logged with its name (and, in the telemetry build, reported with the last 40 log lines and the network state).
 - **Verify after apply** — every change (profile, DHCP, undo, repair, CLI) re-reads the adapter 2 s later, including static routes and the interface metric; the Windows "static applied but still shows DHCP / two gateways" state and a route Windows refused are caught, and *Reset adapter* clears it. The CLI returns 1 with the diff. Dock problems ("old NIC still holds the lease") and "two default gateways" get one-click fixes (Release / Prefer).
@@ -46,6 +48,10 @@ MIT licensed. Windows 10/11, .NET 10.
 
 ![quick panel — type a vendor, a profile, or an IP](docs/panel.png)
 
+| the optional main window — Overview · Profiles · Tools · Map · Log |
+|---|
+| ![main window](docs/main.png) |
+
 | profile editor (managed profile, read-only) | settings with repositories | apply feedback |
 |---|---|---|
 | ![editor](docs/editor.png) | ![settings](docs/settings.png) | ![apply](docs/apply.png) |
@@ -59,6 +65,10 @@ MIT licensed. Windows 10/11, .NET 10.
 | network map — ARP neighbours (right-click → Wake) | which switch port am I on? (LLDP via pktmon) | route table with delete |
 |---|---|---|
 | ![map](docs/map.png) | ![switch](docs/switch.png) | ![routes](docs/routes.png) |
+
+| intent watcher — "msedge cannot reach 192.168.88.4 — profile *MikroTik lab* covers it" |
+|---|
+| ![intent](docs/intent.png) |
 
 *Screenshots from the Windows 11 test VM; every `netsh` path in this README was verified there.*
 
