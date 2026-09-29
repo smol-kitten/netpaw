@@ -16,7 +16,7 @@ permissions:
 
 jobs:
   pvr:
-    uses: workcollection/fleet-actions/.github/workflows/pvr-check.yml@v2.0.0
+    uses: workcollection/fleet-actions/.github/workflows/pvr-check.yml@v2.1.2
     with:
       runs-on: self-hosted
       strict: false
