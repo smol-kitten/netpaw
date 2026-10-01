@@ -78,7 +78,8 @@ while IFS= read -r sig; do
   while IFS='|' read -r _ path hash _; do
     path=$(tr -d ' `' <<<"$path"); hash=$(tr -d ' ' <<<"$hash")
     [[ $hash =~ ^[0-9a-f]{64}$ ]] || continue
-    f=$(find "$base" -type f -path "*/$path" -print -quit); [ -n "$f" ] || f=$(find "$base" -type f -name "$(basename "$path")" -print -quit)
+    # exact path under the SIGNATURES.md directory (or one level of artifact folder); never a same-named file elsewhere
+    f=$(find "$base" -maxdepth 3 -type f -path "*/$path" -print -quit)
     if [ -z "$f" ]; then echo "skip  ${sig#"$DIR"/}: $path not in this directory (inside a zip/msi)"; continue; fi
     [ "$(sha256sum "$f" | cut -c1-64)" = "$hash" ] && pass "${sig#"$DIR"/}: $path sha256" || bad "${sig#"$DIR"/}: $path sha256 differs"
   done < "$sig"
