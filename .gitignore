@@ -484,3 +484,6 @@ out/
 
 # ledger export carries internal hosts; public repo keeps pointers only (ACCESS.md at root)
 .claude/ACCESS.md
+
+# signed-update test fixtures (tools/make-update-fixtures.sh)
+!tests/NetPaw.Core.Tests/Fixtures/update/*.msi
