@@ -66,6 +66,13 @@ var replace = Flag("--replace");
 var adapterName = Opt("-a", "--adapter");
 var timeoutOpt = Opt("--timeout");
 if (argv.Count == 0 || argv[0] is "-h" or "--help" or "help") { Console.WriteLine(Usage); return 0; }
+if (argv[0] is "--version" or "version")
+{
+    var info = typeof(Program).Assembly.GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false)
+        .OfType<System.Reflection.AssemblyInformationalVersionAttribute>().FirstOrDefault()?.InformationalVersion ?? "0";
+    Console.WriteLine(info.Split('+')[0]);
+    return 0;
+}
 
 var svc = NetPawService.CreateDefault();
 try
