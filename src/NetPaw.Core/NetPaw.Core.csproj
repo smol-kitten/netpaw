@@ -10,7 +10,14 @@
   </PropertyGroup>
   <ItemGroup>
     <EmbeddedResource Include="Presets\presets.json" LogicalName="presets.json" />
+    <!-- pinned update root(s): UpdateTrust checks each against its sha256 pin at load -->
+    <EmbeddedResource Include="..\..\deploy\pki\r0.crt" LogicalName="r0.crt" />
+    <EmbeddedResource Include="..\..\deploy\pki\cb0.crt" LogicalName="cb0.crt" />
+    <EmbeddedResource Include="..\..\deploy\pki\t0.crt" LogicalName="t0.crt" />
   </ItemGroup>
   <ItemGroup>
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="System.Security.Cryptography.Pkcs" Version="10.0.12" />
   </ItemGroup>
 </Project>

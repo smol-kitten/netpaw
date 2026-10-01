@@ -437,8 +437,14 @@ sealed class TrayApp : ApplicationContext
     /// <summary>What a click on the current balloon does (default: open the log). Set right before Notify.</summary>
     Action? _balloonAction;
     static readonly HttpClient UpdateHttp = new() { Timeout = TimeSpan.FromSeconds(10) };
+    static readonly HttpClient UpdateDownload = new() { Timeout = TimeSpan.FromMinutes(2) };
 
-    /// <summary>Daily, opt-in, policy-gated: one balloon per newer release, click opens the release page. Never downloads.</summary>
+    /// <summary>
+    /// Daily, opt-in, policy-gated: one balloon per newer release. The installer is downloaded and verified first
+    /// (SIGNATURES.md hash + Authenticode to the pinned root, <see cref="Updates.UpdateTrust"/>); only a verified
+    /// file is offered for install, and it is verified again right before msiexec starts. Anything else says
+    /// "NOT verified" and the click opens the release page — an unverified file is never launched.
+    /// </summary>
     public async Task CheckForUpdates(bool manual = false)
     {
         try
@@ -450,16 +456,48 @@ sealed class TrayApp : ApplicationContext
                 req.Headers.UserAgent.ParseAdd($"NetPaw/{version}"); req.Headers.Accept.ParseAdd("application/vnd.github+json");
                 using var resp = await UpdateHttp.SendAsync(req, ct); resp.EnsureSuccessStatusCode();
                 return await resp.Content.ReadAsStringAsync(ct);
-            }, version);
+            }, version, TelemetryHost.IsTelemetryBuild);
             var s = _svc.Settings;
             if (manual) { s.UpdateLastCheck = null; s.UpdateLastVersionSeen = null; }
             var info = await Task.Run(() => checker.Run(s, _svc.Allowed(Capability.UpdateCheck), DateTimeOffset.Now));
             _svc.SaveSettings();
             if (info is null) { if (manual) Notify("NetPaw is up to date", $"Version {version} is the latest release.", ToolTipIcon.Info, force: true); return; }
-            _balloonAction = () => Process.Start(new ProcessStartInfo(info.Url) { UseShellExecute = true });
-            Notify($"NetPaw {info.Version} is available", (info.Headline is null ? "" : info.Headline + " — ") + "click to open the release page.", ToolTipIcon.Info, force: true);
+            var dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "NetPaw", "updates");
+            var got = await Task.Run(() => Updates.UpdateChecker.DownloadAndVerify(info, async (url, ct) =>
+            {
+                using var req = new HttpRequestMessage(HttpMethod.Get, url);
+                req.Headers.UserAgent.ParseAdd($"NetPaw/{version}");
+                using var resp = await UpdateDownload.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct); resp.EnsureSuccessStatusCode();
+                if (resp.Content.Headers.ContentLength > Updates.UpdateTrust.MaxDownload) throw new IOException("download too large");
+                return await resp.Content.ReadAsByteArrayAsync(ct);
+            }, dir, Updates.UpdateTrust.PinnedRoots));
+            _svc.Store.Log($"update {info.Version}: {(got.Verified ? "verified" : "NOT verified")} — {got.Reason}");
+            if (got is { Verified: true, Path: { } msi })
+            {
+                _balloonAction = () => InstallVerifiedUpdate(msi, info);
+                Notify($"NetPaw {info.Version} is available", (info.Headline is null ? "" : info.Headline + " — ") + "signature verified. Click to install.", ToolTipIcon.Info, force: true);
+            }
+            else
+            {
+                _balloonAction = () => Process.Start(new ProcessStartInfo(info.Url) { UseShellExecute = true });
+                Notify($"NetPaw {info.Version} is available but NOT verified", got.Reason + " — not installing it. Click to open the release page.", ToolTipIcon.Warning, force: true);
+            }
         }
         catch (Exception ex) { _svc.Store.Error("update", ex.Message); if (manual) Notify("Update check failed", ex.Message, ToolTipIcon.Warning, force: true); }
+    }
+
+    /// <summary>Re-checks the downloaded file (it sat on disk since the balloon) and only then hands it to msiexec.</summary>
+    void InstallVerifiedUpdate(string msi, Updates.UpdateInfo info)
+    {
+        try
+        {
+            var bytes = File.ReadAllBytes(msi);
+            var check = Updates.MsiAuthenticode.Verify(bytes, Updates.UpdateTrust.PinnedRoots, Updates.UpdateTrust.Intermediates);
+            if (!check.Ok) { Notify("Update NOT installed", check.Reason, ToolTipIcon.Warning, force: true); _svc.Store.Error("update", $"re-verify failed: {check.Reason}"); return; }
+            Process.Start(new ProcessStartInfo("msiexec.exe", $"/i \"{msi}\"") { UseShellExecute = true });
+            TelemetryHost.Event("updates", "install");
+        }
+        catch (Exception ex) { _svc.Store.Error("update", ex.Message); Notify("Update failed", ex.Message, ToolTipIcon.Warning, force: true); }
     }
 
     public void UndoAutoSwitch()

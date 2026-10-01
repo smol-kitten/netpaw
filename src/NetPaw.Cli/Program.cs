@@ -42,6 +42,9 @@ const string Usage = """
       netpaw-cli clear-temp                       remove them again
       netpaw-cli vlan <adapter> [id]              query / set the driver VLAN id (0 = untagged)
       netpaw-cli where                            print the config directory (profiles.json etc.)
+      netpaw-cli update verify <msi> [SIGNATURES.md] [--root <crt>]
+                                                  verify an installer the way the tray does (pinned root unless --root)
+      netpaw-cli --version                        print the version
       netpaw-cli export <file> [--managed]        write profiles as JSON (--managed: only for a profiles.d deployment file)
       netpaw-cli import <file>                    add profiles from a JSON file (same name = replace)
       netpaw-cli policy                           show the effective machine policy (HKLM\SOFTWARE\Policies\NetPaw)
@@ -462,6 +465,20 @@ try
             if (items.Count == 0) { Console.WriteLine(svc.Settings.Repair.IncidentLog ? "no incidents recorded" : "incident log is off (Settings → Incident log)"); return 0; }
             foreach (var i in items) Console.WriteLine(i);
             return 0;
+        }
+        case "update" when argv.Count >= 3 && argv[1] == "verify":
+        {
+            // The tray's gate, from the command line: CI runs it on the real signed MSI (the fixtures only cover a
+            // tiny one), and anyone can check a download with it. Exit 0 = verified, 1 = not.
+            var rootFile = Opt("--root");
+            var roots = rootFile is null ? NetPaw.Updates.UpdateTrust.PinnedRoots
+                : [System.Security.Cryptography.X509Certificates.X509CertificateLoader.LoadCertificateFromFile(rootFile)];
+            var bytes = File.ReadAllBytes(argv[2]);
+            var check = argv.Count >= 4
+                ? NetPaw.Updates.UpdateTrust.Verify(bytes, Path.GetFileName(argv[2]), File.ReadAllText(argv[3]), roots)
+                : NetPaw.Updates.MsiAuthenticode.Verify(bytes, roots, NetPaw.Updates.UpdateTrust.Intermediates);
+            Console.WriteLine(check.Ok ? $"verified: signed by {check.Signer}, timestamp {check.Timestamp:u}" : $"NOT verified: {check.Reason}");
+            return check.Ok ? 0 : 1;
         }
         case "where":
             Console.WriteLine(svc.Store.Directory);

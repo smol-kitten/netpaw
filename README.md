@@ -29,7 +29,7 @@ keystroke instead of a trip through *Control Panel → Network → Adapter → P
 - **Scan for a working profile** — tries DHCP then your profiles on the port, measures each, stops at the first fully working one or ranks them all; restores your config unless you keep a winner.
 - **Network map** — ARP neighbours bundled per subnet (passive), active re-check or subnet sweep, and *find routers*: borrow an address in each common/vendor subnet, ARP the usual gateways, report who answers with vendor hints.
 - **Auto-switch** (opt-in per profile) — learn a network's fingerprint (gateway MAC, subnet, DHCP server, DNS suffix, ARP neighbours, plus the LLDP/CDP switch port and Wi-Fi BSSID when known — weighted, so a shared VRRP MAC or a common subnet alone never triggers); on link-up NetPaw applies the profile that scores best by a clear margin. Asks once, undo in the menu, never on ambiguity.
-- **Update check** (opt-in — asked once on first start; one GitHub API call a day, never downloads) — a balloon once per newer release; click opens the release page. *Settings → Updates* or policy `AllowUpdateCheck=0` turns it off.
+- **Update check** (opt-in — asked once on first start; one GitHub API call a day) — for a newer release NetPaw downloads the installer and checks it first: its sha256 must be in the release's `SIGNATURES.md` and its signature must chain to the root built into NetPaw. Only then does the balloon offer *Install*; otherwise it says **NOT verified** and opens the release page. See [docs/signed-release.md](docs/signed-release.md). *Settings → Updates* or policy `AllowUpdateCheck=0` turns it off.
 - **Main window** (optional) — Overview · Profiles · Tools · Map · Log in one resizable dark window; tray menu, double-click, `--main`, or make the tray click open it. The tray, hotkeys and quick panel stay as they are.
 - **Intent watcher** — "msedge cannot reach 192.168.88.1:80 — no reply for 4 s. Profile *MikroTik lab* covers it" with a one-click *Reach*. Reads the local TCP table every 2 s (one call, nothing sent), tells host-silent from nobody-beyond-the-gateway, never acts by itself.
 - **Quiet by default** — every info-card row has a mode (*never / on issue / always*), so a healthy network shows five lines and a dock, Wi-Fi, VPN or switch row appears only when it has something to say. Errors always show. Auto-pin uses the same modes.
@@ -95,6 +95,10 @@ Grab a zip from [Releases](../../releases):
 | `NetPaw-<version>-telemetry.msi` | same | same, **plus crash reports and anonymous usage counts** — opt-in by choosing this download; see [docs/TELEMETRY.md](docs/TELEMETRY.md) |
 
 Everything except the `-telemetry` MSI contains no telemetry code at all.
+
+From v0.13.0 every file is signed (Authenticode on the exe and MSI, a detached signature on each zip) by
+the catboy.systems PKI; `SIGNATURES.md` and `r0.crt` are in each release. How to check a download, and why
+Windows still says "unknown publisher" for now: [docs/signed-release.md](docs/signed-release.md).
 
 Unzip anywhere, run `NetPaw.exe`. It asks for elevation once (adapter changes need it) and lives in the
 tray. *Settings → start with Windows* creates an elevated scheduled task so there is no UAC prompt at
@@ -178,7 +182,7 @@ dotnet publish src/NetPaw.Cli  -c Release -r win-x64 --self-contained false -o o
 Layout: `src/NetPaw.Core` (models, IP math, planner, reach resolver, presets, policy, repos — no
 Windows dependencies, fully unit-tested), `src/NetPaw.Tray` (WinForms, dark, no designer files),
 `src/NetPaw.Cli`, `deploy/` (MSI, ADMX, Intune scripts), `packs/` (online packs, not built in).
-The MSI is built and install-tested on a hosted Windows runner; everything else runs on Linux.
+The MSI is built and install-tested on a hosted Windows runner; everything else (build, signing, verification) runs on Linux.
 
 ---
 
