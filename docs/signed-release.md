@@ -51,7 +51,8 @@ mkdir dl && cd dl && gh release download v0.13.0 -R smol-kitten/netpaw && cd ..
 tools/verify-release.sh dl          # needs osslsigncode and openssl; exit 0 = everything verified
 ```
 
-The script runs the recipe from the fleet-actions README. To check a single file by hand:
+The script runs the recipe from the fleet-actions README. To check the exes inside a zip as well, unzip
+it next to `SIGNATURES.md` and run the script on that folder: each exe is listed there by its path. To check a single file by hand:
 
 ```sh
 cat deploy/pki/r0.crt deploy/pki/cb0.crt deploy/pki/t0.crt > tsa-ca.pem
@@ -122,4 +123,15 @@ published release: the winget manifest and `SIGNATURES.md` refer to the exact by
 
 | release | verify-signed | verify-windows | VirusTotal |
 |---|---|---|---|
+| v0.13.0-rc.3 (prerelease, [run 36892929504](https://github.com/smol-kitten/netpaw/actions/runs/36892929504)) | 20 verified, 0 failed (osslsigncode 2.8); `update verify` ok on both MSIs | UnknownError → R0 imported → Valid; signed MSI installs; installed hashes = signed | not scanned (prerelease) |
 | v0.13.0 | _filled in after the release_ | | |
+
+Notes from the release candidates:
+
+- rc.1: signing worked, including the MSI. Verification failed because the R0/CB0/T0 files were DER, not
+  PEM, and because osslsigncode's own CRL downloads failed intermittently. Fixed in #65.
+- rc.2: both signing passes ran on the same runner. The second signed artifact then also held the
+  first pass's files, because catboy-sign v2.1.5 does not clean its `dist/` folder. Since #66 the release
+  fails when a signed artifact holds a file that did not go in. One runner had no osslsigncode, so the
+  job now installs it.
+- Neither candidate was published. The release job runs only after both verify jobs pass.
