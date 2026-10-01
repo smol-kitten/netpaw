@@ -1,6 +1,6 @@
 # Signed releases
 
-From v0.13.0, every NetPaw release file is signed by the catboy.systems PKI. This page explains how the
+From v0.13.1, every NetPaw release file is signed by the catboy.systems PKI. This page explains how the
 signing chain works, how to check a download yourself, what the staging root means for Windows, and how
 to go back.
 
@@ -47,7 +47,7 @@ value is in this page, in `deploy/pki/r0.crt` in the repository, and in NetPaw i
 
 ```sh
 git clone https://github.com/smol-kitten/netpaw && cd netpaw
-mkdir dl && cd dl && gh release download v0.13.0 -R smol-kitten/netpaw && cd ..
+mkdir dl && cd dl && gh release download v0.13.1 -R smol-kitten/netpaw && cd ..
 tools/verify-release.sh dl          # needs osslsigncode and openssl; exit 0 = everything verified
 ```
 
@@ -56,14 +56,14 @@ it next to `SIGNATURES.md` and run the script on that folder: each exe is listed
 
 ```sh
 cat deploy/pki/r0.crt deploy/pki/cb0.crt deploy/pki/t0.crt > tsa-ca.pem
-osslsigncode verify -in NetPaw-0.13.0.msi -CAfile deploy/pki/r0.crt -TSA-CAfile tsa-ca.pem
+osslsigncode verify -in NetPaw-0.13.1.msi -CAfile deploy/pki/r0.crt -TSA-CAfile tsa-ca.pem
 ```
 
 ### Windows
 
 ```powershell
-Get-AuthenticodeSignature .\NetPaw-0.13.0.msi | Format-List Status, StatusMessage, SignerCertificate, TimeStamperCertificate
-(Get-FileHash .\NetPaw-0.13.0.msi -Algorithm SHA256).Hash    # compare with SIGNATURES.md
+Get-AuthenticodeSignature .\NetPaw-0.13.1.msi | Format-List Status, StatusMessage, SignerCertificate, TimeStamperCertificate
+(Get-FileHash .\NetPaw-0.13.1.msi -Algorithm SHA256).Hash    # compare with SIGNATURES.md
 ```
 
 With the staging root, `Status` is **UnknownError** or **NotTrusted** ("terminated in a root certificate
@@ -72,7 +72,7 @@ timestamp signer is present and that the sha256 is in `SIGNATURES.md`. To see **
 test machine (next section).
 
 NetPaw can check an installer the same way it checks its own updates:
-`netpaw-cli update verify NetPaw-0.13.0.msi SIGNATURES.md` (exit 0 = verified).
+`netpaw-cli update verify NetPaw-0.13.1.msi SIGNATURES.md` (exit 0 = verified).
 
 ## Staging caveat: "unknown publisher"
 
@@ -105,7 +105,7 @@ It offers *Install* only when all of these checks pass:
 
 If a check fails, the balloon says **NOT verified** with the reason, and a click opens the release page.
 The file is not written to disk, so nothing can run it. A verified file is checked again just before
-`msiexec` starts. Releases before v0.13.0 have no `SIGNATURES.md`, so for those the balloon says "NOT
+`msiexec` starts. Releases before v0.13.1 have no `SIGNATURES.md`, so for those the balloon says "NOT
 verified (unsigned release)".
 
 VirusTotal is not part of this check: it is a one-time report per release (below), not a runtime gate.
@@ -124,7 +124,8 @@ published release: the winget manifest and `SIGNATURES.md` refer to the exact by
 | release | verify-signed | verify-windows | VirusTotal |
 |---|---|---|---|
 | v0.13.0-rc.3 (prerelease, [run 36892929504](https://github.com/smol-kitten/netpaw/actions/runs/36892929504)) | 20 verified, 0 failed (osslsigncode 2.8); `update verify` ok on both MSIs | UnknownError → R0 imported → Valid; signed MSI installs; installed hashes = signed | not scanned (prerelease) |
-| v0.13.0 | _filled in after the release_ | | |
+| v0.13.0 (tag only, **not released**, [run 36895030867](https://github.com/smol-kitten/netpaw/actions/runs/36895030867)) | failed by the artifact guard: the pkg pass signed and uploaded files a previous non-tag run left on the runner (`NetPaw-0.0.0.msi` + six exes) | passed | — |
+| v0.13.1 | _filled in after the release_ | | |
 
 Notes from the release candidates:
 
@@ -134,4 +135,7 @@ Notes from the release candidates:
   first pass's files, because catboy-sign v2.1.5 does not clean its `dist/` folder. Since #66 the release
   fails when a signed artifact holds a file that did not go in. One runner had no osslsigncode, so the
   job now installs it.
-- Neither candidate was published. The release job runs only after both verify jobs pass.
+- v0.13.0: the pkg pass ran on a runner that still held a `dist/` from an earlier non-tag run. Those
+  files were signed with the release identity, and the guard from #66 failed the release. The signed
+  artifact was deleted. catboy-sign v2.1.6 empties `dist/` first; v0.13.1 is the first release built with it.
+- None of these was published. The release job runs only after both verify jobs pass.

@@ -96,7 +96,7 @@ Grab a zip from [Releases](../../releases):
 
 Everything except the `-telemetry` MSI contains no telemetry code at all.
 
-From v0.13.0 every file is signed (Authenticode on the exe and MSI, a detached signature on each zip) by
+From v0.13.1 every file is signed (Authenticode on the exe and MSI, a detached signature on each zip) by
 the catboy.systems PKI; `SIGNATURES.md` and `r0.crt` are in each release. How to check a download, and why
 Windows still says "unknown publisher" for now: [docs/signed-release.md](docs/signed-release.md).
 
