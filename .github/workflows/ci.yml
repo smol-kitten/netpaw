@@ -13,20 +13,36 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
-  contents: write
+  contents: read
 
+# Release chain (docs/signed-release.md):
+#   build (n4) → sign-bin (exe) → package (windows-latest: MSI; zips) → sign-pkg (msi + zips) → release
+# Binaries are signed BEFORE they go into the MSI and zips, so what gets installed or unzipped is signed too.
+# catboy-sign signs on tags only (gate 1 otherwise): branch and PR runs pass the same files through unsigned.
 jobs:
-  test-and-publish:
-    # Linux runner on purpose: NetPaw.Core is OS-neutral and the WinForms app cross-compiles
-    # via EnableWindowsTargeting. Only the netsh/GUI behaviour needs a real Windows box.
-    runs-on: self-hosted
+  build:
+    # Linux on purpose: NetPaw.Core is OS-neutral and the WinForms app cross-compiles via
+    # EnableWindowsTargeting; the exe keeps its icon, version and manifest resources (measured).
+    # Only the netsh/GUI behaviour and WiX need a real Windows box.
+    runs-on: n4
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
+      msi-version: ${{ steps.ver.outputs.msi-version }}
+      prerelease: ${{ steps.ver.outputs.prerelease }}
+      telemetry: ${{ steps.telemetry.outputs.built }}
     steps:
       - uses: actions/checkout@v7
-      - name: Setup .NET install directory
-        run: echo "DOTNET_INSTALL_DIR=$HOME/.dotnet" >> $GITHUB_ENV
-      - uses: actions/setup-dotnet@v6
+      - uses: workcollection/fleet-actions/.github/actions/setup-dotnet@v2.1.5
         with:
           dotnet-version: 10.0.x
+      - name: Version
+        id: ver
+        run: |
+          case "$GITHUB_REF" in refs/tags/v*) v=${GITHUB_REF#refs/tags/v} ;; *) v=0.0.0 ;; esac
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "msi-version=${v%%-*}" >> "$GITHUB_OUTPUT"   # MSI ProductVersion is numeric only (0.13.0-rc.1 → 0.13.0)
+          [[ $v == *-* ]] && echo "prerelease=true" >> "$GITHUB_OUTPUT" || echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          [ "$v" = 0.0.0 ] && echo "VERSION_PROP=" >> "$GITHUB_ENV" || echo "VERSION_PROP=-p:Version=$v" >> "$GITHUB_ENV"
       - name: Test
         run: dotnet test tests/NetPaw.Core.Tests --verbosity minimal
       - name: Validate packs (hashes, schema, signature)
@@ -37,103 +53,88 @@ jobs:
           done
       - name: Publish (framework-dependent, tiny)
         run: |
-          dotnet publish src/NetPaw.Tray -c Release -r win-x64 --self-contained false -o out/netpaw-win-x64
-          dotnet publish src/NetPaw.Cli  -c Release -r win-x64 --self-contained false -o out/netpaw-win-x64
+          dotnet publish src/NetPaw.Tray -c Release -r win-x64 --self-contained false $VERSION_PROP -o bin/netpaw-win-x64
+          dotnet publish src/NetPaw.Cli  -c Release -r win-x64 --self-contained false $VERSION_PROP -o bin/netpaw-win-x64
       - name: Default build carries no telemetry strings
         # The opt-in telemetry variant is the only binary allowed to know the hub (hostname) or carry a token prefix; the default exe must scan clean.
         # ("telemetry" alone is fine: the CLI help mentions the -telemetry.msi variant.)
         run: |
           python3 - <<'EOF'
           import sys
-          bad = [n for f in ("out/netpaw-win-x64/NetPaw.exe", "out/netpaw-win-x64/netpaw-cli.exe")
+          bad = [n for f in ("bin/netpaw-win-x64/NetPaw.exe", "bin/netpaw-win-x64/netpaw-cli.exe")
                  for n in (b"catboy", b"cattel_") if (lambda b: b.count(n) + b.count(n.decode().encode("utf-16-le")))(open(f, "rb").read())]
           print("telemetry strings in default build:", bad or "none")
           sys.exit(1 if bad else 0)
           EOF
       - name: Publish (self-contained, no runtime needed)
         run: |
-          dotnet publish src/NetPaw.Tray -c Release -r win-x64 --self-contained true -p:IncludeNativeLibrariesForSelfExtract=true -o out/netpaw-win-x64-standalone
-          dotnet publish src/NetPaw.Cli  -c Release -r win-x64 --self-contained true -o out/netpaw-win-x64-standalone
-      - name: Zip
-        # Not every self-hosted runner ships `zip` (runner2 does not); python's zipfile is the fallback.
-        run: |
-          cd out && rm -f */*.pdb
-          mkzip() {
-            if command -v zip >/dev/null; then zip -qr "$1" "$2";
-            elif command -v python3 >/dev/null; then python3 -c "import shutil,sys; shutil.make_archive(sys.argv[1][:-4], 'zip', '.', sys.argv[2])" "$1" "$2";
-            elif command -v 7z >/dev/null; then 7z a -bso0 "$1" "$2";
-            else echo "no zip tool on this runner" >&2; exit 1; fi
-          }
-          mkzip netpaw-win-x64.zip netpaw-win-x64
-          mkzip netpaw-win-x64-standalone.zip netpaw-win-x64-standalone
-          ls -la *.zip
-      - uses: actions/upload-artifact@v7
-        continue-on-error: true   # artifact quota must not fail the job
-        with:
-          name: netpaw-win-x64
-          path: out/*.zip
-          retention-days: 14
-      - name: Release
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
-        with:
-          files: out/*.zip
-          generate_release_notes: true
-
-  msi:
-    # The only job on a hosted Windows runner: WiX 5 needs Windows, and msiexec lets CI prove the
-    # package installs and uninstalls cleanly. Free for a public repo.
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-dotnet@v6
-        with:
-          dotnet-version: 10.0.x
-      - name: Publish (framework-dependent)
-        run: |
-          dotnet publish src/NetPaw.Tray -c Release -r win-x64 --self-contained false -o out/bin
-          dotnet publish src/NetPaw.Cli  -c Release -r win-x64 --self-contained false -o out/bin
-      - name: Version
-        id: ver
-        shell: pwsh
-        run: |
-          $v = if ($env:GITHUB_REF -like 'refs/tags/v*') { $env:GITHUB_REF.Substring(11) } else { '0.0.0' }
-          "version=$v" >> $env:GITHUB_OUTPUT
-      - name: Build MSI (WiX 5)
-        shell: pwsh
-        run: |
-          dotnet tool install --global wix --version 5.0.2
-          wix build deploy/msi/Package.wxs -arch x64 -d Version=${{ steps.ver.outputs.version }} -d BinDir=out/bin -o out/NetPaw-${{ steps.ver.outputs.version }}.msi
-      - name: Install / verify / uninstall
-        shell: pwsh
-        run: |
-          $msi = Get-Item out/*.msi
-          $p = Start-Process msiexec -ArgumentList "/i `"$msi`" /qn /l*v out/install.log" -Wait -PassThru
-          if ($p.ExitCode -ne 0) { Get-Content out/install.log | Select-Object -Last 40; throw "install exit $($p.ExitCode)" }
-          if (-not (Test-Path "$env:ProgramFiles\NetPaw\NetPaw.exe")) { throw "NetPaw.exe missing after install" }
-          if (-not (Test-Path "$env:ProgramData\NetPaw\profiles.d")) { throw "profiles.d missing after install" }
-          & "$env:ProgramFiles\NetPaw\netpaw-cli.exe" where
-          & "$env:ProgramFiles\NetPaw\netpaw-cli.exe" policy
-          $p = Start-Process msiexec -ArgumentList "/x `"$msi`" /qn" -Wait -PassThru
-          if ($p.ExitCode -ne 0) { throw "uninstall exit $($p.ExitCode)" }
-          if (Test-Path "$env:ProgramFiles\NetPaw\NetPaw.exe") { throw "NetPaw.exe still present after uninstall" }
+          dotnet publish src/NetPaw.Tray -c Release -r win-x64 --self-contained true -p:IncludeNativeLibrariesForSelfExtract=true $VERSION_PROP -o bin/netpaw-win-x64-standalone
+          dotnet publish src/NetPaw.Cli  -c Release -r win-x64 --self-contained true $VERSION_PROP -o bin/netpaw-win-x64-standalone
       - name: Telemetry variant (only when the project token secret exists — opt-in download)
+        id: telemetry
         if: env.TOKEN != ''
-        shell: pwsh
         env:
           TOKEN: ${{ secrets.NETPAW_TELEMETRY_TOKEN }}
         run: |
-          dotnet publish src/NetPaw.Tray -c Release -r win-x64 --self-contained false -o out/bin-telemetry -p:Telemetry=true "-p:TelemetryToken=$env:TOKEN"
-          Copy-Item out/bin/netpaw-cli.exe out/bin-telemetry/
-          wix build deploy/msi/Package.wxs -arch x64 -d Telemetry=1 -d Version=${{ steps.ver.outputs.version }} -d BinDir=out/bin-telemetry -o out/NetPaw-${{ steps.ver.outputs.version }}-telemetry.msi
-          function HasMeta($f) { [Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes($f)).Contains('TelemetryToken') }
-          if (-not (HasMeta 'out/bin-telemetry/NetPaw.exe')) { throw "telemetry metadata missing from the variant" }
-          if (HasMeta 'out/bin/NetPaw.exe') { throw "default build must not carry telemetry metadata" }
-      - name: Winget facts (release asset the catwinget sync reads — no MSI parsing on Linux needed)
+          dotnet publish src/NetPaw.Tray -c Release -r win-x64 --self-contained false $VERSION_PROP -o bin/netpaw-telemetry -p:Telemetry=true "-p:TelemetryToken=$TOKEN"
+          cp bin/netpaw-win-x64/netpaw-cli.exe bin/netpaw-telemetry/
+          grep -qa TelemetryToken bin/netpaw-telemetry/NetPaw.exe || { echo "::error::telemetry metadata missing from the variant"; exit 1; }
+          ! grep -qa TelemetryToken bin/netpaw-win-x64/NetPaw.exe || { echo "::error::default build must not carry telemetry metadata"; exit 1; }
+          echo "built=true" >> "$GITHUB_OUTPUT"
+      - name: Drop symbols
+        run: find bin -name '*.pdb' -delete && find bin -type f | sort
+      - uses: actions/upload-artifact@v7
+        with:
+          name: netpaw-bin
+          path: bin
+          retention-days: 7
+
+  sign-bin:
+    needs: build
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    uses: workcollection/fleet-actions/.github/workflows/catboy-sign.yml@v2.1.5
+    with:
+      artifact-name: netpaw-bin
+      pe-glob: '*.exe *.dll'
+      archive-glob: ''
+      runs-on: n4
+      attest: false
+      strict: ${{ startsWith(github.ref, 'refs/tags/v') }}
+
+  msi:
+    # The only Windows build step: WiX 5 cannot build on Linux (measured: WIX0389/WIX0027 on
+    # every Directory/@Name and backslash Source). It packs the SIGNED binaries from sign-bin.
+    needs: [build, sign-bin]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v7
+        with:
+          name: ${{ needs.sign-bin.outputs.artifact }}
+          path: bin
+      - name: Build MSI (WiX 5)
         shell: pwsh
+        env:
+          VER: ${{ needs.build.outputs.version }}
+          MSIVER: ${{ needs.build.outputs.msi-version }}
         run: |
-          $ver = '${{ steps.ver.outputs.version }}'
-          $msi = Get-Item "out/NetPaw-$ver.msi"
+          dotnet tool install --global wix --version 5.0.2
+          New-Item -ItemType Directory -Force pkg | Out-Null
+          wix build deploy/msi/Package.wxs -arch x64 -d Version=$env:MSIVER -d BinDir=bin/netpaw-win-x64 -o "pkg/NetPaw-$env:VER.msi"
+          if (Test-Path bin/netpaw-telemetry/NetPaw.exe) {
+            wix build deploy/msi/Package.wxs -arch x64 -d Telemetry=1 -d Version=$env:MSIVER -d BinDir=bin/netpaw-telemetry -o "pkg/NetPaw-$env:VER-telemetry.msi"
+          }
+          Get-ChildItem pkg
+      - name: Winget facts (without the hash — the release job adds the SIGNED msi's sha256)
+        shell: pwsh
+        env:
+          VER: ${{ needs.build.outputs.version }}
+        run: |
+          $ver = $env:VER
+          $msi = Get-Item "pkg/NetPaw-$ver.msi"
           $wi = New-Object -ComObject WindowsInstaller.Installer
           $db = $wi.GetType().InvokeMember('OpenDatabase', 'InvokeMethod', $null, $wi, @($msi.FullName, 0))
           function Prop($name) {
@@ -142,37 +143,208 @@ jobs:
             $r = $v.GetType().InvokeMember('Fetch', 'InvokeMethod', $null, $v, $null)
             if ($r) { $r.GetType().InvokeMember('StringData', 'GetProperty', $null, $r, @(1)) } else { '' }
           }
+          New-Item -ItemType Directory -Force facts | Out-Null
           $facts = [ordered]@{
             packageIdentifier = 'smol-kitten.NetPaw'; version = $ver; tag = "v$ver"
             installerUrl = "https://github.com/smol-kitten/netpaw/releases/download/v$ver/NetPaw-$ver.msi"
-            installerSha256 = (Get-FileHash $msi -Algorithm SHA256).Hash
+            installerSha256 = ''
             installerType = 'wix'; scope = 'machine'; architecture = 'x64'
             productCode = (Prop 'ProductCode'); upgradeCode = (Prop 'UpgradeCode'); productName = (Prop 'ProductName'); publisher = (Prop 'Manufacturer')
             dependencies = @('Microsoft.DotNet.DesktopRuntime.10')
             releaseNotesUrl = "https://github.com/smol-kitten/netpaw/releases/tag/v$ver"
           }
-          $facts | ConvertTo-Json -Depth 4 | Set-Content "out/NetPaw-$ver.winget.json"
-          Get-Content "out/NetPaw-$ver.winget.json"
+          $db = $null; [GC]::Collect()   # release the MSI handle before the file moves on
+          $facts | ConvertTo-Json -Depth 4 | Set-Content "facts/NetPaw-$ver.winget.json"
+          Get-Content "facts/NetPaw-$ver.winget.json"
+      - name: Zips (from the signed binaries)
+        shell: pwsh
+        run: |
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          foreach ($d in 'netpaw-win-x64', 'netpaw-win-x64-standalone') {
+            [IO.Compression.ZipFile]::CreateFromDirectory("bin/$d", "pkg/$d.zip", 'Optimal', $true)
+          }
+          Get-ChildItem pkg
       - uses: actions/upload-artifact@v7
         with:
-          name: netpaw-msi
-          path: |
-            out/*.msi
-            out/*.winget.json
-      - name: Release
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+          name: netpaw-pkg
+          path: pkg
+          retention-days: 7
+      - uses: actions/upload-artifact@v7
         with:
-          files: |
-            out/*.msi
-            out/*.winget.json
-      - name: Tell catwinget (repository_dispatch; needs the CATWINGET_DISPATCH_TOKEN secret — polling is the fallback)
-        if: startsWith(github.ref, 'refs/tags/v') && env.DISPATCH != ''
+          name: netpaw-facts
+          path: facts
+          retention-days: 7
+
+  sign-pkg:
+    needs: msi
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    uses: workcollection/fleet-actions/.github/workflows/catboy-sign.yml@v2.1.5
+    with:
+      artifact-name: netpaw-pkg
+      pe-glob: '*.msi'
+      archive-glob: '*.zip'
+      runs-on: n4
+      attest: true
+      strict: ${{ startsWith(github.ref, 'refs/tags/v') }}
+
+  verify-signed:
+    # The chain proof, on the same runner class that signed: tools/verify-release.sh is the recipe
+    # docs/signed-release.md gives people for a download. Any file that does not verify fails the job.
+    needs: [sign-bin, sign-pkg]
+    runs-on: n4
+    steps:
+      - uses: actions/checkout@v7
+      - name: Nothing to verify on an unsigned run
+        if: needs.sign-pkg.outputs.signed != 'true' || needs.sign-bin.outputs.signed != 'true'
+        env:
+          BIN_GATE: ${{ needs.sign-bin.outputs.gate }}
+          PKG_GATE: ${{ needs.sign-pkg.outputs.gate }}
+        run: echo "::notice::not signed (binaries gate=$BIN_GATE, packages gate=$PKG_GATE) — catboy-sign signs tag builds only"
+      - uses: actions/download-artifact@v7
+        if: needs.sign-pkg.outputs.signed == 'true' && needs.sign-bin.outputs.signed == 'true'
+        with:
+          name: ${{ needs.sign-bin.outputs.artifact }}
+          path: signed/bin
+      - uses: actions/download-artifact@v7
+        if: needs.sign-pkg.outputs.signed == 'true' && needs.sign-bin.outputs.signed == 'true'
+        with:
+          name: ${{ needs.sign-pkg.outputs.artifact }}
+          path: signed/pkg
+      - name: Verify every signed file against the pinned R0
+        if: needs.sign-pkg.outputs.signed == 'true' && needs.sign-bin.outputs.signed == 'true'
+        run: |
+          set -o pipefail
+          tools/verify-release.sh signed | tee verify.log
+          { echo '## verify-signed'; echo; echo '```'; cat verify.log; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+  verify-windows:
+    # What a Windows user gets: signature status as Windows sees it, then install / run / uninstall
+    # of the SIGNED msi. R0 is a staging root, so Windows reports NotTrusted until it is imported
+    # into this throwaway runner's LocalMachine Root store; after that the status must be Valid.
+    needs: [build, sign-bin, sign-pkg]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v7
+        with:
+          name: ${{ needs.sign-bin.outputs.artifact }}
+          path: signed/bin
+      - uses: actions/download-artifact@v7
+        with:
+          name: ${{ needs.sign-pkg.outputs.artifact }}
+          path: signed/pkg
+      - name: Authenticode as Windows sees it (staging R0 untrusted → imported → Valid)
+        if: needs.sign-pkg.outputs.signed == 'true' && needs.sign-bin.outputs.signed == 'true'
+        shell: pwsh
+        run: |
+          $r0 = New-Object Security.Cryptography.X509Certificates.X509Certificate2 (Resolve-Path deploy/pki/r0.crt).Path
+          if ($r0.GetCertHashString('SHA256') -ne 'ED5EAA1B7A66E154E8C82A3D45F65DDD36A3FBBAD1F41A68D2BF4334CCC2D375') { throw "r0.crt is not the pinned staging R0" }
+          $files = @(Get-ChildItem signed/pkg/*.msi) + @(Get-ChildItem signed/bin/netpaw-win-x64/*.exe)
+          # Before the import the only thing missing is trust in R0 (UnknownError/NotTrusted); after it the
+          # status must be Valid. Only R0 changed between the two checks, so Valid proves the chain ends there
+          # (Linux verify-signed checks the chain against R0 explicitly).
+          function Check($expect) {
+            foreach ($f in $files) {
+              $s = Get-AuthenticodeSignature $f.FullName
+              $row = "| $($f.Name) | $($s.Status) | $($s.SignerCertificate.Subject) | $($s.TimeStamperCertificate.Subject) |"
+              $row; $row >> $env:GITHUB_STEP_SUMMARY
+              if ($s.Status -notin $expect) { throw "$($f.Name): status $($s.Status) ($($s.StatusMessage)), expected $($expect -join '/')" }
+              if (-not $s.TimeStamperCertificate) { throw "$($f.Name): no timestamp countersignature" }
+            }
+          }
+          "## verify-windows`n`n| file | status | signer | timestamp signer |`n|---|---|---|---|" >> $env:GITHUB_STEP_SUMMARY
+          Check @('NotTrusted', 'UnknownError')
+          Import-Certificate -FilePath deploy/pki/r0.crt -CertStoreLocation Cert:\LocalMachine\Root | Out-Null
+          "| **R0 imported into LocalMachine Root** | | | |" >> $env:GITHUB_STEP_SUMMARY
+          Check @('Valid')
+      - name: Install / verify / uninstall (the signed msi)
         shell: pwsh
         env:
-          DISPATCH: ${{ secrets.CATWINGET_DISPATCH_TOKEN }}
+          VER: ${{ needs.build.outputs.version }}
         run: |
-          $ver = '${{ steps.ver.outputs.version }}'
-          $body = @{ event_type = 'netpaw-release'; client_payload = @{ version = $ver; facts = "https://github.com/smol-kitten/netpaw/releases/download/v$ver/NetPaw-$ver.winget.json" } } | ConvertTo-Json -Depth 4
-          Invoke-RestMethod -Method Post -Uri 'https://api.github.com/repos/polo-nyan/catwinget/dispatches' -Headers @{ Authorization = "Bearer $env:DISPATCH"; Accept = 'application/vnd.github+json' } -Body $body -ContentType 'application/json'
-          "dispatched netpaw-release $ver to polo-nyan/catwinget"
+          $msi = Get-Item "signed/pkg/NetPaw-$env:VER.msi"
+          $p = Start-Process msiexec -ArgumentList "/i `"$msi`" /qn /l*v install.log" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { Get-Content install.log | Select-Object -Last 40; throw "install exit $($p.ExitCode)" }
+          $dir = "$env:ProgramFiles\NetPaw"
+          if (-not (Test-Path "$dir\NetPaw.exe")) { throw "NetPaw.exe missing after install" }
+          if (-not (Test-Path "$env:ProgramData\NetPaw\profiles.d")) { throw "profiles.d missing after install" }
+          # Installed bytes = signed artefact bytes (so one VirusTotal verdict covers both).
+          "`n### installed files`n`n| file | sha256 | same as signed artefact |`n|---|---|---|" >> $env:GITHUB_STEP_SUMMARY
+          foreach ($f in Get-ChildItem $dir -Recurse -Include *.exe, *.dll) {
+            $h = (Get-FileHash $f.FullName -Algorithm SHA256).Hash
+            $a = (Get-FileHash "signed/bin/netpaw-win-x64/$($f.Name)" -Algorithm SHA256).Hash
+            "| $($f.Name) | $h | $($h -eq $a) |" >> $env:GITHUB_STEP_SUMMARY
+            if ($h -ne $a) { throw "$($f.Name): installed hash $h differs from the signed artefact $a" }
+          }
+          $v = & "$dir\netpaw-cli.exe" --version
+          "netpaw-cli --version: $v"; "`nnetpaw-cli --version: ``$v``" >> $env:GITHUB_STEP_SUMMARY
+          if ($env:VER -ne '0.0.0' -and $v -ne $env:VER) { throw "installed version $v, expected $env:VER" }
+          & "$dir\netpaw-cli.exe" where
+          & "$dir\netpaw-cli.exe" policy
+          $p = Start-Process msiexec -ArgumentList "/x `"$msi`" /qn" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "uninstall exit $($p.ExitCode)" }
+          if (Test-Path "$dir\NetPaw.exe") { throw "NetPaw.exe still present after uninstall" }
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build, sign-bin, sign-pkg, verify-signed, verify-windows]
+    runs-on: n4
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - name: Signed on both passes?
+        env:
+          BIN: ${{ needs.sign-bin.outputs.signed }}
+          PKG: ${{ needs.sign-pkg.outputs.signed }}
+          BIN_GATE: ${{ needs.sign-bin.outputs.gate }}
+          PKG_GATE: ${{ needs.sign-pkg.outputs.gate }}
+        run: |
+          echo "binaries signed=$BIN gate=$BIN_GATE; packages signed=$PKG gate=$PKG_GATE"
+          [ "$BIN" = true ] && [ "$PKG" = true ] || { echo "::error::a tag release ships signed or not at all"; exit 1; }
+      - uses: actions/download-artifact@v7
+        with:
+          name: ${{ needs.sign-bin.outputs.artifact }}
+          path: signed-bin
+      - uses: actions/download-artifact@v7
+        with:
+          name: ${{ needs.sign-pkg.outputs.artifact }}
+          path: rel
+      - uses: actions/download-artifact@v7
+        with:
+          name: netpaw-facts
+          path: facts
+      - name: Assemble (SIGNATURES.md for both passes, R0, winget facts from the SIGNED msi)
+        env:
+          VER: ${{ needs.build.outputs.version }}
+        run: |
+          set -euo pipefail
+          { echo; echo "## Binaries inside the MSI and the zips"; echo; tail -n +3 signed-bin/SIGNATURES.md; } >> rel/SIGNATURES.md
+          cp deploy/pki/r0.crt rel/r0.crt
+          sha=$(sha256sum "rel/NetPaw-$VER.msi" | cut -c1-64)
+          grep -q "$sha" rel/SIGNATURES.md || { echo "::error::signed msi hash not in SIGNATURES.md"; exit 1; }
+          python3 - "facts/NetPaw-$VER.winget.json" "rel/NetPaw-$VER.winget.json" "${sha^^}" <<'EOF'
+          import json, sys
+          f = json.load(open(sys.argv[1], encoding="utf-8-sig")); f["installerSha256"] = sys.argv[3]
+          json.dump(f, open(sys.argv[2], "w"), indent=2)
+          EOF
+          cat "rel/NetPaw-$VER.winget.json"; ls -la rel
+      - name: Release
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+        with:
+          files: rel/*
+          prerelease: ${{ needs.build.outputs.prerelease == 'true' }}
+          generate_release_notes: true
+      - name: Tell catwinget (repository_dispatch; needs the CATWINGET_DISPATCH_TOKEN secret — polling is the fallback)
+        if: needs.build.outputs.prerelease != 'true' && env.DISPATCH != ''
+        env:
+          DISPATCH: ${{ secrets.CATWINGET_DISPATCH_TOKEN }}
+          VER: ${{ needs.build.outputs.version }}
+        run: |
+          body=$(python3 -c 'import json,sys; v=sys.argv[1]; print(json.dumps({"event_type":"netpaw-release","client_payload":{"version":v,"facts":f"https://github.com/smol-kitten/netpaw/releases/download/v{v}/NetPaw-{v}.winget.json"}}))' "$VER")
+          curl -sS --fail -X POST https://api.github.com/repos/polo-nyan/catwinget/dispatches \
+            -H @<(printf 'Authorization: Bearer %s\n' "$DISPATCH") -H 'Accept: application/vnd.github+json' -d "$body"
+          echo "dispatched netpaw-release $VER to polo-nyan/catwinget"
