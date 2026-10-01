@@ -219,6 +219,19 @@ jobs:
           set -o pipefail
           tools/verify-release.sh signed | tee verify.log
           { echo '## verify-signed'; echo; echo '```'; cat verify.log; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - uses: workcollection/fleet-actions/.github/actions/setup-dotnet@v2.1.5
+        if: needs.sign-pkg.outputs.signed == 'true' && needs.sign-bin.outputs.signed == 'true'
+        with:
+          dotnet-version: 10.0.x
+      - name: The tray's own gate on the real installer (UpdateTrust, pinned R0, no machine store)
+        if: needs.sign-pkg.outputs.signed == 'true' && needs.sign-bin.outputs.signed == 'true'
+        run: |
+          set -o pipefail
+          dotnet build src/NetPaw.Cli -c Release -v q
+          for msi in signed/pkg/*.msi; do
+            dotnet src/NetPaw.Cli/bin/Release/net10.0/netpaw-cli.dll update verify "$msi" signed/pkg/SIGNATURES.md | tee -a gate.log
+          done
+          { echo; echo '### UpdateTrust (what the tray checks)'; echo; echo '```'; cat gate.log; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
 
   verify-windows:
     # What a Windows user gets: signature status as Windows sees it, then install / run / uninstall
