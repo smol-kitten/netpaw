@@ -128,6 +128,7 @@ jobs:
           if (Test-Path bin/netpaw-telemetry/NetPaw.exe) {
             wix build deploy/msi/Package.wxs -arch x64 -d Telemetry=1 -d Version=$env:MSIVER -d BinDir=bin/netpaw-telemetry -o "pkg/NetPaw-$env:VER-telemetry.msi"
           }
+          Remove-Item pkg/*.wixpdb   # WiX debug symbols: not a release file
           Get-ChildItem pkg
       - name: Winget facts (without the hash — the release job adds the SIGNED msi's sha256)
         shell: pwsh

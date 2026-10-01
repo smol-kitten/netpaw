@@ -6,7 +6,7 @@
 #   tools/verify-release.sh <dir> [pki-dir]     (pki-dir defaults to deploy/pki next to this script)
 #
 # Checks, per file:
-#   *.exe *.dll *.msi  Authenticode chain to R0 + RFC 3161 timestamp (osslsigncode verify)
+#   *.exe *.dll *.msi  Authenticode chain to R0 + RFC 3161 timestamp + CRLs (osslsigncode verify)
 #   *.zip              detached CMS <zip>.p7s at the timestamp time + the token itself (<zip>.p7s.tsr)
 #   SIGNATURES.md      every listed sha256 matches the file next to it
 # Recipe: workcollection/fleet-actions README §"Verifying a signed release".
@@ -29,12 +29,32 @@ tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
 cat "$PKI/r0.crt" "$PKI/cb0.crt" "$PKI/t0.crt" > "$tmp/tsa-ca.pem"
 cat "$PKI/t0.crt" "$PKI/cb0.crt" > "$tmp/tsa-untrusted.pem"
 
+# CRLs: fetched here once per URL with curl (named User-Agent, retries) instead of by osslsigncode, whose own
+# fetches send an empty User-Agent and fail intermittently behind the WAF (measured on the first rc run).
+# Revocation is still checked: -ignore-cdp only stops osslsigncode's download, the CRLs come in via -CRLfile.
+crls() { # <signed file> → path of a PEM bundle holding the CRL of every certificate in its signature (incl. the TSA chain)
+  local f=$1 url h
+  : > "$tmp/crls.pem"
+  rm -f "$tmp/sig.der"   # extract-signature refuses to overwrite
+  osslsigncode extract-signature -in "$f" -out "$tmp/sig.der" >/dev/null 2>&1 || return 1
+  for url in $(grep -aoE 'https?://[A-Za-z0-9./_-]+\.crl' "$tmp/sig.der" | sort -u); do
+    h=$(sha256sum <<<"$url" | cut -c1-16)
+    if [ ! -s "$tmp/crl-$h.pem" ]; then
+      curl -fsS -m 20 --retry 3 --retry-all-errors -A "netpaw-verify-release/1" -o "$tmp/crl-$h.der" "$url" \
+        && openssl crl -inform DER -in "$tmp/crl-$h.der" -out "$tmp/crl-$h.pem" 2>/dev/null \
+        || { echo "      CRL not available: $url"; return 1; }
+    fi
+    cat "$tmp/crl-$h.pem" >> "$tmp/crls.pem"
+  done
+}
+
 while IFS= read -r -d '' f; do
-  if out=$(osslsigncode verify -in "$f" -CAfile "$PKI/r0.crt" -TSA-CAfile "$tmp/tsa-ca.pem" 2>&1) \
+  if crls "$f" && out=$(osslsigncode verify -in "$f" -CAfile "$PKI/r0.crt" -TSA-CAfile "$tmp/tsa-ca.pem" \
+       -ignore-cdp -CRLfile "$tmp/crls.pem" -TSA-CRLfile "$tmp/crls.pem" 2>&1) \
      && grep -q 'Signature verification: ok' <<<"$out" && ! grep -q 'Timestamp is not available' <<<"$out"; then
     pass "${f#"$DIR"/}  Authenticode + timestamp"
   else
-    bad "${f#"$DIR"/}  Authenticode"; sed 's/^/      /' <<<"$out" | tail -15
+    bad "${f#"$DIR"/}  Authenticode"; sed 's/^/      /' <<<"${out:-}" | tail -15
   fi
 done < <(find "$DIR" -type f \( -name '*.exe' -o -name '*.dll' -o -name '*.msi' \) -print0 | sort -z)
 
