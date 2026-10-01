@@ -215,6 +215,34 @@ jobs:
         with:
           name: ${{ needs.sign-pkg.outputs.artifact }}
           path: signed/pkg
+      - uses: actions/download-artifact@v7
+        if: needs.sign-pkg.outputs.signed == 'true' && needs.sign-bin.outputs.signed == 'true'
+        with:
+          name: netpaw-bin
+          path: input/bin
+      - uses: actions/download-artifact@v7
+        if: needs.sign-pkg.outputs.signed == 'true' && needs.sign-bin.outputs.signed == 'true'
+        with:
+          name: netpaw-pkg
+          path: input/pkg
+      - name: Signed artifacts hold exactly the files that went in
+        # catboy-sign v2.1.5 downloads into a dist/ it never cleans: on a reused self-hosted runner the second
+        # pass picked up the first pass's files (measured on v0.13.0-rc.2, both passes on n4-runner-1). Any file
+        # that did not go in (other than signature output) fails the release instead of being shipped or signed.
+        if: needs.sign-pkg.outputs.signed == 'true' && needs.sign-bin.outputs.signed == 'true'
+        run: |
+          rc=0
+          for p in bin pkg; do
+            (cd input/$p && find . -type f | sort) > in.txt
+            (cd signed/$p && find . -type f ! -name 'SIGNATURES.md' ! -name '*.p7s' ! -name '*.p7s.tsr' | sort) > out.txt
+            if ! diff in.txt out.txt; then echo "::error::signed $p artifact differs from what went in (lines: < only in input, > only in signed)"; rc=1; fi
+          done
+          exit $rc
+      - name: osslsigncode on this runner
+        if: needs.sign-pkg.outputs.signed == 'true' && needs.sign-bin.outputs.signed == 'true'
+        run: |
+          command -v osslsigncode >/dev/null || { echo "::warning::osslsigncode missing on $RUNNER_NAME — installing"; sudo -n apt-get update -qq && sudo -n apt-get install -y -qq osslsigncode; }
+          osslsigncode --version | head -1 | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Verify every signed file against the pinned R0
         if: needs.sign-pkg.outputs.signed == 'true' && needs.sign-bin.outputs.signed == 'true'
         run: |
@@ -350,7 +378,15 @@ jobs:
       - name: Release
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
-          files: rel/*
+          # explicit list: never "everything in the artifact"
+          files: |
+            rel/*.msi
+            rel/*.zip
+            rel/*.zip.p7s
+            rel/*.zip.p7s.tsr
+            rel/SIGNATURES.md
+            rel/r0.crt
+            rel/*.winget.json
           prerelease: ${{ needs.build.outputs.prerelease == 'true' }}
           generate_release_notes: true
       - name: Tell catwinget (repository_dispatch; needs the CATWINGET_DISPATCH_TOKEN secret — polling is the fallback)
