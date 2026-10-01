@@ -109,7 +109,7 @@ public sealed class Settings
     /// <summary>Runtime switch for the telemetry build (the default build ignores it — there is nothing to switch).</summary>
     public bool TelemetryEnabled { get; set; } = true;
     public bool TelemetryNoticeShown { get; set; }
-    /// <summary>Ask GitHub for the latest release once a day and say so once per version. Never downloads. Off until the user opts in on first start; policy AllowUpdateCheck=0 wins.</summary>
+    /// <summary>Ask GitHub for the latest release once a day and say so once per version; the installer is offered only after it verified (Updates.UpdateTrust). Off until the user opts in on first start; policy AllowUpdateCheck=0 wins.</summary>
     public bool UpdateCheck { get; set; }
     /// <summary>The first-start question was shown (or skipped because policy forbids the check). Asked once, never nagged.</summary>
     public bool UpdateCheckAsked { get; set; }

@@ -42,7 +42,7 @@ sealed class SettingsForm : Form
         var prefix = new NumericUpDown { Minimum = 8, Maximum = 30, Value = s.ReachDefaultPrefix, Width = 70 };
         var flush = new CheckBox { Text = "flush the DNS cache after every apply (ipconfig /flushdns)", Checked = s.FlushDns, AutoSize = true };
         var startup = new CheckBox { Text = "start with Windows (elevated task, no UAC prompt)", Checked = Startup.IsEnabled(), AutoSize = true };
-        var updates = new CheckBox { Text = "look for a newer release once a day (GitHub API, never downloads)", Checked = s.UpdateCheck, AutoSize = true };
+        var updates = new CheckBox { Text = "look for a newer release once a day (GitHub API; installs only a verified, signed file)", Checked = s.UpdateCheck, AutoSize = true };
         var updateNow = new Button { Text = "Check now", Width = 90, Height = 24, Margin = new Padding(8, 0, 0, 0) };
         updateNow.Click += async (_, _) => { updateNow.Enabled = false; try { await app.CheckForUpdates(manual: true); } finally { updateNow.Enabled = true; } };
         var updatesRow = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = Padding.Empty };
