@@ -125,7 +125,22 @@ published release: the winget manifest and `SIGNATURES.md` refer to the exact by
 |---|---|---|---|
 | v0.13.0-rc.3 (prerelease, [run 36892929504](https://github.com/smol-kitten/netpaw/actions/runs/36892929504)) | 20 verified, 0 failed (osslsigncode 2.8); `update verify` ok on both MSIs | UnknownError → R0 imported → Valid; signed MSI installs; installed hashes = signed | not scanned (prerelease) |
 | v0.13.0 (tag only, **not released**, [run 36895030867](https://github.com/smol-kitten/netpaw/actions/runs/36895030867)) | failed by the artifact guard: the pkg pass signed and uploaded files a previous non-tag run left on the runner (`NetPaw-0.0.0.msi` + six exes) | passed | — |
-| v0.13.1 | _filled in after the release_ | | |
+| [v0.13.1](https://github.com/smol-kitten/netpaw/releases/tag/v0.13.1) ([run 36908662312](https://github.com/smol-kitten/netpaw/actions/runs/36908662312)) | 20 verified, 0 failed; artifact guard clean with both signing passes on one runner (catboy-sign v2.1.6); `update verify` ok | passed | 0 detections, table below |
+
+### VirusTotal, v0.13.1
+
+Scanned once after the release with `tools/vt-scan.py` (2026-10-01). The installed `NetPaw.exe` and
+`netpaw-cli.exe` have the same bytes as the files below; the verify-windows job checks this.
+
+| file | sha256 | VirusTotal | detections |
+|---|---|---|---|
+| `NetPaw-0.13.1.msi` | `ef8a240bf9de1134bd8a5fbfd645d66f91a7977a7db1427fba8c18b8da960df1` | [report](https://www.virustotal.com/gui/file/ef8a240bf9de1134bd8a5fbfd645d66f91a7977a7db1427fba8c18b8da960df1) | 0/63 |
+| `NetPaw-0.13.1-telemetry.msi` | `b98493c5916c532ee87b3e04f70e332c8e9c95426207061c3a89a45e351b9af1` | [report](https://www.virustotal.com/gui/file/b98493c5916c532ee87b3e04f70e332c8e9c95426207061c3a89a45e351b9af1) | 0/63 |
+| `NetPaw.exe` | `a49943aff8a9422b80062db8d9ea533e1797f14dad666ce19741ed4a555ef815` | [report](https://www.virustotal.com/gui/file/a49943aff8a9422b80062db8d9ea533e1797f14dad666ce19741ed4a555ef815) | 0/71 |
+| `netpaw-cli.exe` | `6db4b5119ed6bdf24e5d4da3e25353bd3b4b89a9b7e2e31b8a5feb47f365216e` | [report](https://www.virustotal.com/gui/file/6db4b5119ed6bdf24e5d4da3e25353bd3b4b89a9b7e2e31b8a5feb47f365216e) | 0/71 |
+
+If a later scan flags a file, report it as a false positive to the vendor that flagged it (for example
+Microsoft: https://www.microsoft.com/wdsi/filesubmission). Include the release URL and `SIGNATURES.md`.
 
 Notes from the release candidates:
 
