@@ -3,37 +3,26 @@
  "model": "nano",
  "claims": [
   {
-   "line": 23,
-   "text": "**Tiny and fast** — two executables, ~1.5 MB together, no installer, no service, no telemetry.",
-   "kind": "size",
+   "line": 212,
+   "text": "MIT — see [LICENSE](LICENSE).",
+   "kind": "file",
    "check": {
-    "pattern": "out/netpaw-win-x64.zip",
-    "max_mb": 2.0
+    "path": "LICENSE"
    },
    "id": "c1"
   },
   {
-   "line": 93,
-   "text": "| `netpaw-win-x64-standalone.zip` | nothing | ~85 MB (tray 49 MB + CLI 38 MB, compressed single files) |",
-   "kind": "size",
+   "line": 5,
+   "text": "[![CI](https://github.com/smol-kitten/netpaw/actions/workflows/ci.yml/badge.svg)](https://github.com/smol-kitten/netpaw/actions/workflows/ci.yml) ![C#](https://img.shields.io/badge/C%23-239120?style=for-the-badge&logo=csharp&logoColor=white) ![License](https://img.shields.io/badge/license-MIT-blue?style=for-the-badge)",
+   "kind": "url",
    "check": {
-    "pattern": "out/netpaw-win-x64-standalone.zip",
-    "max_mb": 100.0
+    "url": "https://github.com/smol-kitten/netpaw/actions/workflows/ci.yml"
    },
    "id": "c2"
   },
   {
-   "line": 94,
-   "text": "| `NetPaw-<version>.msi` | [.NET 10 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/10.0) | ~1 MB, per-machine, for Intune/GPO |",
-   "kind": "file",
-   "check": {
-    "path": "deploy/msi/Package.wxs"
-   },
-   "id": "c3"
-  },
-  {
-   "line": 47,
-   "text": "MIT licensed. Windows 10/11, .NET 10.",
+   "line": 12,
+   "text": "Free (MIT) · Windows 10/11 · .NET 10 · every change is a plain `netsh` command you can preview.",
    "kind": "grep",
    "check": {
     "path": "src/NetPaw.Tray/NetPaw.Tray.csproj",
@@ -41,65 +30,200 @@
     "min": 1,
     "max": 1
    },
+   "id": "c3"
+  },
+  {
+   "line": 74,
+   "text": "| `NetPaw-<version>.msi` | most people; Intune/GPO | [.NET 10 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/10.0) | ~1 MB, per-machine |",
+   "kind": "file",
+   "check": {
+    "path": "deploy/msi/Package.wxs"
+   },
    "id": "c4"
   },
   {
-   "line": 44,
-   "text": "**Enterprise-ready** — MSI for Intune/GPO, read-only managed profiles from `%ProgramData%`, registry policy with ADMX (pin the adapter/hotkey, deny reach/DHCP/user profiles). See [docs/ENTERPRISE.md](docs/ENTERPRISE.md).",
-   "kind": "file",
+   "line": 75,
+   "text": "| `netpaw-win-x64.zip` | portable | .NET 10 Desktop Runtime | ~1.5 MB |",
+   "kind": "size",
    "check": {
-    "path": "docs/ENTERPRISE.md"
+    "pattern": "out/netpaw-win-x64.zip",
+    "max_mb": 2.0
    },
    "id": "c5"
   },
   {
-   "line": 45,
-   "text": "**Online profile packs** — subscribe to signed `index.json` repositories (the community pack in this repo, or your company's). Fetched only when you click *Sync*, cached, never auto-applied. See [docs/PACK-FORMAT.md](docs/PACK-FORMAT.md).",
-   "kind": "file",
+   "line": 76,
+   "text": "| `netpaw-win-x64-standalone.zip` | portable, no .NET installed | nothing | ~85 MB |",
+   "kind": "size",
    "check": {
-    "path": "docs/PACK-FORMAT.md"
+    "pattern": "out/netpaw-win-x64-standalone.zip",
+    "max_mb": 100.0
    },
    "id": "c6"
   },
   {
-   "line": 194,
-   "text": "MIT — see [LICENSE](LICENSE).",
+   "line": 77,
+   "text": "| `NetPaw-<version>-telemetry.msi` | opt-in crash reports and usage counts ([TELEMETRY.md](docs/TELEMETRY.md)) | .NET 10 Desktop Runtime | ~1 MB |",
    "kind": "file",
    "check": {
-    "path": "LICENSE"
+    "path": "deploy/msi/Package.wxs"
    },
    "id": "c7"
   },
   {
-   "line": 75,
-   "text": "[![CI](https://github.com/smol-kitten/netpaw/actions/workflows/ci.yml/badge.svg)](https://github.com/smol-kitten/netpaw/actions/workflows/ci.yml) ![C#](https://img.shields.io/badge/C%23-239120?style=for-the-badge&logo=csharp&logoColor=white) ![License](https://img.shields.io/badge/license-MIT-blue?style=for-the-badge)",
-   "kind": "url",
+   "line": 84,
+   "text": "> **Signed from v0.13.1.** Each release has `SIGNATURES.md` and `r0.crt`.",
+   "kind": "version",
    "check": {
-    "url": "https://github.com/smol-kitten/netpaw/actions/workflows/ci.yml"
+    "path": "docs/signed-release.md",
+    "regex": "v0\\.13\\.1",
+    "source": "README.md",
+    "source_regex": "v0\\.13\\.1"
    },
    "id": "c8"
   },
   {
-   "line": 92,
-   "text": "| `netpaw-win-x64.zip` | [.NET 10 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/10.0) | ~1.5 MB |",
-   "kind": "url",
+   "line": 86,
+   "text": "> [docs/signed-release.md](docs/signed-release.md).",
+   "kind": "file",
    "check": {
-    "url": "https://dotnet.microsoft.com/download/dotnet/10.0"
+    "path": "docs/signed-release.md"
    },
    "id": "c9"
   },
   {
-   "line": 88,
-   "text": "Grab a zip from [Releases](../../releases):",
-   "kind": "url",
+   "line": 107,
+   "text": "**[docs/usage.md](docs/usage.md)**.",
+   "kind": "file",
    "check": {
-    "url": "https://github.com/smol-kitten/netpaw/releases"
+    "path": "docs/usage.md"
    },
    "id": "c10"
   },
   {
-   "line": 15,
-   "text": "- **Device presets** — factory default addresses of ~60 common routers, switches, firewalls,",
+   "line": 115,
+   "text": "- `profiles.json` — your profiles. Hand-editable, git-able, copy to the next laptop.",
+   "kind": "file",
+   "check": {
+    "path": "src/NetPaw.Core/Model/Profile.cs"
+   },
+   "id": "c11"
+  },
+  {
+   "line": 116,
+   "text": "- `presets.json` — your own device presets (same schema as the bundled list).",
+   "kind": "file",
+   "check": {
+    "path": "src/NetPaw.Core/Presets/presets.json"
+   },
+   "id": "c12"
+  },
+  {
+   "line": 117,
+   "text": "- `settings.json`, `state.json` (temporary addresses), `netpaw.log`, `cache\\` (synced packs).",
+   "kind": "file",
+   "check": {
+    "path": "src/NetPaw.Core/Model/Settings.cs"
+   },
+   "id": "c13"
+  },
+  {
+   "line": 118,
+   "text": "- `%ProgramData%\\NetPaw\\profiles.d\\*.json` — managed profiles from your organisation (read-only).",
+   "kind": "glob",
+   "check": {
+    "pattern": "deploy/gpo/NetPaw.admx",
+    "min": 1,
+    "max": 1
+   },
+   "id": "c14"
+  },
+  {
+   "line": 119,
+   "text": "- `HKLM\\SOFTWARE\\Policies\\NetPaw` — machine policy ([docs/ENTERPRISE.md](docs/ENTERPRISE.md)).",
+   "kind": "file",
+   "check": {
+    "path": "docs/ENTERPRISE.md"
+   },
+   "id": "c15"
+  },
+  {
+   "line": 178,
+   "text": "- `src/NetPaw.Core` — models, IP math, planner, reach resolver, presets, policy, repos, update check.",
+   "kind": "file",
+   "check": {
+    "path": "src/NetPaw.Core/NetPaw.Core.csproj"
+   },
+   "id": "c16"
+  },
+  {
+   "line": 180,
+   "text": "- `src/NetPaw.Tray` — WinForms, dark, no designer files.",
+   "kind": "file",
+   "check": {
+    "path": "src/NetPaw.Tray/NetPaw.Tray.csproj"
+   },
+   "id": "c17"
+  },
+  {
+   "line": 182,
+   "text": "- `deploy/` — MSI, ADMX, Intune scripts, public signing certificates.",
+   "kind": "glob",
+   "check": {
+    "pattern": "deploy/**/*",
+    "min": 1,
+    "max": 100
+   },
+   "id": "c18"
+  },
+  {
+   "line": 199,
+   "text": "| [features.md](docs/features.md) | every feature in detail |",
+   "kind": "file",
+   "check": {
+    "path": "docs/features.md"
+   },
+   "id": "c19"
+  },
+  {
+   "line": 202,
+   "text": "| [PACK-FORMAT.md](docs/PACK-FORMAT.md) | online profile packs |",
+   "kind": "file",
+   "check": {
+    "path": "docs/PACK-FORMAT.md"
+   },
+   "id": "c20"
+  },
+  {
+   "line": 203,
+   "text": "| [TELEMETRY.md](docs/TELEMETRY.md) | what the `-telemetry` build sends |",
+   "kind": "file",
+   "check": {
+    "path": "docs/TELEMETRY.md"
+   },
+   "id": "c21"
+  },
+  {
+   "line": 74,
+   "text": "| `NetPaw-<version>.msi` | most people; Intune/GPO | [.NET 10 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/10.0) | ~1 MB, per-machine |",
+   "kind": "url",
+   "check": {
+    "url": "https://dotnet.microsoft.com/download/dotnet/10.0"
+   },
+   "id": "c22"
+  },
+  {
+   "line": 70,
+   "text": "Download from [Releases](../../releases):",
+   "kind": "url",
+   "check": {
+    "url": "https://github.com/smol-kitten/netpaw/releases"
+   },
+   "id": "c23"
+  },
+  {
+   "line": 26,
+   "text": "| **Switch networks** | Profiles per adapter (several IPs, gateway, DNS, routes, VLAN) · DHCP in one click · **reach mode**: type an IP and NetPaw gets you onto its subnet · ~60 device presets · hotkeys · auto-switch on known networks · scan for a working profile · verify after every apply |",
    "kind": "grep",
    "check": {
     "path": "src/NetPaw.Core/Presets/presets.json",
@@ -107,11 +231,11 @@
     "min": 50,
     "max": 100
    },
-   "id": "c11"
+   "id": "c24"
   },
   {
-   "line": 15,
-   "text": "- **Device presets** — factory default addresses of ~60 common routers, switches, firewalls,",
+   "line": 26,
+   "text": "| **Switch networks** | Profiles per adapter (several IPs, gateway, DNS, routes, VLAN) · DHCP in one click · **reach mode**: type an IP and NetPaw gets you onto its subnet · ~60 device presets · hotkeys · auto-switch on known networks · scan for a working profile · verify after every apply |",
    "kind": "grep",
    "check": {
     "path": "src/NetPaw.Core/Presets/presets.json",
@@ -119,11 +243,11 @@
     "min": 50,
     "max": 100
    },
-   "id": "c12"
+   "id": "c25"
   },
   {
-   "line": 15,
-   "text": "- **Device presets** — factory default addresses of ~60 common routers, switches, firewalls,",
+   "line": 26,
+   "text": "| **Switch networks** | Profiles per adapter (several IPs, gateway, DNS, routes, VLAN) · DHCP in one click · **reach mode**: type an IP and NetPaw gets you onto its subnet · ~60 device presets · hotkeys · auto-switch on known networks · scan for a working profile · verify after every apply |",
    "kind": "grep",
    "check": {
     "path": "src/NetPaw.Core/Presets/presets.json",
@@ -131,55 +255,55 @@
     "min": 50,
     "max": 100
    },
-   "id": "c13"
+   "id": "c26"
   },
   {
-   "line": 31,
-   "text": "- **Auto-switch** (opt-in per profile) — learn a network's fingerprint (gateway MAC, subnet, DHCP server, DNS suffix, ARP neighbours, plus the LLDP/CDP switch port and Wi-Fi BSSID when known — weighted, so a shared VRRP MAC or a common subnet alone never triggers); on link-up NetPaw applies the profile that scores best by a clear margin. Asks once, undo in the menu, never on ambiguity.",
+   "line": 26,
+   "text": "| **Switch networks** | Profiles per adapter (several IPs, gateway, DNS, routes, VLAN) · DHCP in one click · **reach mode**: type an IP and NetPaw gets you onto its subnet · ~60 device presets · hotkeys · auto-switch on known networks · scan for a working profile · verify after every apply |",
    "kind": "grep",
    "check": {
     "path": "src/NetPaw.Core/Scan/AutoSwitcher.cs",
     "regex": "VRRP|BSSID|LLDP|CDP|gateway MAC|subnet|DHCP server|DNS suffix|ARP neighbours",
     "min": 1
    },
-   "id": "c14"
+   "id": "c27"
   },
   {
-   "line": 32,
-   "text": "- **Update check** (opt-in — asked once on first start; one GitHub API call a day, never downloads) — a balloon once per newer release; click opens the release page. *Settings → Updates* or policy `AllowUpdateCheck=0` turns it off.",
+   "line": 31,
+   "text": "| **Updates** | Signed releases · opt-in update check that installs only a verified, signed MSI |",
    "kind": "grep",
    "check": {
     "path": "src/NetPaw.Core/Updates/UpdateChecker.cs",
     "regex": "AllowUpdateCheck|GitHub|API|balloon|release",
     "min": 1
    },
-   "id": "c15"
+   "id": "c28"
   },
   {
-   "line": 33,
-   "text": "- **Main window** (optional) — Overview · Profiles · Tools · Map · Log in one resizable dark window; tray menu, double-click, `--main`, or make the tray click open it. The tray, hotkeys and quick panel stay as they are.",
+   "line": 180,
+   "text": "- `src/NetPaw.Tray` — WinForms, dark, no designer files.",
    "kind": "grep",
    "check": {
     "path": "src/NetPaw.Tray/MainForm.cs",
     "regex": "Overview|Profiles|Tools|Map|Log|resizable|dark",
     "min": 1
    },
-   "id": "c16"
+   "id": "c29"
   },
   {
-   "line": 34,
-   "text": "- **Intent watcher** — \"msedge cannot reach 192.168.88.1:80 — no reply for 4 s. Profile *MikroTik lab* covers it\" with a one-click *Reach*. Reads the local TCP table every 2 s (one call, nothing sent), tells host-silent from nobody-beyond-the-gateway, never acts by itself.",
+   "line": 27,
+   "text": "| **See what is wrong** | Info card (`Ctrl+Alt+I`) with link/gateway/DNS/internet ✓/✗ · plain-language advice · monitor mode · \"the browser cannot reach X\" watcher · VPN status · incident log |",
    "kind": "grep",
    "check": {
     "path": "src/NetPaw.Core/Connectivity/IntentWatcher.cs",
     "regex": "TCP table|2 s|host-silent|nobody-beyond-the-gateway|Reach",
     "min": 1
    },
-   "id": "c17"
+   "id": "c30"
   },
   {
-   "line": 35,
-   "text": "- **Quiet by default** — every info-card row has a mode (*never / on issue / always*), so a healthy network shows five lines and a dock, Wi-Fi, VPN or switch row appears only when it has something to say. Errors always show. Auto-pin uses the same modes.",
+   "line": 27,
+   "text": "| **See what is wrong** | Info card (`Ctrl+Alt+I`) with link/gateway/DNS/internet ✓/✗ · plain-language advice · monitor mode · \"the browser cannot reach X\" watcher · VPN status · incident log |",
    "kind": "grep",
    "check": {
     "path": "src/NetPaw.Core/Model/Settings.cs",
@@ -187,22 +311,124 @@
     "min": 1,
     "max": 1000000000
    },
-   "id": "c18"
+   "id": "c31"
   },
   {
-   "line": 36,
-   "text": "- **Self-watching** — the check loop backs off on a stable network (30 → 120 s), returns to the fast rate on any change, cancels a hung round after twice the interval, and tells you when its last result is stale. Every background task is guarded: a failure is logged with its name (and, in the telemetry build, reported with the last 40 log lines and the network state).",
+   "line": 27,
+   "text": "| **See what is wrong** | Info card (`Ctrl+Alt+I`) with link/gateway/DNS/internet ✓/✗ · plain-language advice · monitor mode · \"the browser cannot reach X\" watcher · VPN status · incident log |",
    "kind": "grep",
    "check": {
     "path": "src/NetPaw.Core/Connectivity/Connectivity.cs",
     "regex": "30|120|stale|40 log lines|network state",
     "min": 1
    },
-   "id": "c19"
+   "id": "c32"
+  },
+  {
+   "line": 79,
+   "text": "Only the `-telemetry` MSI contains telemetry code.",
+   "kind": "grep",
+   "check": {
+    "path": "src/NetPaw.Core/Telemetry/TelemetryClient.cs",
+    "regex": "telemetry",
+    "min": 1
+   },
+   "id": "c33"
+  },
+  {
+   "line": 84,
+   "text": "> **Signed from v0.13.1.** Each release has `SIGNATURES.md` and `r0.crt`. Windows still shows \"unknown",
+   "kind": "file",
+   "check": {
+    "path": "deploy/pki/r0.crt"
+   },
+   "id": "c34"
+  },
+  {
+   "line": 84,
+   "text": "> **Signed from v0.13.1.** Each release has `SIGNATURES.md` and `r0.crt`. Windows still shows \"unknown",
+   "kind": "grep",
+   "check": {
+    "path": ".github/workflows/ci.yml",
+    "regex": "r0\\.crt",
+    "min": 1
+   },
+   "id": "c35"
+  },
+  {
+   "line": 31,
+   "text": "| **Updates** | Signed releases · opt-in update check that installs only a verified, signed MSI |",
+   "kind": "grep",
+   "check": {
+    "path": "src/NetPaw.Tray/TrayApp.cs",
+    "regex": "NOT verified",
+    "min": 1
+   },
+   "id": "c36"
+  },
+  {
+   "line": 82,
+   "text": "*Settings → start with Windows* adds an elevated scheduled task, so there is no UAC prompt at logon.",
+   "kind": "grep",
+   "check": {
+    "path": "src/NetPaw.Tray/SettingsForm.cs",
+    "regex": "start with Windows|scheduled task|elevated",
+    "min": 1
+   },
+   "id": "c37"
+  },
+  {
+   "line": 182,
+   "text": "- `deploy/` — MSI, ADMX, Intune scripts, public signing certificates.",
+   "kind": "file",
+   "check": {
+    "path": "deploy/gpo/NetPaw.admx"
+   },
+   "id": "c38"
+  },
+  {
+   "line": 182,
+   "text": "- `deploy/` — MSI, ADMX, Intune scripts, public signing certificates.",
+   "kind": "file",
+   "check": {
+    "path": "deploy/intune/Deploy-NetPawProfiles.ps1"
+   },
+   "id": "c39"
+  },
+  {
+   "line": 183,
+   "text": "- `packs/` — online profile packs (not built in).",
+   "kind": "file",
+   "check": {
+    "path": "packs/community/index.json"
+   },
+   "id": "c40"
+  },
+  {
+   "line": 185,
+   "text": "CI builds, signs and verifies on Linux. The MSI is built and install-tested on a hosted Windows runner.",
+   "kind": "grep",
+   "check": {
+    "path": ".github/workflows/ci.yml",
+    "regex": "runs-on: n4",
+    "min": 1
+   },
+   "id": "c41"
+  },
+  {
+   "line": 185,
+   "text": "CI builds, signs and verifies on Linux. The MSI is built and install-tested on a hosted Windows runner.",
+   "kind": "grep",
+   "check": {
+    "path": ".github/workflows/ci.yml",
+    "regex": "runs-on: windows-latest",
+    "min": 1
+   },
+   "id": "c42"
   }
  ],
- "readme_sha": "1dcf7adcd620f03d",
- "extracted": 1789596361,
+ "readme_sha": "860811da58d242e8",
+ "extracted": 1790952407,
  "incremental": true,
- "readme_lines": 206
+ "readme_lines": 212
 }
