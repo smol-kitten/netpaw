@@ -91,18 +91,29 @@ public sealed class NetPawService
     {
         RepoStates = states;
         var presets = PresetLibrary.Load(Store.PresetsFile).ToList();
+        // A repo listed under two refs (e.g. a policy-pinned spec and the same URL with a different
+        // key fragment) yields two states for the same pack, so each entry would otherwise be added
+        // twice. De-duplicate community presets by vendor/model key and profiles by their stable
+        // "r-<repo>-<entry>" id, keeping the newest occurrence (later states win).
+        var presetKeys = presets.Where(p => p.Source is null).Select(p => p.Key).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var profiles = new List<Profile>();
+        var seenProfile = new HashSet<string>(StringComparer.Ordinal);
+        var seenPreset = new HashSet<string>(presetKeys, StringComparer.OrdinalIgnoreCase);
         foreach (var st in states.Where(s => s.Usable(Policy.AllowUnsignedRepos)))
             foreach (var e in st.Pack!.Entries)
             {
-                if (e.ToPreset() is { } pr) { pr.Source = st.Name; presets.Add(pr); }
+                if (e.ToPreset() is { } pr)
+                {
+                    pr.Source = st.Name;
+                    if (seenPreset.Add(pr.Key)) presets.Add(pr);
+                }
                 else if (e.Kind == "profile" && e.Profile is not null)
                 {
                     var p = e.Profile.Clone();
                     p.Id = "r-" + st.Name + "-" + e.Id; p.Source = st.Name; p.Hotkey = null;
                     if (string.IsNullOrWhiteSpace(p.Name)) p.Name = e.Title;
                     p.Note ??= e.Note;
-                    if (p.Validate().Count == 0) profiles.Add(p);
+                    if (p.Validate().Count == 0 && seenProfile.Add(p.Id)) profiles.Add(p);
                 }
             }
         Presets = presets;

@@ -65,6 +65,10 @@ sealed class TrayApp : ApplicationContext
     public NetPawService Service => _svc;
     public Snapshot? LastSnapshot => _snapshot;
     public IReadOnlyList<Advisory> Advisories => _advisories;
+    /// <summary>Set when the process is running as a different Windows account than the interactive session user (NetPaw.UserContextGuard).</summary>
+    public string? CurrentUserMismatch { get; }
+    /// <summary>The per-user "start with Windows" scheduled task. Guarded: never written when <see cref="CurrentUserMismatch"/> is set.</summary>
+    public NetPaw.Autorun Autorun { get; }
     /// <summary>Snapshots of the other host-facing adapters (gateway ping only) and their findings; the work adapter stays the target of repairs and renews.</summary>
     public IReadOnlyList<Snapshot> Secondaries { get; private set; } = [];
     public IReadOnlyList<Advisory> SecondaryAdvisories { get; private set; } = [];
@@ -76,10 +80,13 @@ sealed class TrayApp : ApplicationContext
     bool PanelShowing => _panel is { Visible: true };
     public AdapterInfo? Work => _svc.WorkAdapter(_adapters);
 
-    public TrayApp(NetPawService svc, bool showPanelAtStart)
+    public TrayApp(NetPawService svc, bool showPanelAtStart, string? currentUserMismatch = null)
     {
-        _checker = new ConnectivityChecker(Probe) { WlanReader = n => Wlan.Read(_svc.Runner, n), Dot1xReader = n => Dot1x.Read(_svc.Runner, n) };
         _svc = svc;
+        CurrentUserMismatch = currentUserMismatch;
+        Autorun = new NetPaw.Autorun(args => RunSchTasks(args));
+        TryRepairAutorun();
+        _checker = new ConnectivityChecker(Probe) { WlanReader = n => Wlan.Read(_svc.Runner, n), Dot1xReader = n => Dot1x.Read(_svc.Runner, n) };
         _menu = new ContextMenuStrip { Renderer = new DarkMenuRenderer(), Font = Theme.Base, ShowImageMargin = true, ShowCheckMargin = false };
         _menu.Opening += (_, _) => { _menuOpen = true; BuildMenu(); };
         _menu.Closed += (_, _) => { _menuOpen = false; FlushDeferred(); };
@@ -718,7 +725,7 @@ sealed class TrayApp : ApplicationContext
         tools.DropDown.Renderer = new DarkMenuRenderer();
         _menu.Items.Add(tools);
         if (_svc.Settings.Repair.IncidentLog)
-            _menu.Items.Add(new ToolStripMenuItem("Open incident log", null, (_, _) => { if (File.Exists(_svc.Store.IncidentsFile)) Process.Start(new ProcessStartInfo(_svc.Store.IncidentsFile) { UseShellExecute = true }); }));
+            _menu.Items.Add(new ToolStripMenuItem("Open incident log", null, (_, _) => OpenFolder(_svc.Store.IncidentsFile)));
         _menu.Items.Add(new ToolStripMenuItem("Manage profiles…", null, (_, _) => ShowEditor()));
         _menu.Items.Add(new ToolStripMenuItem("Settings…", null, (_, _) => ShowSettings()));
         _menu.Items.Add(new ToolStripMenuItem("Open log", null, (_, _) => OpenLog()));
@@ -943,9 +950,50 @@ sealed class TrayApp : ApplicationContext
 
     public void ShowSettings() { using var f = new SettingsForm(this); Native.ForceForeground(f.Handle); f.ShowDialog(); }
 
+    /// <summary>Runs the per-user autostart task through schtasks (the only meaningful runner on Windows).</summary>
+    static int RunSchTasks(string args)
+    {
+        using var p = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("schtasks", args)
+        { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true })!;
+        p.WaitForExit(10_000);
+        return p.ExitCode;
+    }
+
+    /// <summary>
+    /// Repair path: if the user last saved "start with Windows" on, but the task is missing (an
+    /// elevated installer or a re-signout dropped/redirected it), re-create it — but only when this
+    /// process is running as the interactive user, never for a mismatched account.
+    /// </summary>
+    void TryRepairAutorun()
+    {
+        if (CurrentUserMismatch is not null || !OperatingSystem.IsWindows()) return;
+        if (_svc.Settings.StartOnLogon != true) return;
+        if (Autorun.RepairIfMissing(settingWantsEnabled: true))
+            _svc.Store.Log("autorun", "start-with-Windows task was missing; re-created");
+    }
+
     void OpenLog()
     {
-        if (File.Exists(_svc.Store.LogFile)) Process.Start(new ProcessStartInfo(_svc.Store.LogFile) { UseShellExecute = true });
+        var file = _svc.Store.LogFile;
+        try
+        {
+            System.IO.Directory.CreateDirectory(_svc.Store.Directory);   // folder may not exist when running under a fresh account
+            if (!File.Exists(file)) File.WriteAllText(file, string.Empty);
+            Process.Start(new ProcessStartInfo(file) { UseShellExecute = true });
+        }
+        catch (Exception ex) { Notify("Cannot open log", $"{file}\n{ex.Message}", ToolTipIcon.Error, force: true); }
+    }
+
+    /// <summary>Opens a file, creating its directory first if missing; on failure shows the path and the error instead of silently doing nothing.</summary>
+    void OpenFolder(string file)
+    {
+        try
+        {
+            System.IO.Directory.CreateDirectory(Path.GetDirectoryName(file) ?? _svc.Store.Directory);
+            if (!File.Exists(file)) File.WriteAllText(file, string.Empty);
+            Process.Start(new ProcessStartInfo(file) { UseShellExecute = true });
+        }
+        catch (Exception ex) { Notify("Cannot open file", $"{file}\n{ex.Message}", ToolTipIcon.Error, force: true); }
     }
 
     void Quit()

@@ -41,7 +41,8 @@ sealed class SettingsForm : Form
         var secondary = new CheckBox { Text = "add a secondary address (keeps current config)", Checked = s.ReachAsSecondary, AutoSize = true };
         var prefix = new NumericUpDown { Minimum = 8, Maximum = 30, Value = s.ReachDefaultPrefix, Width = 70 };
         var flush = new CheckBox { Text = "flush the DNS cache after every apply (ipconfig /flushdns)", Checked = s.FlushDns, AutoSize = true };
-        var startup = new CheckBox { Text = "start with Windows (elevated task, no UAC prompt)", Checked = Startup.IsEnabled(), AutoSize = true };
+        var startup = new CheckBox { Text = "start with Windows (elevated task, no UAC prompt)", Checked = app.Autorun.IsEnabled(), AutoSize = true };
+        if (app.CurrentUserMismatch is not null) startup.Enabled = false;   // running as the wrong account: no autostart from here
         var updates = new CheckBox { Text = "look for a newer release once a day (GitHub API; installs only a verified, signed file)", Checked = s.UpdateCheck, AutoSize = true };
         var updateNow = new Button { Text = "Check now", Width = 90, Height = 24, Margin = new Padding(8, 0, 0, 0) };
         updateNow.Click += async (_, _) => { updateNow.Enabled = false; try { await app.CheckForUpdates(manual: true); } finally { updateNow.Enabled = true; } };
@@ -231,8 +232,9 @@ sealed class SettingsForm : Form
             s.ShowNotifications = notify.Checked;
             s.ReachAsSecondary = secondary.Checked; s.ReachDefaultPrefix = (int)prefix.Value; s.FlushDns = flush.Checked;
             app.Service.SaveSettings();
-            var startupErr = Startup.Set(startup.Checked);
+            var startupErr = app.Autorun.Set(startup.Checked);
             if (startupErr is not null) { err.Text = startupErr; return; }
+            s.StartOnLogon = startup.Checked; app.Service.SaveSettings();
             app.RegisterHotkeys(); app.ConfigureChecks(); app.RefreshState(); _ = app.RunCheck();
             DialogResult = DialogResult.OK; Close();
         };
@@ -241,33 +243,5 @@ sealed class SettingsForm : Form
         Theme.Apply(this); Theme.Primary(ok);
         KeyPreview = true; KeyDown += (_, e) => { if (e.KeyCode == Keys.F1) { app.ShowHelp("settings"); e.Handled = true; } };
         Load += (_, _) => Native.Dress(this);
-    }
-}
-
-/// <summary>"Run at logon" through a highest-privilege scheduled task — the only way to autostart an elevated app without a UAC prompt each login.</summary>
-static class Startup
-{
-    const string TaskName = "NetPaw";
-
-    public static bool IsEnabled() => Run($"/query /tn {TaskName}") == 0;
-
-    public static string? Set(bool enable)
-    {
-        var exe = Environment.ProcessPath ?? Application.ExecutablePath;
-        var code = enable
-            ? Run($"/create /f /tn {TaskName} /sc onlogon /rl highest /tr \"\\\"{exe}\\\"\"")   // no /ru: defaults to the current user, verified on Win11
-            : IsEnabled() ? Run($"/delete /f /tn {TaskName}") : 0;
-        return code == 0 ? null : $"schtasks failed (exit {code})";
-    }
-
-    static int Run(string args)
-    {
-        try
-        {
-            using var p = Process.Start(new ProcessStartInfo("schtasks", args) { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true })!;
-            p.WaitForExit(10_000);
-            return p.ExitCode;
-        }
-        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException) { return -1; }
     }
 }
