@@ -17,6 +17,6 @@ permissions:
 
 jobs:
   security:
-    uses: workcollection/fleet-actions/.github/workflows/security-scan.yml@v2.1.2
+    uses: workcollection/fleet-actions/.github/workflows/security-scan.yml@v2.1.7
     with:
       runs-on: self-hosted
