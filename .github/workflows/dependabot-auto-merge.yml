@@ -17,7 +17,7 @@ permissions:
 
 jobs:
   auto-merge:
-    uses: workcollection/fleet-actions/.github/workflows/dependabot-auto-merge.yml@v2.1.2
+    uses: workcollection/fleet-actions/.github/workflows/dependabot-auto-merge.yml@v2.1.7
     with:
       runs-on: self-hosted
       # Default policy: minor + patch only. Majors held for manual review.
