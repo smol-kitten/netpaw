@@ -112,7 +112,7 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@v8
         with:
           name: ${{ needs.sign-bin.outputs.artifact }}
           path: bin
@@ -205,22 +205,22 @@ jobs:
           BIN_GATE: ${{ needs.sign-bin.outputs.gate }}
           PKG_GATE: ${{ needs.sign-pkg.outputs.gate }}
         run: echo "::notice::not signed (binaries gate=$BIN_GATE, packages gate=$PKG_GATE) — catboy-sign signs tag builds only"
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@v8
         if: needs.sign-pkg.outputs.signed == 'true' && needs.sign-bin.outputs.signed == 'true'
         with:
           name: ${{ needs.sign-bin.outputs.artifact }}
           path: signed/bin
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@v8
         if: needs.sign-pkg.outputs.signed == 'true' && needs.sign-bin.outputs.signed == 'true'
         with:
           name: ${{ needs.sign-pkg.outputs.artifact }}
           path: signed/pkg
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@v8
         if: needs.sign-pkg.outputs.signed == 'true' && needs.sign-bin.outputs.signed == 'true'
         with:
           name: netpaw-bin
           path: input/bin
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@v8
         if: needs.sign-pkg.outputs.signed == 'true' && needs.sign-bin.outputs.signed == 'true'
         with:
           name: netpaw-pkg
@@ -271,11 +271,11 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@v8
         with:
           name: ${{ needs.sign-bin.outputs.artifact }}
           path: signed/bin
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@v8
         with:
           name: ${{ needs.sign-pkg.outputs.artifact }}
           path: signed/pkg
@@ -348,15 +348,15 @@ jobs:
         run: |
           echo "binaries signed=$BIN gate=$BIN_GATE; packages signed=$PKG gate=$PKG_GATE"
           [ "$BIN" = true ] && [ "$PKG" = true ] || { echo "::error::a tag release ships signed or not at all"; exit 1; }
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@v8
         with:
           name: ${{ needs.sign-bin.outputs.artifact }}
           path: signed-bin
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@v8
         with:
           name: ${{ needs.sign-pkg.outputs.artifact }}
           path: rel
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@v8
         with:
           name: netpaw-facts
           path: facts
