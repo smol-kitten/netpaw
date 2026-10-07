@@ -219,3 +219,12 @@ flip without the rerouting would leave the tray unable to apply anything.
 - **CLI** uses the service when present, else the elevated-direct path (portable/scripting).
 - **verify-windows:** a standard user applies a managed profile through the service via the tray's
   code path, and the autorun entry lands in that user's hive, not an admin's.
+
+## Note for the PR 3 body (merge history)
+
+PR 3 carries a correctness fix for a latent defect introduced in #76: the privileged-intent gate used
+`CheckTokenMembership`, which needs an impersonation-level token, so it marked a real elevated admin as a
+non-member and refused DeleteRoute/ResetAdapter/ClearTemp (and the PR 3 Release/Prefer/SetMtu) for
+everyone. It was latent because nothing drove those intents over the pipe until PR 3 routes the tray
+through the service. Fixed by reading TOKEN_GROUPS and requiring the Administrators/NCO SID enabled and
+not deny-only (`CallerPrivilege`), found on the pawsktop Win11 VM.
