@@ -60,14 +60,46 @@ public static class ServiceProtocol
     }
 }
 
-public enum RequestKind { None, Status }
+public enum RequestKind { None, Status, ApplyProfile, Dhcp, Reach, ClearTemp, DeleteRoute, ResetAdapter }
 
-/// <summary>One request. Later steps add the intent fields (profile, adapter, target …) here.</summary>
-public sealed record ServiceRequest(int V, RequestKind Kind);
+/// <summary>One request: what the caller wants, never how. The service resolves the adapter against the live
+/// list, checks every value (<see cref="ProfileGuard"/>) and builds the commands itself.</summary>
+public sealed record ServiceRequest(int V, RequestKind Kind)
+{
+    /// <summary>Adapter name as Windows shows it; must match a live adapter. Null = the work adapter.</summary>
+    public string? Adapter { get; init; }
+    /// <summary>ApplyProfile: a managed profile (from %ProgramData%) by id …</summary>
+    public string? ProfileId { get; init; }
+    /// <summary>… or a user's own profile, sent whole (the service has no access to the user's %APPDATA%).</summary>
+    public Model.Profile? Profile { get; init; }
+    /// <summary>Reach: "a.b.c.d" or "a.b.c.d/n".</summary>
+    public string? Target { get; init; }
+    public bool? ReplacePrimary { get; init; }
+    /// <summary>DeleteRoute: "a.b.c.d/n" and the next hop, if the route has one.</summary>
+    public string? RoutePrefix { get; init; }
+    public string? RouteGateway { get; init; }
+}
 
 public sealed record ServiceResponse(int V, bool Ok, string? Error = null, ServiceStatus? Status = null)
 {
+    /// <summary>What a change request did: every step with its result, warnings and the verify diff.</summary>
+    public ApplyReport? Apply { get; init; }
     public static ServiceResponse Fail(string error) => new(ServiceProtocol.Version, false, error);
+}
+
+public sealed record StepReport(string Description, string Command, int ExitCode, bool Ok, string Output);
+
+public sealed record ApplyReport(string Title, string Adapter, bool Success, bool Aborted,
+    IReadOnlyList<string> Warnings, IReadOnlyList<StepReport> Steps, IReadOnlyList<string> VerifyDiffs)
+{
+    /// <summary>Keeps answers well under <see cref="ServiceProtocol.MaxLine"/>: command output is cut per step.</summary>
+    public const int MaxOutput = 1024;
+
+    public static ApplyReport From(Planning.ApplyPlan plan, Planning.ApplyOutcome? outcome) => new(
+        plan.Title, plan.Adapter, outcome?.Success ?? true, outcome?.Aborted ?? false, [.. plan.Warnings],
+        outcome is null ? [] : outcome.Results.Select(r => new StepReport(r.Step.Description, r.Step.CommandLine, r.ExitCode, r.Ok,
+            r.Output.Length > MaxOutput ? r.Output[..MaxOutput] + " …" : r.Output)).ToList(),
+        outcome is null ? [] : [.. outcome.VerifyDiffs]);
 }
 
 /// <summary>What <see cref="RequestKind.Status"/> answers: enough for a caller to tell the service is
