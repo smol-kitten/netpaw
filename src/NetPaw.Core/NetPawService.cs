@@ -235,6 +235,9 @@ public sealed class NetPawService
 
     public ApplyPlan PlanProfile(Profile p, AdapterInfo? adapter = null)
     {
+        // Every profile, whatever its source, is checked before it becomes commands (v0.13.3).
+        var problems = Ipc.ProfileGuard.Check(p);
+        if (problems.Count > 0) throw new InvalidOperationException($"profile '{p.Name}' refused: {string.Join(" ", problems)}");
         adapter ??= AdapterFor(p);
         var vlan = p.VlanId is null ? null : QueryVlan(adapter.Name);
         var plan = ApplyPlanner.Plan(p, adapter, vlan);

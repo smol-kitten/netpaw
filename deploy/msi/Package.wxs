@@ -32,7 +32,14 @@
       <Directory Id="DataFolder" Name="NetPaw">
         <Directory Id="ProfilesD" Name="profiles.d">
           <Component Id="ProfilesFolder" Guid="c1a2b3c4-0003-4a5b-8c9d-0e1f2a3b4c5d" Bitness="always64">
-            <CreateFolder />
+            <!-- Only admins may deploy managed profiles. Without an explicit, protected ACL the folder inherits
+                 ProgramData's, which lets every user create files in it (fixed in 0.13.3). -->
+            <CreateFolder>
+              <PermissionEx Sddl="D:PAI(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;0x1200a9;;;BU)" />
+            </CreateFolder>
+            <CreateFolder Directory="DataFolder">
+              <PermissionEx Sddl="D:PAI(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;0x1200a9;;;BU)" />
+            </CreateFolder>
             <RemoveFolder Id="RemoveProfilesD" On="uninstall" />
             <RemoveFolder Id="RemoveDataFolder" Directory="DataFolder" On="uninstall" />
             <RegistryValue Root="HKLM" Key="SOFTWARE\NetPaw" Name="ProfilesD" Value="[ProfilesD]" Type="string" KeyPath="yes" />
