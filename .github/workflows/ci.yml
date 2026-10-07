@@ -340,13 +340,36 @@ jobs:
           if (-not $svc) { throw "NetPaw service not installed" }
           "`n### service`n`n| state | start | account |`n|---|---|---|`n| $($svc.State) | $($svc.StartMode) | $($svc.StartName) |" >> $env:GITHUB_STEP_SUMMARY
           if ($svc.State -ne 'Running' -or $svc.StartMode -ne 'Auto' -or $svc.StartName -ne 'LocalSystem') { throw "service is $($svc.State)/$($svc.StartMode)/$($svc.StartName), expected Running/Auto/LocalSystem" }
+          function SvcLog { Get-WinEvent -FilterHashtable @{ LogName = 'Application'; ProviderName = 'NetPaw' } -MaxEvents 10 -ErrorAction SilentlyContinue | Format-List TimeCreated, LevelDisplayName, Message }
           $j = Start-Job { & "$using:dir\netpaw-cli.exe" service status 2>&1; "exit=$LASTEXITCODE" }
           if (-not (Wait-Job $j -Timeout 60)) { Stop-Job $j; throw "netpaw-cli service status hung for 60 s (as admin)" }
           $st = (Receive-Job $j) -join "`n"; $st
-          function SvcLog { Get-WinEvent -FilterHashtable @{ LogName = 'Application'; ProviderName = 'NetPaw' } -MaxEvents 10 -ErrorAction SilentlyContinue | Format-List TimeCreated, LevelDisplayName, Message }
           if ($st -notmatch 'exit=0') { SvcLog; throw "netpaw-cli service status failed (as admin): $st" }
           $qf = (sc.exe qfailure NetPaw) -join "`n"
           if (($qf | Select-String -Pattern 'RESTART' -AllMatches).Matches.Count -lt 2) { throw "service recovery actions not set (expected restart twice):`n$qf" }
+          $ff = (sc.exe qfailureflag NetPaw) -join "`n"
+          if ($ff -notmatch 'FAILURE_ACTIONS_ON_NONCRASH_FAILURES\s*:\s*TRUE') { throw "failure actions do not cover a non-crash stop:`n$ff" }
+          # Pipe squatting (review of #75): with the service stopped, an impostor owns \\.\pipe\NetPaw.
+          # The CLI must refuse to talk to it, and the service must refuse to start next to it.
+          Stop-Service NetPaw
+          $squat = Start-Job {
+            $s = New-Object System.IO.Pipes.NamedPipeServerStream 'NetPaw', ([System.IO.Pipes.PipeDirection]::InOut), 4
+            $s.WaitForConnection(); Start-Sleep 30
+          }
+          Start-Sleep 3
+          $j = Start-Job { & "$using:dir\netpaw-cli.exe" service status 2>&1; "exit=$LASTEXITCODE" }
+          if (-not (Wait-Job $j -Timeout 60)) { throw "service status hung against an impostor pipe" }
+          $st = (Receive-Job $j) -join "`n"; "against an impostor pipe: $st"
+          "`nagainst an impostor pipe: ``$st``" >> $env:GITHUB_STEP_SUMMARY
+          if ($st -notmatch 'exit=5' -or $st -notmatch 'something else answers') { throw "CLI did not refuse an impostor pipe: $st" }
+          $started = $true
+          try { Start-Service NetPaw -ErrorAction Stop; Start-Sleep 3; $started = (Get-Service NetPaw).Status -eq 'Running' } catch { $started = $false }
+          if ($started) { throw "service started although another process owns its pipe name" }
+          Stop-Job $squat; Remove-Job $squat -Force
+          Start-Sleep 2
+          Start-Service NetPaw
+          & "$dir\netpaw-cli.exe" service status
+          if ($LASTEXITCODE -ne 0) { SvcLog; throw "service status failed after the impostor was gone" }
           # Pipe DACL: exactly SYSTEM, Administrators, Network Configuration Operators and INTERACTIVE allowed;
           # network (SMB) callers denied; no Everyone / Users / Authenticated Users / Anonymous.
           $c = New-Object System.IO.Pipes.NamedPipeClientStream '.', 'NetPaw', ([System.IO.Pipes.PipeDirection]::InOut)

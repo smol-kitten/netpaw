@@ -53,10 +53,17 @@ Alternatives considered and rejected:
 
 ### IPC
 
+- The service creates the pipe with `FirstPipeInstance`: if another process already holds the name
+  (a squatter while the service was stopped), the service stops with an error instead of joining it.
+  Clients talk only to the process that the Service Control Manager reports as the running NetPaw
+  service (`GetNamedPipeServerProcessId` vs. `QueryServiceStatusEx`), so a squatter can neither read
+  requests nor fake answers. At most 8 requests are served at once. (Review of #75.)
+
 - Named pipe `\\.\pipe\NetPaw`. ACL: SYSTEM + Administrators + Network Configuration Operators +
   INTERACTIVE. Policy `PipeUsers` can remove INTERACTIVE and add named groups instead.
-- The service identifies the caller of **every** request from the pipe (`GetNamedPipeClientProcessId`,
-  `ProcessIdToSessionId`, and the client token at impersonation level Identification). It never
+- The service identifies the caller of **every** request from the pipe: session from
+  `GetNamedPipeClientSessionId` (not PID → session, since a PID can be reused), user from the client
+  token at impersonation level Identification, PID for the log only. It never
   impersonates for a change. Each request is judged against that caller: user, session, admin or
   not, and any unlock held by that session. An unlock in one session never applies to another.
 - Several sessions (RDP, fast user switching) can talk to the service at the same time. A network
@@ -110,7 +117,8 @@ Alternatives considered and rejected:
 
 ### Audit
 
-- Event log source `NetPaw` (registered by the MSI). Logged: every applied plan (user, session,
+- Event log source `NetPaw`, registered by the service itself at its first start (it runs as
+  LocalSystem; this keeps the MSI free of the WiX util extension). Logged: every applied plan (user, session,
   action, adapter, result), every refusal (and its reason), and unlocks.
 - The incident log also gets the applied plans.
 
@@ -121,7 +129,10 @@ Alternatives considered and rejected:
 - MSI upgrade: install and start the service, ship the tray `asInvoker`. The old per-user task is
   cleaned up by the tray (the MSI cannot see other users' tasks). On first start after the upgrade,
   one notice: "NetPaw no longer needs admin rights; autorun was moved to your account".
-- Portable zip: no service. User mode, or elevated CLI.
+- Portable zips: the self-contained standalone zip ships **without** `netpaw-svc`, on purpose: a
+  portable copy has no installer to register a service, so it runs in user mode or uses the elevated
+  CLI. The framework-dependent zip carries `netpaw-svc.exe` only because it shares the signed folder
+  with the MSI; it is not registered from the zip either.
 - Rollback: uninstall v0.14, then install the v0.13.2 MSI. The MSI refuses a direct downgrade
   (`MajorUpgrade`), so the uninstall comes first. This goes into `signed-release.md` → Rollback.
 - The tray checks the service with `Status` at start, before every change and every 60 s. If the

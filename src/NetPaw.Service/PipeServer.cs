@@ -29,17 +29,28 @@ public sealed class PipeServer(Action<string> log)
         return acl;
     }
 
+    /// <summary>At most this many requests are served at once; further clients wait in their connect timeout.</summary>
+    const int MaxConcurrent = 8;
+
     public async Task Run(CancellationToken stop)
     {
         var acl = Acl();
+        using var slots = new SemaphoreSlim(MaxConcurrent);
+        // FirstPipeInstance on the first create: if any other process already owns \\.\pipe\NetPaw (a squatter
+        // while the service was stopped), creating fails and the service stops loudly instead of joining a pipe
+        // whose DACL someone else chose.
+        var first = true;
         log($"listening on \\\\.\\pipe\\{ServiceProtocol.PipeName}");
         while (!stop.IsCancellationRequested)
         {
+            await slots.WaitAsync(stop);
+            var options = PipeOptions.Asynchronous | (first ? PipeOptions.FirstPipeInstance : 0);
             var pipe = NamedPipeServerStreamAcl.Create(ServiceProtocol.PipeName, PipeDirection.InOut,
-                NamedPipeServerStream.MaxAllowedServerInstances, PipeTransmissionMode.Byte, PipeOptions.Asynchronous, BufferSize, BufferSize, acl);
+                NamedPipeServerStream.MaxAllowedServerInstances, PipeTransmissionMode.Byte, options, BufferSize, BufferSize, acl);
+            first = false;
             try { await pipe.WaitForConnectionAsync(stop); }
-            catch (OperationCanceledException) { await pipe.DisposeAsync(); break; }
-            _ = Task.Run(() => Serve(pipe, stop), stop);
+            catch (OperationCanceledException) { await pipe.DisposeAsync(); slots.Release(); break; }
+            _ = Task.Run(async () => { try { await Serve(pipe, stop); } finally { slots.Release(); } }, CancellationToken.None);
         }
     }
 
@@ -85,8 +96,9 @@ public sealed record Caller(string User, int Session, int ProcessId)
 {
     public static Caller Of(NamedPipeServerStream pipe)
     {
-        if (!GetNamedPipeClientProcessId(pipe.SafePipeHandle, out var pid)) throw new UnauthorizedAccessException("cannot read the caller's process id");
-        if (!ProcessIdToSessionId(pid, out var session)) throw new UnauthorizedAccessException("cannot read the caller's session");
+        // Session straight from the pipe, not PID -> session: the PID can be reused once the client exits.
+        if (!GetNamedPipeClientSessionId(pipe.SafePipeHandle, out var session)) throw new UnauthorizedAccessException("cannot read the caller's session");
+        GetNamedPipeClientProcessId(pipe.SafePipeHandle, out var pid);   // for the log only
         SecurityIdentifier? sid = null;
         // The client connects at Identification level: enough to read its token, not to act as it. WindowsIdentity
         // refuses such a token ("cannot be duplicated"), so the SID is read from the token directly.
@@ -132,5 +144,5 @@ public sealed record Caller(string User, int Session, int ProcessId)
     static extern bool GetNamedPipeClientProcessId(Microsoft.Win32.SafeHandles.SafePipeHandle pipe, out uint clientProcessId);
 
     [DllImport("kernel32.dll", SetLastError = true)]
-    static extern bool ProcessIdToSessionId(uint processId, out uint sessionId);
+    static extern bool GetNamedPipeClientSessionId(Microsoft.Win32.SafeHandles.SafePipeHandle pipe, out uint clientSessionId);
 }

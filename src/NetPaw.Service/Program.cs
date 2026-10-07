@@ -33,7 +33,8 @@ sealed class NetPawWindowsService : ServiceBase
             try { await server.Run(_stop.Token); }
             catch (Exception ex)
             {
-                // A dead listener must not leave a "running" service behind: stop, so the SCM restarts it.
+                // A dead listener must not leave a "running" service behind: stop with exit code 1; failureflag 1
+                // (SetRecoveryActions) makes the SCM treat that as a failure and restart it.
                 EventLog.WriteEntry(Source, "pipe server failed: " + ex, EventLogEntryType.Error);
                 ExitCode = 1;
                 Stop();
@@ -41,21 +42,26 @@ sealed class NetPawWindowsService : ServiceBase
         });
     }
 
-    /// <summary>Restart twice after a crash (5 s), then stay stopped; the tray falls back to user mode.
+    /// <summary>Restart twice after a crash or a failed stop (5 s), then stay stopped; the tray falls back to user mode.
     /// Set here, not in the MSI: Windows Installer's MsiServiceConfigFailureActions fails with access denied
     /// (error 1939) for restart actions. Idempotent; a failure is logged and does not stop the service.</summary>
     static void SetRecoveryActions()
     {
-        try
+        // failureflag 1: also act when the service stops itself with a non-zero exit code (a dead listener
+        // below), not only on a crash; without it the SCM treats Stop() with ExitCode=1 as a clean stop.
+        foreach (var args in new[] { "failure NetPaw reset= 86400 actions= restart/5000/restart/5000//0", "failureflag NetPaw 1" })
         {
-            using var p = Process.Start(new ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "sc.exe"),
-                "failure NetPaw reset= 86400 actions= restart/5000/restart/5000//0") { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true })!;
-            var output = p.StandardOutput.ReadToEnd();
-            if (!p.WaitForExit(10_000) || p.ExitCode != 0) EventLog.WriteEntry(Source, "could not set the service recovery actions: " + output.Trim(), EventLogEntryType.Warning);
-        }
-        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException)
-        {
-            EventLog.WriteEntry(Source, "could not set the service recovery actions: " + ex.Message, EventLogEntryType.Warning);
+            try
+            {
+                using var p = Process.Start(new ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "sc.exe"), args)
+                    { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true })!;
+                var output = p.StandardOutput.ReadToEndAsync();
+                if (!p.WaitForExit(10_000) || p.ExitCode != 0) EventLog.WriteEntry(Source, $"could not set the service recovery ({args}): {output.Result.Trim()}", EventLogEntryType.Warning);
+            }
+            catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException)
+            {
+                EventLog.WriteEntry(Source, $"could not set the service recovery ({args}): {ex.Message}", EventLogEntryType.Warning);
+            }
         }
     }
 

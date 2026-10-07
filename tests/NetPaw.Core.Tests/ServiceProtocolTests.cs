@@ -50,7 +50,8 @@ public class ServiceProtocolTests
     [InlineData("{\"v\":1}", "unknown request kind")]
     [InlineData("{\"v\":1,\"kind\":\"None\"}", "unknown request kind")]
     [InlineData("{\"v\":1,\"kind\":\"RunCommand\"}", "invalid JSON")]
-    [InlineData("{\"v\":1,\"kind\":99}", "unknown request kind")]
+    [InlineData("{\"v\":1,\"kind\":99}", "invalid JSON")]
+    [InlineData("{\"v\":1,\"kind\":1}", "invalid JSON")]
     public void Bad_requests_are_refused_with_a_reason(string body, string reason)
     {
         var (req, err) = ServiceProtocol.ParseRequest(Encoding.UTF8.GetBytes(body));
