@@ -78,6 +78,23 @@ if (argv[0] is "--version" or "version")
     return 0;
 }
 
+// `service status` talks only to the service: no profile store, so it works for any user (and from a
+// process whose %APPDATA% points at another account, as with runas).
+if (argv.Count > 0 && argv[0] == "service")
+{
+    if (argv.Count < 2 || argv[1] != "status") return Fail("usage: netpaw-cli service status");
+    var (resp, err) = NetPaw.Ipc.ServiceClient.Send(new(NetPaw.Ipc.ServiceProtocol.Version, NetPaw.Ipc.RequestKind.Status)).GetAwaiter().GetResult();
+    if (resp is null) { Console.Error.WriteLine("netpaw: " + err); return 5; }
+    if (!resp.Ok || resp.Status is null)
+    {
+        Console.Error.WriteLine("netpaw: service refused: " + (string.IsNullOrEmpty(resp.Error) ? "(no reason) " + System.Text.Json.JsonSerializer.Serialize(resp, NetPaw.Ipc.ServiceProtocol.Json) : resp.Error));
+        return 5;
+    }
+    Console.WriteLine($"service   running, version {resp.Status.Version} (protocol {resp.Status.ProtocolVersion})");
+    Console.WriteLine($"caller    {resp.Status.Caller} (session {resp.Status.CallerSession})");
+    return 0;
+}
+
 var svc = NetPawService.CreateDefault();
 try
 {
@@ -525,20 +542,6 @@ try
                 };
                 Console.WriteLine($"{k,-20} {v,-40} {(pol.IsSet(k) ? "(policy)" : "(default)")}");
             }
-            return 0;
-        }
-        case "service":
-        {
-            if (argv.Count < 2 || argv[1] != "status") return Fail("usage: netpaw-cli service status");
-            var (resp, err) = NetPaw.Ipc.ServiceClient.Send(new(NetPaw.Ipc.ServiceProtocol.Version, NetPaw.Ipc.RequestKind.Status)).GetAwaiter().GetResult();
-            if (resp is null) { Console.Error.WriteLine("netpaw: " + err); return 5; }
-            if (!resp.Ok || resp.Status is null)
-            {
-                Console.Error.WriteLine("netpaw: service refused: " + (string.IsNullOrEmpty(resp.Error) ? "(no reason) " + System.Text.Json.JsonSerializer.Serialize(resp, NetPaw.Ipc.ServiceProtocol.Json) : resp.Error));
-                return 5;
-            }
-            Console.WriteLine($"service   running, version {resp.Status.Version} (protocol {resp.Status.ProtocolVersion})");
-            Console.WriteLine($"caller    {resp.Status.Caller} (session {resp.Status.CallerSession})");
             return 0;
         }
         default:
