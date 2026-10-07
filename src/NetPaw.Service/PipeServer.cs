@@ -24,6 +24,9 @@ public sealed class PipeServer(Action<string> log, IntentHandler? intents = null
         acl.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
         acl.AddAccessRule(new PipeAccessRule(new SecurityIdentifier(WellKnownSidType.NetworkSid, null), PipeAccessRights.FullControl, AccessControlType.Deny));
         acl.AddAccessRule(new PipeAccessRule(new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null), PipeAccessRights.FullControl, AccessControlType.Allow));
+        // ReadWrite|Synchronize is enough for a client to open the pipe (verified from an interactive session on
+        // the pawsktop Win11 VM). No CreateNewInstance, so allowed users cannot add server instances. A caller
+        // whose token carries the NETWORK SID (a remote SMB open, or an SSH network logon) is denied above.
         foreach (var sid in new[] { WellKnownSidType.BuiltinAdministratorsSid, WellKnownSidType.BuiltinNetworkConfigurationOperatorsSid, WellKnownSidType.InteractiveSid })
             acl.AddAccessRule(new PipeAccessRule(new SecurityIdentifier(sid, null), PipeAccessRights.ReadWrite | PipeAccessRights.Synchronize, AccessControlType.Allow));
         return acl;
@@ -104,7 +107,7 @@ public sealed record Caller(string User, int Session, int ProcessId, bool Privil
         var privileged = false;
         // The client connects at Identification level: enough to read its token, not to act as it. WindowsIdentity
         // refuses such a token ("cannot be duplicated"), so the SID and group membership are read from the token.
-        pipe.RunAsClient(() => { sid = ThreadTokenUser(); privileged = InGroup(BuiltinAdministratorsSid) || InGroup(NetworkConfigurationOperatorsSid); });
+        pipe.RunAsClient(() => { sid = ThreadTokenUser(); privileged = InAnyGroup(BuiltinAdministratorsSid, NetworkConfigurationOperatorsSid); });
         if (sid is null) throw new UnauthorizedAccessException("cannot read the caller's user");
         string user;
         try { user = sid.Translate(typeof(NTAccount)).Value; }
@@ -115,16 +118,42 @@ public sealed record Caller(string User, int Session, int ProcessId, bool Privil
     static readonly SecurityIdentifier BuiltinAdministratorsSid = new(WellKnownSidType.BuiltinAdministratorsSid, null);
     static readonly SecurityIdentifier NetworkConfigurationOperatorsSid = new(WellKnownSidType.BuiltinNetworkConfigurationOperatorsSid, null);
 
-    // Is the caller's (impersonated) token a member of this group? CheckTokenMembership on the current thread
-    // token, which is the client's during RunAsClient, and honours deny-only SIDs and the UAC elevation split.
-    static bool InGroup(SecurityIdentifier group)
+    // Does the caller's token carry one of these groups, ENABLED? Read from the token's groups directly:
+    // CheckTokenMembership needs an impersonation-level token, but the client connects at Identification level
+    // (verified on the pawsktop VM: CheckTokenMembership there reported a real elevated admin as a non-member,
+    // which wrongly refused every privileged intent). An admin's filtered (non-elevated) token lists the
+    // Administrators SID as deny-only, so requiring SE_GROUP_ENABLED treats a non-elevated admin as unprivileged.
+    static bool InAnyGroup(params SecurityIdentifier[] groups)
     {
-        var sid = new byte[group.BinaryLength]; group.GetBinaryForm(sid, 0);
-        return CheckTokenMembership(IntPtr.Zero, sid, out var member) && member;
+        const uint TokenQuery = 0x0008; const int TokenGroupsClass = 2;
+        const uint SE_GROUP_ENABLED = 0x4;
+        if (!OpenThreadToken(GetCurrentThread(), TokenQuery, openAsSelf: true, out var token)) return false;
+        try
+        {
+            GetTokenInformation(token, TokenGroupsClass, IntPtr.Zero, 0, out var size);
+            var buf = Marshal.AllocHGlobal(size);
+            try
+            {
+                if (!GetTokenInformation(token, TokenGroupsClass, buf, size, out _)) return false;
+                var count = Marshal.ReadInt32(buf);
+                var entry = IntPtr.Add(buf, IntPtr.Size);   // TOKEN_GROUPS: DWORD GroupCount; then SID_AND_ATTRIBUTES[] (aligned)
+                for (var i = 0; i < count; i++)
+                {
+                    var sidPtr = Marshal.ReadIntPtr(entry);
+                    var attr = (uint)Marshal.ReadInt32(entry, IntPtr.Size);
+                    if ((attr & SE_GROUP_ENABLED) != 0)
+                    {
+                        var sid = new SecurityIdentifier(sidPtr);
+                        if (groups.Any(g => g.Equals(sid))) return true;
+                    }
+                    entry = IntPtr.Add(entry, IntPtr.Size + 8);   // SID_AND_ATTRIBUTES = PSID (IntPtr) + DWORD, padded to 8
+                }
+                return false;
+            }
+            finally { Marshal.FreeHGlobal(buf); }
+        }
+        finally { CloseHandle(token); }
     }
-
-    [DllImport("advapi32.dll", SetLastError = true)]
-    static extern bool CheckTokenMembership(IntPtr tokenHandle, byte[] sidToCheck, out bool isMember);
 
     static SecurityIdentifier ThreadTokenUser()
     {
