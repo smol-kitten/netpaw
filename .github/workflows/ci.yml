@@ -354,7 +354,7 @@ jobs:
           Stop-Service NetPaw
           $squat = Start-Job {
             $s = New-Object System.IO.Pipes.NamedPipeServerStream 'NetPaw', ([System.IO.Pipes.PipeDirection]::InOut), 4
-            $s.WaitForConnection(); Start-Sleep 30
+            $s.WaitForConnection(); Start-Sleep 15; $s.Dispose()   # closes its own handle; Stop-Job would leave it open
           }
           Start-Sleep 3
           $j = Start-Job { & "$using:dir\netpaw-cli.exe" service status 2>&1; "exit=$LASTEXITCODE" }
@@ -365,9 +365,14 @@ jobs:
           $started = $true
           try { Start-Service NetPaw -ErrorAction Stop; Start-Sleep 3; $started = (Get-Service NetPaw).Status -eq 'Running' } catch { $started = $false }
           if ($started) { throw "service started although another process owns its pipe name" }
-          Stop-Job $squat; Remove-Job $squat -Force
-          Start-Sleep 2
-          Start-Service NetPaw
+          if (-not (Wait-Job $squat -Timeout 60)) { throw "impostor pipe job did not finish" }
+          Remove-Job $squat -Force
+          # The SCM may already be restarting it (failure actions); otherwise start it. Up to 30 s.
+          $deadline = (Get-Date).AddSeconds(30)
+          while ((Get-Service NetPaw).Status -ne 'Running' -and (Get-Date) -lt $deadline) {
+            try { Start-Service NetPaw -ErrorAction Stop } catch { Start-Sleep 3 }
+          }
+          if ((Get-Service NetPaw).Status -ne 'Running') { SvcLog; throw "service did not come back after the impostor was gone" }
           & "$dir\netpaw-cli.exe" service status
           if ($LASTEXITCODE -ne 0) { SvcLog; throw "service status failed after the impostor was gone" }
           # Pipe DACL: exactly SYSTEM, Administrators, Network Configuration Operators and INTERACTIVE allowed;
