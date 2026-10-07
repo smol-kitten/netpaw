@@ -52,7 +52,13 @@ public static partial class ProfileGuard
         return IpMath.IsIPv4(s[..slash]) && int.TryParse(s[(slash + 1)..], System.Globalization.NumberStyles.None, null, out var n) && n is >= 0 and <= 32;
     }
 
-    static void Text(string what, string? s, int max, List<string> errors)
+    /// <summary>An adapter name that is safe to put in a command. Windows adapter names are user-chosen (a VPN
+    /// phonebook entry can be named anything), so a resolved name is still untrusted. Rejects every quote kind
+    /// (PowerShell reads ‘ ’ ‚ ‛ as single quotes), the double quote and control characters.</summary>
+    public static bool IsSafeAdapterName(string name) =>
+        name.Length is > 0 and <= 256 && !name.Any(c => char.IsControl(c) || c is '"' or '\'' or '\u2018' or '\u2019' or '\u201a' or '\u201b' or '`');
+
+        static void Text(string what, string? s, int max, List<string> errors)
     {
         if (s is null) return;
         if (s.Length > max) errors.Add($"{what} is longer than {max} characters.");

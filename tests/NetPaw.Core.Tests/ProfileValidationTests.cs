@@ -37,6 +37,21 @@ public class ProfileValidationTests
         Assert.Contains("DNS suffix", ex.Message);
     }
 
+    [Theory]
+    [InlineData("Ethernet", true)]
+    [InlineData("a’;calc;‘", false)]
+    [InlineData("vpn\"name", false)]
+    [InlineData("a'b", false)]
+    public void Unsafe_adapter_names_are_refused_before_a_plan(string name, bool ok)
+    {
+        var svc = new NetPawService(new JsonStore(Directory.CreateTempSubdirectory().FullName),
+            new FakeAdapters(Fx.Adapter(name)), new FakeVlan(false), new FakeRunner(),
+            new MachineStore(Directory.CreateTempSubdirectory().FullName), () => Policy.None);
+        var p = Fx.Static("x"); p.DnsSuffix = "corp.local";
+        if (ok) _ = svc.PlanProfile(p, Fx.Adapter(name));
+        else Assert.Throws<InvalidOperationException>(() => svc.PlanProfile(p, Fx.Adapter(name)));
+    }
+
     [Fact]
     public void Route_fields_must_be_ipv4()
     {
