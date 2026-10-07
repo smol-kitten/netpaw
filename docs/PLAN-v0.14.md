@@ -193,3 +193,29 @@ Second-model critique (three rounds) and MAGI (APPROVE, unanimous, 68), 2026-10-
   *Reset adapter* or *Apply again*. No change is retried automatically.
 - **Tray falls back to an elevated direct apply (rebut).** That brings back the UAC prompt and the
   wrong-account problem.
+
+## PR 3 design: tray asInvoker + user mode + autorun migration
+
+The tray stops being `requireAdministrator`. Every change then goes through the service, because an
+`asInvoker` process cannot run netsh/route changes itself. This must land as one change: a manifest
+flip without the rerouting would leave the tray unable to apply anything.
+
+- **Change channel.** The tray talks to the network through one seam with three modes:
+  - *service* — the service is running: the tray sends intents (`ServiceChange`) and shows the apply
+    report (steps, warnings, verify diffs) exactly as today.
+  - *elevated* — no service but the process is elevated (portable zip from an admin prompt): the
+    current direct `NetPawService` path.
+  - *user* — neither: diagnostics, info card and map work; every apply button is disabled with
+    "needs the NetPaw service (install the MSI) or an elevated run".
+  Mode is chosen at start and re-checked with `Status` before each change and every 60 s.
+- **Intents cover every change** the tray makes (ApplyProfile, Dhcp, Reach, ClearTemp, DeleteRoute,
+  ResetAdapter, Renew, Release, Prefer, SetMtu). Capture stays local (it only reads and writes the
+  user's own profile file). The destructive/reconfiguring intents need an admin/NCO caller until the
+  PR 4 tiers, so in user mode a standard user sees those disabled.
+- **Autorun → HKCU Run.** `asInvoker` means the Run key starts the tray at logon with no prompt, so
+  the scheduled task is gone. Migration at first start: delete the old `NetPaw` scheduled task if it
+  points at NetPaw, and if `StartOnLogon` is set, write the HKCU Run value for the real user. One
+  notice: "NetPaw no longer needs admin rights; autorun now runs in your account."
+- **CLI** uses the service when present, else the elevated-direct path (portable/scripting).
+- **verify-windows:** a standard user applies a managed profile through the service via the tray's
+  code path, and the autorun entry lands in that user's hive, not an admin's.
