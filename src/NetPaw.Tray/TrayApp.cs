@@ -85,7 +85,8 @@ sealed class TrayApp : ApplicationContext
         _svc = svc;
         CurrentUserMismatch = currentUserMismatch;
         Autorun = new NetPaw.Autorun(args => RunSchTasks(args));
-        TryRepairAutorun();
+        // schtasks can take up to 2x10 s (query + create); never block the constructor / UI thread with it.
+        _ = Task.Run(TryRepairAutorun);
         _checker = new ConnectivityChecker(Probe) { WlanReader = n => Wlan.Read(_svc.Runner, n), Dot1xReader = n => Dot1x.Read(_svc.Runner, n) };
         _menu = new ContextMenuStrip { Renderer = new DarkMenuRenderer(), Font = Theme.Base, ShowImageMargin = true, ShowCheckMargin = false };
         _menu.Opening += (_, _) => { _menuOpen = true; BuildMenu(); };
@@ -955,7 +956,14 @@ sealed class TrayApp : ApplicationContext
     {
         using var p = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("schtasks", args)
         { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true })!;
-        p.WaitForExit(10_000);
+        if (!p.WaitForExit(10_000))
+        {
+            // Timed out: schtasks never reported a real exit code. Kill it and report a failure that is
+            // NOT Autorun.UnknownCode — that sentinel is reserved for "this platform can't run schtasks at
+            // all" (missing binary) and is deliberately treated as success on a non-Windows test host.
+            try { p.Kill(entireProcessTree: true); } catch (Exception) { }
+            return -2;
+        }
         return p.ExitCode;
     }
 

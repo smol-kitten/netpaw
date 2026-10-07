@@ -232,9 +232,12 @@ sealed class SettingsForm : Form
             s.ShowNotifications = notify.Checked;
             s.ReachAsSecondary = secondary.Checked; s.ReachDefaultPrefix = (int)prefix.Value; s.FlushDns = flush.Checked;
             app.Service.SaveSettings();
-            var startupErr = app.Autorun.Set(startup.Checked);
-            if (startupErr is not null) { err.Text = startupErr; return; }
-            s.StartOnLogon = startup.Checked; app.Service.SaveSettings();
+            if (app.CurrentUserMismatch is null)
+            {
+                var startupErr = app.Autorun.Set(startup.Checked);
+                if (startupErr is not null) { err.Text = startupErr; return; }
+                s.StartOnLogon = startup.Checked; app.Service.SaveSettings();
+            }
             app.RegisterHotkeys(); app.ConfigureChecks(); app.RefreshState(); _ = app.RunCheck();
             DialogResult = DialogResult.OK; Close();
         };

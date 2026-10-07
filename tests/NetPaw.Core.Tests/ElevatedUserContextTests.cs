@@ -38,6 +38,16 @@ public class ElevatedUserContextTests
         Assert.Contains("ADMIN\\root", warn);
         Assert.Contains("Users\\alice", warn);
         Assert.Contains("autostart", warn);
+        Assert.Contains("saved for ADMIN\\root", warn);   // names the EFFECTIVE (elevated) user, not the interactive one
+    }
+
+    [Fact]
+    public void GuardTreatsBareAndMachineQualifiedNamesAsTheSameAccount()
+    {
+        // WindowsIdentity.Name comes back "MACHINE\alice"; WTSUserName alone (no domain) comes back
+        // bare "alice". Same account, must not be flagged as a mismatch either direction.
+        Assert.Null(UserContextGuard.MismatchWarning("MACHINE\\alice", "alice"));
+        Assert.Null(UserContextGuard.MismatchWarning("alice", "MACHINE\\alice"));
     }
 
     // ---- (d) Autorun register / delete / repair ----------------------------------------------
@@ -80,10 +90,23 @@ public class ElevatedUserContextTests
         Assert.False(off.RepairIfMissing(settingWantsEnabled: false));   // setting off -> no repair
         Assert.Equal(0, created);
 
-        var calls = 0;
-        using var present = new Autorun(args => { calls++; return 0; }); // /query returns 0 = present
+        var createdPresent = 0;
+        using var present = new Autorun(args =>
+        {
+            if (args.Contains("/create")) createdPresent++;
+            return 0;                                                   // /query returns 0 = present
+        });
         Assert.False(present.RepairIfMissing(settingWantsEnabled: true));
-        Assert.Equal(0, created);                                        // never attempted a create
+        Assert.Equal(0, createdPresent);                                 // never attempted a create
+    }
+
+    [Fact]
+    public void AutorunReportsANonUnknownNonZeroExitAsAnError()
+    {
+        // schtasks timing out (TrayApp's RunSchTasks kills it and reports -2, never Autorun.UnknownCode)
+        // must be a reported failure, not treated as success.
+        using var aut = new Autorun(_ => -2);
+        Assert.Equal("schtasks failed (exit -2)", aut.Set(enable: true));
     }
 
     // ---- (e) community items de-duplicated by stable id --------------------------------------
@@ -130,8 +153,12 @@ public class ElevatedUserContextTests
     [Fact]
     public async Task CommunityProfilesKeepOnePerStableId()
     {
-        // A single index entry must become one r-<repo>-<id> profile, never two (it is the id the
-        // whole community item list is keyed on; a double-merge would show every item twice).
+        // Two repo refs (e.g. a policy-pinned spec and the user's own copy of the same URL) that both
+        // resolve to the same pack must still yield one r-<repo>-<id> profile, never two — the stable
+        // id is keyed on pack name + entry id, not on which ref fetched it. Without the dedupe in
+        // RebuildRepos this fails on main (both refs' entries get appended, so the profile shows twice).
+        const string UrlA = "https://packs.example/index.json";
+        const string UrlB = "https://packs.example/mirror.json";
         var pack = new Pack
         {
             Name = "community",
@@ -140,8 +167,14 @@ public class ElevatedUserContextTests
                 new PackEntry { Id = "lab", Vendor = "Acme", Model = "Lab", Kind = "profile", Profile = new Profile { Name = "Acme lab", Addresses = [IpAddr.Parse("10.9.0.5/16")], Gateway = "10.9.0.1" } },
             ],
         };
-        var (svc, _) = Make(pack);
+        var dir = Directory.CreateTempSubdirectory().FullName;
+        var store = new JsonStore(dir);
+        store.SaveSettings(new Settings { RepoUrls = [UrlA, UrlB] });
+        var f = new FakeFetcher2 { Body = PackJson.Serialize(pack) };   // same body for either URL
+        var svc = new NetPawService(store, new FakeAdapters(Fx.Adapter(gw: "192.168.1.1")), new FakeVlan(false), new FakeRunner(),
+            new MachineStore(Path.Combine(dir, "profiles.d")), () => PolicyReader.Read(new DictionaryPolicySource(new Dictionary<string, object>())), new RepoClient(Path.Combine(dir, "cache"), f));
         await svc.SyncRepos();
+        Assert.Equal(2, svc.RepoStates.Count(s => s.Pack is not null));   // both refs actually resolved
         Assert.Single(svc.RepoProfiles, p => p.Id == "r-community-lab");
     }
 }

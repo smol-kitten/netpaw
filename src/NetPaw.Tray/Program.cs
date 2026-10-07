@@ -22,7 +22,8 @@ static class Program
 
         // Guard: an elevated launch can run as a different account than the user at the screen
         // (e.g. "install with admin UAC" typed another admin's credentials). In that state per-user
-        // state would be written for the wrong person, so surface it once and refuse autostart.
+        // state would be written for the wrong person, so surface it (every launch, while the
+        // mismatch persists) and refuse autostart.
         var mismatch = OperatingSystem.IsWindows() ? UserContextWarning() : null;
         if (mismatch is not null) MessageBox.Show(mismatch, "NetPaw — user account", MessageBoxButtons.OK, MessageBoxIcon.Warning);
 

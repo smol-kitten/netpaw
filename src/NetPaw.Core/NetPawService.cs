@@ -94,7 +94,8 @@ public sealed class NetPawService
         // A repo listed under two refs (e.g. a policy-pinned spec and the same URL with a different
         // key fragment) yields two states for the same pack, so each entry would otherwise be added
         // twice. De-duplicate community presets by vendor/model key and profiles by their stable
-        // "r-<repo>-<entry>" id, keeping the newest occurrence (later states win).
+        // "r-<repo>-<entry>" id, keeping the first occurrence (a bundled preset wins over a same-keyed
+        // community one; between two community states the one earlier in RepoRefs() wins).
         var presetKeys = presets.Where(p => p.Source is null).Select(p => p.Key).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var profiles = new List<Profile>();
         var seenProfile = new HashSet<string>(StringComparer.Ordinal);
