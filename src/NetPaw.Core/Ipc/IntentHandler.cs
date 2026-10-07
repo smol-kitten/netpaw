@@ -35,12 +35,20 @@ public sealed class IntentHandler(NetPawService svc, string journalDirectory, Ac
         return j;
     }
 
-    public ServiceResponse Handle(ServiceRequest r, string caller)
+    /// <summary>Intents a non-privileged caller may not use until PR 4's per-action tiers exist. Resetting an
+    /// adapter or deleting a route can take an uplink down, so until there is a policy tier for them the service
+    /// allows them only for administrators and Network Configuration Operators. This keeps 0.14 from granting a
+    /// standard user more than the elevated 0.13 tray did.</summary>
+    static readonly HashSet<RequestKind> PrivilegedOnly = [RequestKind.DeleteRoute, RequestKind.ResetAdapter, RequestKind.ClearTemp];
+
+    public ServiceResponse Handle(ServiceRequest r, string caller, bool privileged)
     {
         lock (_gate)
         {
             try
             {
+                if (PrivilegedOnly.Contains(r.Kind) && !privileged)
+                    throw new Rejected($"{r.Kind} needs an administrator or a Network Configuration Operator (until policy tiers arrive)");
                 svc.Reload();
                 var report = r.Kind switch
                 {
@@ -76,6 +84,10 @@ public sealed class IntentHandler(NetPawService svc, string journalDirectory, Ac
         {
             if (r.Profile is not null) throw new Rejected("send a profile id or a profile, not both");
             p = svc.ManagedProfiles.FirstOrDefault(x => x.Id == r.ProfileId) ?? throw new Rejected($"no managed profile with id {r.ProfileId}");
+            // Managed profiles are validated too: a file planted under 0.13.x survives the upgrade and is still
+            // owned by the user who wrote it, so "it came from profiles.d" is not on its own a reason to trust it.
+            var bad = ProfileGuard.Check(p);
+            if (bad.Count > 0) throw new Rejected($"managed profile '{p.Name}' refused: {string.Join(" ", bad)}");
         }
         else
         {

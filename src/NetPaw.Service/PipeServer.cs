@@ -88,12 +88,12 @@ public sealed class PipeServer(Action<string> log, IntentHandler? intents = null
     {
         RequestKind.Status => new(ServiceProtocol.Version, true, Status: new(BuildVersion, ServiceProtocol.Version, caller.User, caller.Session)),
         _ when intents is null => ServiceResponse.Fail($"{req.Kind} is not available (service started without its store)"),
-        _ => intents.Handle(req, $"{caller.User} (session {caller.Session})"),
+        _ => intents.Handle(req, $"{caller.User} (session {caller.Session})", caller.Privileged),
     };
 }
 
 /// <summary>The identity behind a pipe connection, read from Windows, never from the request body.</summary>
-public sealed record Caller(string User, int Session, int ProcessId)
+public sealed record Caller(string User, int Session, int ProcessId, bool Privileged)
 {
     public static Caller Of(NamedPipeServerStream pipe)
     {
@@ -101,15 +101,30 @@ public sealed record Caller(string User, int Session, int ProcessId)
         if (!GetNamedPipeClientSessionId(pipe.SafePipeHandle, out var session)) throw new UnauthorizedAccessException("cannot read the caller's session");
         GetNamedPipeClientProcessId(pipe.SafePipeHandle, out var pid);   // for the log only
         SecurityIdentifier? sid = null;
+        var privileged = false;
         // The client connects at Identification level: enough to read its token, not to act as it. WindowsIdentity
-        // refuses such a token ("cannot be duplicated"), so the SID is read from the token directly.
-        pipe.RunAsClient(() => sid = ThreadTokenUser());
+        // refuses such a token ("cannot be duplicated"), so the SID and group membership are read from the token.
+        pipe.RunAsClient(() => { sid = ThreadTokenUser(); privileged = InGroup(BuiltinAdministratorsSid) || InGroup(NetworkConfigurationOperatorsSid); });
         if (sid is null) throw new UnauthorizedAccessException("cannot read the caller's user");
         string user;
         try { user = sid.Translate(typeof(NTAccount)).Value; }
         catch (IdentityNotMappedException) { user = sid.Value; }
-        return new Caller(user, (int)session, (int)pid);
+        return new Caller(user, (int)session, (int)pid, privileged);
     }
+
+    static readonly SecurityIdentifier BuiltinAdministratorsSid = new(WellKnownSidType.BuiltinAdministratorsSid, null);
+    static readonly SecurityIdentifier NetworkConfigurationOperatorsSid = new(WellKnownSidType.BuiltinNetworkConfigurationOperatorsSid, null);
+
+    // Is the caller's (impersonated) token a member of this group? CheckTokenMembership on the current thread
+    // token, which is the client's during RunAsClient, and honours deny-only SIDs and the UAC elevation split.
+    static bool InGroup(SecurityIdentifier group)
+    {
+        var sid = new byte[group.BinaryLength]; group.GetBinaryForm(sid, 0);
+        return CheckTokenMembership(IntPtr.Zero, sid, out var member) && member;
+    }
+
+    [DllImport("advapi32.dll", SetLastError = true)]
+    static extern bool CheckTokenMembership(IntPtr tokenHandle, byte[] sidToCheck, out bool isMember);
 
     static SecurityIdentifier ThreadTokenUser()
     {

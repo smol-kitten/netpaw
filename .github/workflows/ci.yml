@@ -434,6 +434,17 @@ jobs:
           "injection attempt as nptest: ``$r2``" >> $env:GITHUB_STEP_SUMMARY
           if ($r2 -notmatch '"ok":false' -or $r2 -notmatch 'DNS suffix' -or $r2 -match '"apply"') { throw "injection attempt was not refused before planning: $r2" }
           Remove-Item "$env:PUBLIC\np-*" -Force -ErrorAction SilentlyContinue
+          # Upgrade case: a managed-profile file planted by a standard user before 0.14 survives the upgrade
+          # and is still owned by that user. The loader must skip it (owner not SYSTEM/Administrators).
+          $planted = "$env:ProgramData\NetPaw\profiles.d\planted.json"
+          '[{ "name": "PlantedEvil", "addresses": [{ "address": "192.0.2.50", "prefixLength": 24 }] }]' | Set-Content $planted
+          $acl = Get-Acl $planted
+          $acl.SetOwner((New-Object System.Security.Principal.NTAccount("$env:COMPUTERNAME\nptest")))
+          Set-Acl $planted $acl
+          $listed = & "$dir\netpaw-cli.exe" list 2>&1 | Out-String
+          "`nmanaged profiles after a planted user-owned file:`n``````n$listed``````" >> $env:GITHUB_STEP_SUMMARY
+          if ($listed -match 'PlantedEvil') { throw "a user-owned planted managed profile was loaded: $listed" }
+          Remove-Item $planted -Force
           $p = Start-Process msiexec -ArgumentList "/x `"$msi`" /qn" -Wait -PassThru
           if ($p.ExitCode -ne 0) { throw "uninstall exit $($p.ExitCode)" }
           if (Test-Path "$dir\NetPaw.exe") { throw "NetPaw.exe still present after uninstall" }

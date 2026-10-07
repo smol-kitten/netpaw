@@ -58,6 +58,11 @@ Alternatives considered and rejected:
   Clients talk only to the process that the Service Control Manager reports as the running NetPaw
   service (`GetNamedPipeServerProcessId` vs. `QueryServiceStatusEx`), so a squatter can neither read
   requests nor fake answers. At most 8 requests are served at once. (Review of #75.)
+- One change runs at a time (a single lock across the apply and its settle). DeleteRoute, ResetAdapter
+  and ClearTemp need an administrator or Network Configuration Operator caller until PR 4 adds the
+  per-action tiers, so v0.14 never grants a standard user more than the elevated 0.13 tray did.
+  Managed profiles (applied by id) are validated the same as sent profiles; a file planted under
+  0.13.x survives the upgrade and is still owned by the user who wrote it. (Review of #76.)
 
 - Named pipe `\\.\pipe\NetPaw`. ACL: SYSTEM + Administrators + Network Configuration Operators +
   INTERACTIVE. Policy `PipeUsers` can remove INTERACTIVE and add named groups instead.

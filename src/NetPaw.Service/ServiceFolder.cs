@@ -25,6 +25,15 @@ public static class ServiceFolder
     public static string Ensure(string root, Action<string> log)
     {
         var dir = new DirectoryInfo(Path.Combine(root, "service"));
+        if (dir.Exists && dir.Attributes.HasFlag(FileAttributes.ReparsePoint))
+        {
+            // A user could pre-create service\ as a junction to an admin-owned folder; the owner check would then
+            // pass and we would re-ACL and write into the target. Move any reparse point aside unconditionally.
+            var junction = dir.FullName + ".reparse-" + DateTime.UtcNow.ToString("yyyyMMddHHmmss");
+            Directory.Move(dir.FullName, junction);
+            log($"{dir.FullName} was a reparse point; moved to {junction} and recreated");
+            dir = new DirectoryInfo(dir.FullName);
+        }
         if (dir.Exists)
         {
             var owner = dir.GetAccessControl().GetOwner(typeof(SecurityIdentifier)) as SecurityIdentifier;
