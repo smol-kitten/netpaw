@@ -55,6 +55,7 @@ jobs:
         run: |
           dotnet publish src/NetPaw.Tray -c Release -r win-x64 --self-contained false $VERSION_PROP -o bin/netpaw-win-x64
           dotnet publish src/NetPaw.Cli  -c Release -r win-x64 --self-contained false $VERSION_PROP -o bin/netpaw-win-x64
+          dotnet publish src/NetPaw.Service -c Release -r win-x64 --self-contained false $VERSION_PROP -o bin/netpaw-win-x64
       - name: Default build carries no telemetry strings
         # The opt-in telemetry variant is the only binary allowed to know the hub (hostname) or carry a token prefix; the default exe must scan clean.
         # ("telemetry" alone is fine: the CLI help mentions the -telemetry.msi variant. Bare "catboy" is fine too: the
@@ -62,7 +63,7 @@ jobs:
         run: |
           python3 - <<'EOF'
           import sys
-          bad = [n for f in ("bin/netpaw-win-x64/NetPaw.exe", "bin/netpaw-win-x64/netpaw-cli.exe")
+          bad = [n for f in ("bin/netpaw-win-x64/NetPaw.exe", "bin/netpaw-win-x64/netpaw-cli.exe", "bin/netpaw-win-x64/netpaw-svc.exe")
                  for n in (b"telemetry.catboy", b"cattel_") if (lambda b: b.count(n) + b.count(n.decode().encode("utf-16-le")))(open(f, "rb").read())]
           print("telemetry strings in default build:", bad or "none")
           sys.exit(1 if bad else 0)
@@ -78,7 +79,7 @@ jobs:
           TOKEN: ${{ secrets.NETPAW_TELEMETRY_TOKEN }}
         run: |
           dotnet publish src/NetPaw.Tray -c Release -r win-x64 --self-contained false $VERSION_PROP -o bin/netpaw-telemetry -p:Telemetry=true "-p:TelemetryToken=$TOKEN"
-          cp bin/netpaw-win-x64/netpaw-cli.exe bin/netpaw-telemetry/
+          cp bin/netpaw-win-x64/netpaw-cli.exe bin/netpaw-win-x64/netpaw-svc.exe bin/netpaw-telemetry/
           grep -qa TelemetryToken bin/netpaw-telemetry/NetPaw.exe || { echo "::error::telemetry metadata missing from the variant"; exit 1; }
           ! grep -qa TelemetryToken bin/netpaw-win-x64/NetPaw.exe || { echo "::error::default build must not carry telemetry metadata"; exit 1; }
           echo "built=true" >> "$GITHUB_OUTPUT"
@@ -327,9 +328,42 @@ jobs:
           if ($env:VER -ne '0.0.0' -and $v -ne $env:VER) { throw "installed version $v, expected $env:VER" }
           & "$dir\netpaw-cli.exe" where
           & "$dir\netpaw-cli.exe" policy
+          # NetPaw service (docs/PLAN-v0.14.md, PR 1 feasibility gate): installed, running, auto start, LocalSystem.
+          $svc = Get-CimInstance Win32_Service -Filter "Name='NetPaw'"
+          if (-not $svc) { throw "NetPaw service not installed" }
+          "`n### service`n`n| state | start | account |`n|---|---|---|`n| $($svc.State) | $($svc.StartMode) | $($svc.StartName) |" >> $env:GITHUB_STEP_SUMMARY
+          if ($svc.State -ne 'Running' -or $svc.StartMode -ne 'Auto' -or $svc.StartName -ne 'LocalSystem') { throw "service is $($svc.State)/$($svc.StartMode)/$($svc.StartName), expected Running/Auto/LocalSystem" }
+          & "$dir\netpaw-cli.exe" service status
+          if ($LASTEXITCODE -ne 0) { throw "netpaw-cli service status exit $LASTEXITCODE (as admin)" }
+          # Pipe DACL: exactly SYSTEM, Administrators, Network Configuration Operators and INTERACTIVE allowed;
+          # network (SMB) callers denied; no Everyone / Users / Authenticated Users / Anonymous.
+          $c = New-Object System.IO.Pipes.NamedPipeClientStream '.', 'NetPaw', ([System.IO.Pipes.PipeDirection]::InOut)
+          $c.Connect(3000)
+          $acl = [System.IO.Pipes.PipesAclExtensions]::GetAccessControl($c)
+          $c.Dispose()
+          $rules = $acl.GetAccessRules($true, $false, [System.Security.Principal.SecurityIdentifier])
+          $allow = @($rules | Where-Object AccessControlType -eq 'Allow' | ForEach-Object { $_.IdentityReference.Value }) | Sort-Object -Unique
+          $deny  = @($rules | Where-Object AccessControlType -eq 'Deny'  | ForEach-Object { $_.IdentityReference.Value }) | Sort-Object -Unique
+          "`npipe DACL: ``$($acl.GetSecurityDescriptorSddlForm('Access'))``" >> $env:GITHUB_STEP_SUMMARY
+          $want = @('S-1-5-18', 'S-1-5-32-544', 'S-1-5-32-556', 'S-1-5-4') | Sort-Object
+          if (Compare-Object $allow $want) { throw "pipe allows $($allow -join ','), expected $($want -join ',')" }
+          if (Compare-Object $deny @('S-1-5-2')) { throw "pipe denies $($deny -join ','), expected NETWORK (S-1-5-2) only" }
+          # A fresh standard user (Users only) reaches the service through INTERACTIVE and is named correctly.
+          $pw = [Convert]::ToBase64String([Security.Cryptography.RandomNumberGenerator]::GetBytes(18)) + 'a1!'
+          $sec = ConvertTo-SecureString $pw -AsPlainText -Force
+          New-LocalUser -Name nptest -Password $sec -AccountNeverExpires | Out-Null
+          Add-LocalGroupMember -Group Users -Member nptest
+          $cred = New-Object System.Management.Automation.PSCredential ("$env:COMPUTERNAME\nptest", $sec)
+          $out = "$env:PUBLIC\np-status.txt"; $err = "$env:PUBLIC\np-status.err"
+          $p = Start-Process "$dir\netpaw-cli.exe" -ArgumentList 'service', 'status' -Credential $cred -LoadUserProfile -WorkingDirectory $env:PUBLIC `
+               -RedirectStandardOutput $out -RedirectStandardError $err -Wait -PassThru
+          $text = (Get-Content $out -Raw) + (Get-Content $err -Raw)
+          "`nas standard user nptest (exit $($p.ExitCode)):`n``````n$text``````" >> $env:GITHUB_STEP_SUMMARY
+          if ($p.ExitCode -ne 0 -or $text -notmatch 'nptest') { throw "standard user could not reach the service: exit $($p.ExitCode): $text" }
           $p = Start-Process msiexec -ArgumentList "/x `"$msi`" /qn" -Wait -PassThru
           if ($p.ExitCode -ne 0) { throw "uninstall exit $($p.ExitCode)" }
           if (Test-Path "$dir\NetPaw.exe") { throw "NetPaw.exe still present after uninstall" }
+          if (Get-Service NetPaw -ErrorAction SilentlyContinue) { throw "NetPaw service still registered after uninstall" }
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')

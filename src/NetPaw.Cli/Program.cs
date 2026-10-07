@@ -48,6 +48,7 @@ const string Usage = """
       netpaw-cli export <file> [--managed]        write profiles as JSON (--managed: only for a profiles.d deployment file)
       netpaw-cli import <file>                    add profiles from a JSON file (same name = replace)
       netpaw-cli policy                           show the effective machine policy (HKLM\SOFTWARE\Policies\NetPaw)
+      netpaw-cli service status                   ask the NetPaw service whether it runs and who it sees calling
       netpaw-cli repo                             list repositories (trust, entry count, last sync)
       netpaw-cli repo add <url[|keyId:pubkey]> | remove <url> | sync | search <query>
       netpaw-cli pack keygen <dir>                create a signing key pair (private.pem + public.txt)
@@ -55,7 +56,7 @@ const string Usage = """
       netpaw-cli pack verify <index.json> [pubkey-base64]
       netpaw-cli pack build <presets.json> <index.json> [--name N]   turn a presets list into a pack
 
-    Exit codes: 0 ok · 1 a step failed · 2 usage/unknown · 3 not VLAN capable · 4 denied by policy
+    Exit codes: 0 ok · 1 a step failed · 2 usage/unknown · 3 not VLAN capable · 4 denied by policy · 5 service not reachable
 
     Profiles live in %APPDATA%\NetPaw\profiles.json (override with NETPAW_HOME).
     """;
@@ -524,6 +525,16 @@ try
                 };
                 Console.WriteLine($"{k,-20} {v,-40} {(pol.IsSet(k) ? "(policy)" : "(default)")}");
             }
+            return 0;
+        }
+        case "service":
+        {
+            if (argv.Count < 2 || argv[1] != "status") return Fail("usage: netpaw-cli service status");
+            var (resp, err) = NetPaw.Ipc.ServiceClient.Send(new(NetPaw.Ipc.ServiceProtocol.Version, NetPaw.Ipc.RequestKind.Status)).GetAwaiter().GetResult();
+            if (resp is null) { Console.Error.WriteLine("netpaw: " + err); return 5; }
+            if (!resp.Ok || resp.Status is null) { Console.Error.WriteLine("netpaw: service refused: " + resp.Error); return 5; }
+            Console.WriteLine($"service   running, version {resp.Status.Version} (protocol {resp.Status.ProtocolVersion})");
+            Console.WriteLine($"caller    {resp.Status.Caller} (session {resp.Status.CallerSession})");
             return 0;
         }
         default:
