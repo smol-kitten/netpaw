@@ -105,6 +105,7 @@ jobs:
       runs-on: n4
       attest: false
       strict: ${{ startsWith(github.ref, 'refs/tags/v') }}
+      retention-days: 1   # ~80 MB signed copies; keep the handoff short (operator billing)
 
   msi:
     # The only Windows build step: WiX 5 cannot build on Linux (measured: WIX0389/WIX0027 on
@@ -192,6 +193,7 @@ jobs:
       runs-on: n4
       attest: true
       strict: ${{ startsWith(github.ref, 'refs/tags/v') }}
+      retention-days: 1   # ~80 MB signed copies; keep the handoff short (operator billing)
 
   verify-signed:
     # The chain proof, on the same runner class that signed: tools/verify-release.sh is the recipe
