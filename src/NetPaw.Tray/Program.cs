@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Security.Principal;
 using NetPaw.Store;
 
 namespace NetPaw.Tray;
@@ -18,6 +19,14 @@ static class Program
         }
         ApplicationConfiguration.Initialize();
         Application.SetColorMode(SystemColorMode.Dark);
+
+        // Guard: an elevated launch can run as a different account than the user at the screen
+        // (e.g. "install with admin UAC" typed another admin's credentials). In that state per-user
+        // state would be written for the wrong person, so surface it (every launch, while the
+        // mismatch persists) and refuse autostart.
+        var mismatch = OperatingSystem.IsWindows() ? UserContextWarning() : null;
+        if (mismatch is not null) MessageBox.Show(mismatch, "NetPaw — user account", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+
         NetPawService svc;
         try { svc = NetPawService.CreateDefault(); }
         catch (Exception ex)
@@ -28,7 +37,7 @@ static class Program
         TelemetryHost.Init(svc);
         Application.ThreadException += (_, e) => { svc.Store.Log("unhandled: " + e.Exception); TelemetryHost.Error(e.Exception, "ui"); MessageBox.Show(e.Exception.Message, "NetPaw", MessageBoxButtons.OK, MessageBoxIcon.Error); };
         TrayApp app;
-        try { app = new TrayApp(svc, showPanelAtStart: args.Contains("--panel")); svc.Store.Log("startup", $"tray ready after {startup.ElapsedMilliseconds} ms"); if (args.Contains("--main")) app.ShowMain(); }
+        try { app = new TrayApp(svc, showPanelAtStart: args.Contains("--panel"), currentUserMismatch: mismatch); svc.Store.Log("startup", $"tray ready after {startup.ElapsedMilliseconds} ms"); if (args.Contains("--main")) app.ShowMain(); }
         catch (Exception ex)
         {
             svc.Store.Log("startup failed: " + ex);
@@ -36,5 +45,13 @@ static class Program
             return;
         }
         Application.Run(app);
+    }
+
+    /// <summary>The cleartext of what this process is vs. the interactive session user, or null when they match/are unknown.</summary>
+    static string? UserContextWarning()
+    {
+        string? effective = null;
+        try { effective = WindowsIdentity.GetCurrent().Name; } catch (Exception) { }
+        return NetPaw.UserContextGuard.MismatchWarning(effective, Native.InteractiveUserName());
     }
 }

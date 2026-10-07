@@ -8,6 +8,40 @@ static partial class Native
     public static readonly int WM_NETPAW_SHOW = RegisterWindowMessage("NetPaw.ShowPanel");
     public static readonly IntPtr HWND_BROADCAST = new(0xFFFF);
 
+    // ---- WTS session/user context ------------------------------------------------------------
+    static readonly IntPtr WTS_CURRENT_SERVER_HANDLE = IntPtr.Zero;   // NULL = local server (~0 is WTS_CURRENT_SESSION, a different constant)
+    const int WTSUserName = 5;
+    const int WTSDomainName = 7;
+    [LibraryImport("kernel32.dll")]
+    public static partial uint WTSGetActiveConsoleSessionId();
+    [LibraryImport("wtsapi32.dll", EntryPoint = "WTSQuerySessionInformationW", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool WTSQuerySessionInformation(IntPtr hServer, uint sessionId, int wtsInfoClass, out IntPtr ppBuffer, out uint pBytesReturned);
+    [LibraryImport("wtsapi32.dll")]
+    public static partial void WTSFreeMemory(IntPtr pMemory);
+
+    /// <summary>"DOMAIN\user" of the user sat at the current console (interactive) session, or null when none can be read.</summary>
+    public static string? InteractiveUserName()
+    {
+        try
+        {
+            var session = WTSGetActiveConsoleSessionId();
+            if (session == 0xFFFFFFFF) return null;
+            var user = QuerySessionString(session, WTSUserName);
+            if (string.IsNullOrEmpty(user)) return null;
+            var domain = QuerySessionString(session, WTSDomainName);
+            return string.IsNullOrEmpty(domain) ? user : $"{domain}\\{user}";
+        }
+        catch (Exception) { return null; }   // never block startup on a diagnostic
+    }
+
+    static string? QuerySessionString(uint sessionId, int wtsInfoClass)
+    {
+        if (!WTSQuerySessionInformation(WTS_CURRENT_SERVER_HANDLE, sessionId, wtsInfoClass, out var buf, out _) || buf == IntPtr.Zero) return null;
+        try { return Marshal.PtrToStringUni(buf); }
+        finally { WTSFreeMemory(buf); }
+    }
+
     [LibraryImport("user32.dll", SetLastError = true)] [return: MarshalAs(UnmanagedType.Bool)]
     public static partial bool RegisterHotKey(IntPtr hWnd, int id, uint fsModifiers, uint vk);
     [LibraryImport("user32.dll", SetLastError = true)] [return: MarshalAs(UnmanagedType.Bool)]

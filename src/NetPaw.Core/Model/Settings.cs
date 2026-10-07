@@ -117,6 +117,8 @@ public sealed class Settings
     public string? UpdateLastVersionSeen { get; set; }
     /// <summary>Telemetry build only: OTLP/HTTP and syslog export to servers the user configures.</summary>
     public Telemetry.LogExportSettings LogExport { get; set; } = new();
+    /// <summary>Hidden-try intent for "start with Windows": null until the checkbox is touched once, then the last saved value. Used to repair a task that the installer (or an elevated login) dropped.</summary>
+    public bool? StartOnLogon { get; set; }
 
     public const string CommunityRepo = "https://raw.githubusercontent.com/smol-kitten/netpaw/main/packs/community/index.json|ec6ef08c:MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEkWwClD0ojzS8c3otMcxZ6nzXZiF0QxFvTgpWMT3zmQDywGACDuUqj21aiLzpjfgJBchHNttrU637vWycRKMMnA==";
 }
