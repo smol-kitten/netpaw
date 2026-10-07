@@ -41,8 +41,9 @@ Alternatives considered and rejected:
 
 1. **`netpaw-svc.exe`**: LocalSystem, automatic start, installed by the MSI. The only component that
    changes network state: addresses, DHCP, routes, temporary addresses, adapter reset, DNS, MTU, pktmon.
-   The MSI sets the recovery actions: restart after 5 s on the first and second failure, then no
-   restart (`ServiceConfigFailureActions`). If the service is stopped or missing, the tray falls back
+   Recovery actions: restart after 5 s on the first and second failure, then no restart. The service
+   sets them itself at start (`sc failure`), because the MSI's `ServiceConfigFailureActions` fails with
+   error 1939 (access denied) for restart actions, measured in PR 1. If the service is stopped or missing, the tray falls back
    to user mode and the info card says "NetPaw service not running". It does not elevate itself.
 2. **Tray**: `asInvoker`. Reads state and diagnoses as the user. Every change becomes a request to
    the service. Without the service (portable zip) it runs in **user mode**: info card, map and

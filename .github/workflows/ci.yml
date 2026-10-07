@@ -342,6 +342,8 @@ jobs:
           if ($svc.State -ne 'Running' -or $svc.StartMode -ne 'Auto' -or $svc.StartName -ne 'LocalSystem') { throw "service is $($svc.State)/$($svc.StartMode)/$($svc.StartName), expected Running/Auto/LocalSystem" }
           & "$dir\netpaw-cli.exe" service status
           if ($LASTEXITCODE -ne 0) { throw "netpaw-cli service status exit $LASTEXITCODE (as admin)" }
+          $qf = (sc.exe qfailure NetPaw) -join "`n"
+          if (($qf | Select-String -Pattern 'RESTART' -AllMatches).Matches.Count -lt 2) { throw "service recovery actions not set (expected restart twice):`n$qf" }
           # Pipe DACL: exactly SYSTEM, Administrators, Network Configuration Operators and INTERACTIVE allowed;
           # network (SMB) callers denied; no Everyone / Users / Authenticated Users / Anonymous.
           $c = New-Object System.IO.Pipes.NamedPipeClientStream '.', 'NetPaw', ([System.IO.Pipes.PipeDirection]::InOut)

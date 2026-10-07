@@ -30,14 +30,9 @@
           <File Id="NetPawSvcExe" Source="$(var.BinDir)\netpaw-svc.exe" KeyPath="yes" />
           <ServiceInstall Id="NetPawSvc" Name="NetPaw" DisplayName="NetPaw"
                           Description="Applies NetPaw network profiles for the tray and the CLI. The only NetPaw part that changes network settings."
-                          Type="ownProcess" Start="auto" ErrorControl="normal" Account="LocalSystem" Vital="yes">
-            <!-- restart twice after a crash (5 s), then leave it stopped; the tray falls back to user mode -->
-            <ServiceConfigFailureActions OnInstall="yes" OnReinstall="yes" ResetPeriod="86400">
-              <Failure Action="restartService" Delay="5000" />
-              <Failure Action="restartService" Delay="5000" />
-              <Failure Action="none" Delay="0" />
-            </ServiceConfigFailureActions>
-          </ServiceInstall>
+                          Type="ownProcess" Start="auto" ErrorControl="normal" Account="LocalSystem" Vital="yes" />
+          <!-- Recovery actions are set by netpaw-svc itself at start: MSI's ServiceConfigFailureActions fails
+               with error 1939 (access denied) for restart actions, measured on windows-latest. -->
           <ServiceControl Id="NetPawSvcControl" Name="NetPaw" Start="install" Stop="both" Remove="uninstall" Wait="yes" />
         </Component>
       </Directory>
