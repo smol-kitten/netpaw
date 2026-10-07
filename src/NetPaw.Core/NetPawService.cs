@@ -235,6 +235,10 @@ public sealed class NetPawService
 
     public ApplyPlan PlanProfile(Profile p, AdapterInfo? adapter = null)
     {
+        // Every profile is checked before it becomes commands, whatever the source (user, managed, repo, reach).
+        // The service path (IntentHandler) also checks; this covers the tray/CLI applying directly (v0.13.3).
+        var problems = Ipc.ProfileGuard.Check(p);
+        if (problems.Count > 0) throw new InvalidOperationException($"profile '{p.Name}' refused: {string.Join(" ", problems)}");
         adapter ??= AdapterFor(p);
         var vlan = p.VlanId is null ? null : QueryVlan(adapter.Name);
         var plan = ApplyPlanner.Plan(p, adapter, vlan);
