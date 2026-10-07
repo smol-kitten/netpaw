@@ -532,7 +532,11 @@ try
             if (argv.Count < 2 || argv[1] != "status") return Fail("usage: netpaw-cli service status");
             var (resp, err) = NetPaw.Ipc.ServiceClient.Send(new(NetPaw.Ipc.ServiceProtocol.Version, NetPaw.Ipc.RequestKind.Status)).GetAwaiter().GetResult();
             if (resp is null) { Console.Error.WriteLine("netpaw: " + err); return 5; }
-            if (!resp.Ok || resp.Status is null) { Console.Error.WriteLine("netpaw: service refused: " + resp.Error); return 5; }
+            if (!resp.Ok || resp.Status is null)
+            {
+                Console.Error.WriteLine("netpaw: service refused: " + (string.IsNullOrEmpty(resp.Error) ? "(no reason) " + System.Text.Json.JsonSerializer.Serialize(resp, NetPaw.Ipc.ServiceProtocol.Json) : resp.Error));
+                return 5;
+            }
             Console.WriteLine($"service   running, version {resp.Status.Version} (protocol {resp.Status.ProtocolVersion})");
             Console.WriteLine($"caller    {resp.Status.Caller} (session {resp.Status.CallerSession})");
             return 0;

@@ -59,10 +59,12 @@ public sealed class PipeServer(Action<string> log)
             reply = req is null ? ServiceResponse.Fail(err!) : Handle(req, caller);
             log($"{req?.Kind.ToString() ?? "invalid"} from {caller.User} (session {caller.Session}): {(reply.Ok ? "ok" : reply.Error)}");
         }
-        catch (Exception ex) when (ex is InvalidDataException or IOException or OperationCanceledException or UnauthorizedAccessException)
+        catch (Exception ex)
         {
-            log("request refused: " + ex.Message);
-            reply = ServiceResponse.Fail(ex is OperationCanceledException ? "no complete request within 10 s" : ex.Message);
+            // Every failure gets an answer that says what happened; the client never sees a bare refusal.
+            var why = ex is OperationCanceledException ? "no complete request within 10 s" : $"{ex.GetType().Name}: {ex.Message}";
+            log("request refused: " + why);
+            reply = ServiceResponse.Fail(why);
         }
         try { await pipe.WriteAsync(ServiceProtocol.Encode(reply), stop); await pipe.FlushAsync(stop); }
         catch (IOException) { }   // the client went away; nothing to tell it
@@ -85,10 +87,46 @@ public sealed record Caller(string User, int Session, int ProcessId)
     {
         if (!GetNamedPipeClientProcessId(pipe.SafePipeHandle, out var pid)) throw new UnauthorizedAccessException("cannot read the caller's process id");
         if (!ProcessIdToSessionId(pid, out var session)) throw new UnauthorizedAccessException("cannot read the caller's session");
-        string user = "?";
-        pipe.RunAsClient(() => { using var id = WindowsIdentity.GetCurrent(TokenAccessLevels.Query); user = id.Name; });
+        SecurityIdentifier? sid = null;
+        // The client connects at Identification level: enough to read its token, not to act as it. WindowsIdentity
+        // refuses such a token ("cannot be duplicated"), so the SID is read from the token directly.
+        pipe.RunAsClient(() => sid = ThreadTokenUser());
+        if (sid is null) throw new UnauthorizedAccessException("cannot read the caller's user");
+        string user;
+        try { user = sid.Translate(typeof(NTAccount)).Value; }
+        catch (IdentityNotMappedException) { user = sid.Value; }
         return new Caller(user, (int)session, (int)pid);
     }
+
+    static SecurityIdentifier ThreadTokenUser()
+    {
+        const uint TokenQuery = 0x0008; const int TokenUserClass = 1;
+        if (!OpenThreadToken(GetCurrentThread(), TokenQuery, openAsSelf: true, out var token)) throw new System.ComponentModel.Win32Exception();
+        try
+        {
+            GetTokenInformation(token, TokenUserClass, IntPtr.Zero, 0, out var size);
+            var buf = Marshal.AllocHGlobal(size);
+            try
+            {
+                if (!GetTokenInformation(token, TokenUserClass, buf, size, out _)) throw new System.ComponentModel.Win32Exception();
+                return new SecurityIdentifier(Marshal.ReadIntPtr(buf));   // TOKEN_USER.User.Sid
+            }
+            finally { Marshal.FreeHGlobal(buf); }
+        }
+        finally { CloseHandle(token); }
+    }
+
+    [DllImport("advapi32.dll", SetLastError = true)]
+    static extern bool OpenThreadToken(IntPtr thread, uint desiredAccess, bool openAsSelf, out IntPtr token);
+
+    [DllImport("advapi32.dll", SetLastError = true)]
+    static extern bool GetTokenInformation(IntPtr token, int infoClass, IntPtr info, int length, out int returnLength);
+
+    [DllImport("kernel32.dll")]
+    static extern IntPtr GetCurrentThread();
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    static extern bool CloseHandle(IntPtr handle);
 
     [DllImport("kernel32.dll", SetLastError = true)]
     static extern bool GetNamedPipeClientProcessId(Microsoft.Win32.SafeHandles.SafePipeHandle pipe, out uint clientProcessId);

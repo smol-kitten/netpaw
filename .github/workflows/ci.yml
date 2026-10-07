@@ -343,7 +343,8 @@ jobs:
           $j = Start-Job { & "$using:dir\netpaw-cli.exe" service status 2>&1; "exit=$LASTEXITCODE" }
           if (-not (Wait-Job $j -Timeout 60)) { Stop-Job $j; throw "netpaw-cli service status hung for 60 s (as admin)" }
           $st = (Receive-Job $j) -join "`n"; $st
-          if ($st -notmatch 'exit=0') { throw "netpaw-cli service status failed (as admin): $st" }
+          function SvcLog { Get-WinEvent -FilterHashtable @{ LogName = 'Application'; ProviderName = 'NetPaw' } -MaxEvents 10 -ErrorAction SilentlyContinue | Format-List TimeCreated, LevelDisplayName, Message }
+          if ($st -notmatch 'exit=0') { SvcLog; throw "netpaw-cli service status failed (as admin): $st" }
           $qf = (sc.exe qfailure NetPaw) -join "`n"
           if (($qf | Select-String -Pattern 'RESTART' -AllMatches).Matches.Count -lt 2) { throw "service recovery actions not set (expected restart twice):`n$qf" }
           # Pipe DACL: exactly SYSTEM, Administrators, Network Configuration Operators and INTERACTIVE allowed;
@@ -371,7 +372,7 @@ jobs:
           if (-not $p.WaitForExit(60000)) { $p.Kill(); throw "netpaw-cli service status hung for 60 s (as nptest)" }
           $text = (Get-Content $out -Raw) + (Get-Content $err -Raw)
           "`nas standard user nptest (exit $($p.ExitCode)):`n``````n$text``````" >> $env:GITHUB_STEP_SUMMARY
-          if ($p.ExitCode -ne 0 -or $text -notmatch 'nptest') { throw "standard user could not reach the service: exit $($p.ExitCode): $text" }
+          if ($p.ExitCode -ne 0 -or $text -notmatch 'nptest') { SvcLog; throw "standard user could not reach the service: exit $($p.ExitCode): $text" }
           $p = Start-Process msiexec -ArgumentList "/x `"$msi`" /qn" -Wait -PassThru
           if ($p.ExitCode -ne 0) { throw "uninstall exit $($p.ExitCode)" }
           if (Test-Path "$dir\NetPaw.exe") { throw "NetPaw.exe still present after uninstall" }

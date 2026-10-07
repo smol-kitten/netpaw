@@ -66,4 +66,16 @@ public class ServiceProtocolTests
         Assert.Contains("\"caller\":\"PC\\\\anna\"", text);
         Assert.DoesNotContain("\"error\"", text);
     }
+
+    [Fact]
+    public async Task Status_response_round_trips_through_the_client_parser()
+    {
+        var wire = ServiceProtocol.Encode(new ServiceResponse(ServiceProtocol.Version, true, Status: new("0.14.0", 1, @"PC\anna", 2)));
+        var line = await ServiceProtocol.ReadLine(new MemoryStream(wire));
+        var back = System.Text.Json.JsonSerializer.Deserialize<ServiceResponse>(line!, ServiceProtocol.Json)!;
+        Assert.True(back.Ok);
+        Assert.NotNull(back.Status);
+        Assert.Equal(@"PC\anna", back.Status!.Caller);
+        Assert.Equal(2, back.Status.CallerSession);
+    }
 }
