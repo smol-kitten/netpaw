@@ -67,6 +67,10 @@ Every feature in detail: **[docs/features.md](docs/features.md)**.
 
 ## 📦 Install
 
+> ⚠️ **Update to 0.13.3 or later.** Versions before 0.13.3 are insecure: a local user could gain
+> administrator rights through a planted profile. Their downloads have been removed; only 0.13.3 and
+> later are available.
+
 Download from [Releases](../../releases):
 
 | file | for | needs | size |
