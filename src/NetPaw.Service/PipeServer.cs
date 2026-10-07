@@ -118,15 +118,15 @@ public sealed record Caller(string User, int Session, int ProcessId, bool Privil
     static readonly SecurityIdentifier BuiltinAdministratorsSid = new(WellKnownSidType.BuiltinAdministratorsSid, null);
     static readonly SecurityIdentifier NetworkConfigurationOperatorsSid = new(WellKnownSidType.BuiltinNetworkConfigurationOperatorsSid, null);
 
-    // Does the caller's token carry one of these groups, ENABLED? Read from the token's groups directly:
-    // CheckTokenMembership needs an impersonation-level token, but the client connects at Identification level
-    // (verified on the pawsktop VM: CheckTokenMembership there reported a real elevated admin as a non-member,
-    // which wrongly refused every privileged intent). An admin's filtered (non-elevated) token lists the
-    // Administrators SID as deny-only, so requiring SE_GROUP_ENABLED treats a non-elevated admin as unprivileged.
+    // Read the caller's token groups (SID + attributes) and let CallerPrivilege decide. The groups come from
+    // the token directly, not CheckTokenMembership: the client connects at Identification level and
+    // CheckTokenMembership needs an impersonation-level token (verified on the pawsktop VM: it reported a real
+    // elevated admin as a non-member there, which wrongly refused every privileged intent). OpenThreadToken runs
+    // inside RunAsClient (which impersonates the client and reverts in a finally), with OpenAsSelf so the
+    // service's own privileges open the thread token, never the client's.
     static bool InAnyGroup(params SecurityIdentifier[] groups)
     {
         const uint TokenQuery = 0x0008; const int TokenGroupsClass = 2;
-        const uint SE_GROUP_ENABLED = 0x4;
         if (!OpenThreadToken(GetCurrentThread(), TokenQuery, openAsSelf: true, out var token)) return false;
         try
         {
@@ -136,19 +136,16 @@ public sealed record Caller(string User, int Session, int ProcessId, bool Privil
             {
                 if (!GetTokenInformation(token, TokenGroupsClass, buf, size, out _)) return false;
                 var count = Marshal.ReadInt32(buf);
-                var entry = IntPtr.Add(buf, IntPtr.Size);   // TOKEN_GROUPS: DWORD GroupCount; then SID_AND_ATTRIBUTES[] (aligned)
+                var entry = IntPtr.Add(buf, IntPtr.Size);   // TOKEN_GROUPS: DWORD GroupCount; then SID_AND_ATTRIBUTES[] (8-aligned)
+                var read = new List<(string, uint)>(count);
                 for (var i = 0; i < count; i++)
                 {
                     var sidPtr = Marshal.ReadIntPtr(entry);
                     var attr = (uint)Marshal.ReadInt32(entry, IntPtr.Size);
-                    if ((attr & SE_GROUP_ENABLED) != 0)
-                    {
-                        var sid = new SecurityIdentifier(sidPtr);
-                        if (groups.Any(g => g.Equals(sid))) return true;
-                    }
+                    read.Add((new SecurityIdentifier(sidPtr).Value, attr));
                     entry = IntPtr.Add(entry, IntPtr.Size + 8);   // SID_AND_ATTRIBUTES = PSID (IntPtr) + DWORD, padded to 8
                 }
-                return false;
+                return NetPaw.Ipc.CallerPrivilege.IsPrivileged(read, groups.Select(g => g.Value).ToArray());
             }
             finally { Marshal.FreeHGlobal(buf); }
         }
