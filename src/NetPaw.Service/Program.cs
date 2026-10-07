@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.ServiceProcess;
+using NetPaw.Ipc;
 using NetPaw.ServiceHost;
 
 // netpaw-svc: the only NetPaw component that changes network state (docs/PLAN-v0.14.md). Runs as
@@ -9,7 +10,7 @@ if (args.Contains("--console"))
 {
     using var stop = new CancellationTokenSource();
     Console.CancelKeyPress += (_, e) => { e.Cancel = true; stop.Cancel(); };
-    await new PipeServer(Console.WriteLine).Run(stop.Token);
+    await new PipeServer(Console.WriteLine, Startup.Intents(Console.WriteLine)).Run(stop.Token);
     return 0;
 }
 ServiceBase.Run(new NetPawWindowsService());
@@ -27,7 +28,15 @@ sealed class NetPawWindowsService : ServiceBase
     {
         if (!EventLog.SourceExists(Source)) EventLog.CreateEventSource(Source, "Application");
         SetRecoveryActions();
-        var server = new PipeServer(msg => EventLog.WriteEntry(Source, msg, EventLogEntryType.Information));
+        Action<string> log = msg => EventLog.WriteEntry(Source, msg, EventLogEntryType.Information);
+        IntentHandler? intents = null;
+        try { intents = Startup.Intents(log); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            // Without its store the service still answers Status (so the tray can say what is wrong) but changes nothing.
+            EventLog.WriteEntry(Source, "service store unavailable, change requests disabled: " + ex.Message, EventLogEntryType.Error);
+        }
+        var server = new PipeServer(log, intents);
         _run = Task.Run(async () =>
         {
             try { await server.Run(_stop.Token); }
@@ -67,4 +76,17 @@ sealed class NetPawWindowsService : ServiceBase
 
     protected override void OnStop() { _stop.Cancel(); try { _run?.Wait(TimeSpan.FromSeconds(10)); } catch (AggregateException) { } }
     protected override void OnShutdown() => OnStop();
+}
+
+static class Startup
+{
+    /// <summary>The change-request handler over the machine's service store; reports an apply that a crash interrupted.</summary>
+    public static IntentHandler Intents(Action<string> log)
+    {
+        var root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "NetPaw");
+        var dir = ServiceFolder.Ensure(root, log);
+        var handler = new IntentHandler(NetPaw.NetPawService.CreateDefault(dir), dir, log);
+        handler.Interrupted();
+        return handler;
+    }
 }

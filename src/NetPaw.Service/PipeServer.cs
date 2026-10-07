@@ -8,9 +8,9 @@ namespace NetPaw.ServiceHost;
 
 /// <summary>
 /// Serves <c>\\.\pipe\NetPaw</c>. One request per connection; the caller's identity is read from the pipe
-/// for every request (docs/PLAN-v0.14.md, "IPC"). This step answers <see cref="RequestKind.Status"/> only.
+/// for every request (docs/PLAN-v0.14.md, "IPC"). Status is answered here; change requests go to <see cref="IntentHandler"/>.
 /// </summary>
-public sealed class PipeServer(Action<string> log)
+public sealed class PipeServer(Action<string> log, IntentHandler? intents = null)
 {
     static readonly TimeSpan ReadTimeout = TimeSpan.FromSeconds(10);
     // Non-zero buffers: with 0 a write blocks until the other side reads, so two writers deadlock.
@@ -84,10 +84,11 @@ public sealed class PipeServer(Action<string> log)
     static readonly string BuildVersion = (typeof(PipeServer).Assembly.GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false)
         .OfType<System.Reflection.AssemblyInformationalVersionAttribute>().FirstOrDefault()?.InformationalVersion ?? "0").Split('+')[0];
 
-    static ServiceResponse Handle(ServiceRequest req, Caller caller) => req.Kind switch
+    ServiceResponse Handle(ServiceRequest req, Caller caller) => req.Kind switch
     {
         RequestKind.Status => new(ServiceProtocol.Version, true, Status: new(BuildVersion, ServiceProtocol.Version, caller.User, caller.Session)),
-        _ => ServiceResponse.Fail($"{req.Kind} is not implemented by this service"),
+        _ when intents is null => ServiceResponse.Fail($"{req.Kind} is not available (service started without its store)"),
+        _ => intents.Handle(req, $"{caller.User} (session {caller.Session})"),
     };
 }
 
