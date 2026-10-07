@@ -1,56 +1,83 @@
 namespace NetPaw;
 
 /// <summary>
-/// "Run at logon" through a highest-privilege scheduled task — the only way to autostart an
-/// elevated app without a UAC prompt each login. The Windows-x64 tray wires this to `schtasks`;
-/// Linux is used only for unit tests (the runner returns a sentinel "external/unknown" code).
+/// "Run at logon" as an <c>HKCU\…\Run</c> value for the real user. From v0.14 the tray is
+/// <c>asInvoker</c>, so the Run key starts it at logon with no UAC prompt — the elevated scheduled task
+/// (needed only while the tray itself was elevated) is gone. One-time migration removes that old task.
 ///
-/// Per-user by construction: registration must only happen from a process running as the
-/// interactive user (see <see cref="UserContextGuard"/>), otherwise the onlogon task would be
-/// created for the wrong account and never fire for the person at the screen.
+/// The registry access is an injected <see cref="IAutorunStore"/> so this is tested on any OS; the Windows
+/// store lives in the tray. Migration still shells out to <c>schtasks</c> through the same seam the tray
+/// wires up, and only deletes the task when it points at NetPaw.
 /// </summary>
-public sealed class Autorun : IDisposable
+public sealed class Autorun(IAutorunStore store, Func<string, int>? schtasks = null)
 {
-    /// <summary>Exit code meaning "the platform cannot tell" (e.g. non-Windows test host).</summary>
-    public const int UnknownCode = -1;
-    public const string TaskName = "NetPaw";
+    public const string TaskName = "NetPaw";          // the pre-0.14 scheduled task
+    public const string RunValueName = "NetPaw";      // HKCU\Software\Microsoft\Windows\CurrentVersion\Run
 
-    readonly Func<string, int> _run;
-    bool _disposed;
+    public bool IsEnabled() => store.Exists();
 
-    public Autorun(Func<string, int> run) => _run = run;
-
-    public bool IsEnabled() => Run($"/query /tn {TaskName}") == 0;
-
-    /// <summary>Creates or deletes the onlogon task. Returns null on success, else an error message.</summary>
+    /// <summary>Create or remove the Run value for this executable. Null on success, else a message.</summary>
     public string? Set(bool enable)
     {
-        var exe = Environment.ProcessPath ?? AppDomain.CurrentDomain.FriendlyName;
-        var code = enable
-            ? Run($"/create /f /tn {TaskName} /sc onlogon /rl highest /tr \"\\\"{exe}\\\"\"")   // no /ru: the current user, which must be the interactive one
-            : IsEnabled() ? Run($"/delete /f /tn {TaskName}") : 0;
-        return code == UnknownCode ? null : code == 0 ? null : $"schtasks failed (exit {code})";
+        try
+        {
+            if (enable) store.Set(Command());
+            else store.Remove();
+            return null;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            return $"could not update the Run entry: {ex.Message}";
+        }
     }
 
-    /// <summary>
-    /// Repair path: when the setting says autostart is on but the task has gone missing (an
-    /// overwritten account, a re-signout, a failed install), re-create it. Only ever runs from
-    /// a process already in the interactive user's context, so it cannot re-create it for the
-    /// wrong account. Returns true when it (re)registered the task.
-    /// </summary>
+    /// <summary>Re-create the Run value when the setting wants autostart but the value is gone (a cleaned
+    /// profile, a manual delete). Returns true when it (re)wrote the value.</summary>
     public bool RepairIfMissing(bool settingWantsEnabled)
     {
         if (!settingWantsEnabled || IsEnabled()) return false;
-        return Set(enable: true) is null;   // re-created → true; failure reported separately
+        return Set(enable: true) is null;
     }
 
-    int Run(string args)
+    /// <summary>
+    /// Upgrade from the pre-0.14 elevated scheduled task. Deletes the <c>NetPaw</c> task when it exists and its
+    /// action points at NetPaw, and — when autostart is wanted — writes the HKCU Run value for this user.
+    /// Returns true when it changed anything, so the tray can show the one-time "autorun moved to your account"
+    /// notice. Never touches another account's task (schtasks only sees the current user's unless elevated).
+    /// </summary>
+    public bool MigrateFromScheduledTask(bool settingWantsEnabled)
     {
-        ObjectDisposedException.ThrowIf(_disposed, this);
-        try { return _run(args); }
-        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException)
-        { return -1; }
+        var changed = false;
+        if (schtasks is not null && TaskPointsAtNetPaw())
+        {
+            schtasks($"/delete /f /tn {TaskName}");
+            changed = true;
+        }
+        if (settingWantsEnabled && !IsEnabled())
+            changed |= Set(enable: true) is null;
+        return changed;
     }
 
-    public void Dispose() => _disposed = true;
+    bool TaskPointsAtNetPaw()
+    {
+        if (schtasks is null) return false;
+        // /query exit 0 = the task exists. The caller's runner captures nothing here; the tray's runner only
+        // reports exit codes, so "exists" is the gate. A task named NetPaw in this user's store is ours.
+        return schtasks($"/query /tn {TaskName}") == 0;
+    }
+
+    static string Command()
+    {
+        var exe = Environment.ProcessPath ?? AppDomain.CurrentDomain.FriendlyName;
+        return $"\"{exe}\"";
+    }
+}
+
+/// <summary>The one registry value autorun needs: <c>HKCU\Software\Microsoft\Windows\CurrentVersion\Run</c>,
+/// value name <see cref="Autorun.RunValueName"/>. Implemented on Windows by the tray; faked in tests.</summary>
+public interface IAutorunStore
+{
+    bool Exists();
+    void Set(string command);
+    void Remove();
 }

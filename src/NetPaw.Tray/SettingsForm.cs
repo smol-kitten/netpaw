@@ -41,7 +41,7 @@ sealed class SettingsForm : Form
         var secondary = new CheckBox { Text = "add a secondary address (keeps current config)", Checked = s.ReachAsSecondary, AutoSize = true };
         var prefix = new NumericUpDown { Minimum = 8, Maximum = 30, Value = s.ReachDefaultPrefix, Width = 70 };
         var flush = new CheckBox { Text = "flush the DNS cache after every apply (ipconfig /flushdns)", Checked = s.FlushDns, AutoSize = true };
-        var startup = new CheckBox { Text = "start with Windows (elevated task, no UAC prompt)", Checked = app.Autorun.IsEnabled(), AutoSize = true };
+        var startup = new CheckBox { Text = "start with Windows (your account, no UAC prompt)", Checked = app.Autorun.IsEnabled(), AutoSize = true };
         if (app.CurrentUserMismatch is not null) startup.Enabled = false;   // running as the wrong account: no autostart from here
         var updates = new CheckBox { Text = "look for a newer release once a day (GitHub API; installs only a verified, signed file)", Checked = s.UpdateCheck, AutoSize = true };
         var updateNow = new Button { Text = "Check now", Width = 90, Height = 24, Margin = new Padding(8, 0, 0, 0) };

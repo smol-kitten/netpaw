@@ -52,61 +52,81 @@ public class ElevatedUserContextTests
 
     // ---- (d) Autorun register / delete / repair ----------------------------------------------
 
-    [Fact]
-    public void AutorunCreatesAndDeletesTheTask()
+    sealed class FakeStore : IAutorunStore
     {
-        var calls = new List<string>();
-        using var aut = new Autorun(args => { calls.Add(args); return 0; });   // schtasks always "ok"
-        Assert.Null(aut.Set(enable: true));
-        Assert.Contains($"/create /f /tn {Autorun.TaskName} /sc onlogon /rl highest", calls[0]);   // per-user onlogon task, no /ru override
-        Assert.Null(aut.Set(enable: false));
-        Assert.Equal($"/delete /f /tn {Autorun.TaskName}", calls[^1]);
+        public string? Value;
+        public bool Exists() => Value is { Length: > 0 };
+        public void Set(string command) => Value = command;
+        public void Remove() => Value = null;
     }
 
     [Fact]
-    public void AutorunRepairRecreatesAMissingTaskWhenAsked()
+    public void AutorunWritesAndRemovesTheRunValue()
     {
-        // First /query says "not found" (wrong account / dropped task), so IsEnabled() is false.
-        var created = 0;
-        using var aut = new Autorun(args =>
-        {
-            if (args.Contains("/create")) { created++; return 0; }
-            return 1;                                  // /query -> 1 = task missing
-        });
+        var store = new FakeStore();
+        var aut = new Autorun(store);
+        Assert.False(aut.IsEnabled());
+        Assert.Null(aut.Set(enable: true));
+        Assert.True(aut.IsEnabled());
+        Assert.StartsWith("\"", store.Value);        // the quoted exe path
+        Assert.Null(aut.Set(enable: false));
+        Assert.False(aut.IsEnabled());
+    }
+
+    [Fact]
+    public void AutorunRepairRewritesAMissingRunValueWhenAsked()
+    {
+        var store = new FakeStore();                 // empty = value gone
+        var aut = new Autorun(store);
         Assert.False(aut.IsEnabled());
         Assert.True(aut.RepairIfMissing(settingWantsEnabled: true));
-        Assert.Equal(1, created);
+        Assert.True(store.Exists());
     }
 
     [Fact]
-    public void AutorunDoesNotRepairWhenSettingIsOffOrTaskIsPresent()
+    public void AutorunDoesNotRepairWhenSettingIsOffOrValuePresent()
     {
-        var created = 0;
-        using var off = new Autorun(_ =>
-        {
-            if (_.Contains("/create")) created++;
-            return 1;
-        });
-        Assert.False(off.RepairIfMissing(settingWantsEnabled: false));   // setting off -> no repair
-        Assert.Equal(0, created);
+        var off = new Autorun(new FakeStore());
+        Assert.False(off.RepairIfMissing(settingWantsEnabled: false));
 
-        var createdPresent = 0;
-        using var present = new Autorun(args =>
-        {
-            if (args.Contains("/create")) createdPresent++;
-            return 0;                                                   // /query returns 0 = present
-        });
-        Assert.False(present.RepairIfMissing(settingWantsEnabled: true));
-        Assert.Equal(0, createdPresent);                                 // never attempted a create
+        var present = new FakeStore { Value = "\"x\"" };
+        Assert.False(new Autorun(present).RepairIfMissing(settingWantsEnabled: true));
     }
 
     [Fact]
-    public void AutorunReportsANonUnknownNonZeroExitAsAnError()
+    public void MigrationDeletesTheOldTaskAndWritesTheRunValue()
     {
-        // schtasks timing out (TrayApp's RunSchTasks kills it and reports -2, never Autorun.UnknownCode)
-        // must be a reported failure, not treated as success.
-        using var aut = new Autorun(_ => -2);
-        Assert.Equal("schtasks failed (exit -2)", aut.Set(enable: true));
+        var store = new FakeStore();
+        var calls = new List<string>();
+        // schtasks /query returns 0 (the old task exists), /delete returns 0.
+        var aut = new Autorun(store, args => { calls.Add(args); return 0; });
+        Assert.True(aut.MigrateFromScheduledTask(settingWantsEnabled: true));
+        Assert.Contains(calls, c => c == $"/delete /f /tn {Autorun.TaskName}");
+        Assert.True(store.Exists());                 // autostart moved to HKCU Run
+    }
+
+    [Fact]
+    public void MigrationDoesNothingWhenThereIsNoOldTaskAndAutostartIsOff()
+    {
+        var store = new FakeStore();
+        var aut = new Autorun(store, _ => 1);        // /query 1 = no task
+        Assert.False(aut.MigrateFromScheduledTask(settingWantsEnabled: false));
+        Assert.False(store.Exists());
+    }
+
+    [Fact]
+    public void AutorunReportsAStoreFailureAsAnError()
+    {
+        // A registry write that throws (locked key, policy) must be a reported failure, not silent success.
+        var aut = new Autorun(new ThrowingStore());
+        Assert.StartsWith("could not update the Run entry", aut.Set(enable: true));
+    }
+
+    sealed class ThrowingStore : IAutorunStore
+    {
+        public bool Exists() => false;
+        public void Set(string command) => throw new IOException("key locked");
+        public void Remove() { }
     }
 
     // ---- (e) community items de-duplicated by stable id --------------------------------------

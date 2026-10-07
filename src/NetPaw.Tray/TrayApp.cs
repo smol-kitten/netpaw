@@ -84,9 +84,9 @@ sealed class TrayApp : ApplicationContext
     {
         _svc = svc;
         CurrentUserMismatch = currentUserMismatch;
-        Autorun = new NetPaw.Autorun(args => RunSchTasks(args));
-        // schtasks can take up to 2x10 s (query + create); never block the constructor / UI thread with it.
-        _ = Task.Run(TryRepairAutorun);
+        Autorun = new NetPaw.Autorun(new NetPaw.RegistryAutorunStore(), RunSchTasks);
+        // Registry + schtasks(for migration) can block; never run them on the constructor / UI thread.
+        _ = Task.Run(MigrateAndRepairAutorun);
         _checker = new ConnectivityChecker(Probe) { WlanReader = n => Wlan.Read(_svc.Runner, n), Dot1xReader = n => Dot1x.Read(_svc.Runner, n) };
         _menu = new ContextMenuStrip { Renderer = new DarkMenuRenderer(), Font = Theme.Base, ShowImageMargin = true, ShowCheckMargin = false };
         _menu.Opening += (_, _) => { _menuOpen = true; BuildMenu(); };
@@ -972,12 +972,18 @@ sealed class TrayApp : ApplicationContext
     /// elevated installer or a re-signout dropped/redirected it), re-create it — but only when this
     /// process is running as the interactive user, never for a mismatched account.
     /// </summary>
-    void TryRepairAutorun()
+    void MigrateAndRepairAutorun()
     {
         if (CurrentUserMismatch is not null || !OperatingSystem.IsWindows()) return;
-        if (_svc.Settings.StartOnLogon != true) return;
-        if (Autorun.RepairIfMissing(settingWantsEnabled: true))
-            _svc.Store.Log("autorun", "start-with-Windows task was missing; re-created");
+        var wants = _svc.Settings.StartOnLogon == true;
+        // v0.14 upgrade: drop the old elevated scheduled task and move autostart to this user's HKCU Run.
+        if (Autorun.MigrateFromScheduledTask(settingWantsEnabled: wants))
+        {
+            _svc.Store.Log("autorun", "migrated start-with-Windows from the elevated task to HKCU Run for this user");
+            Notify("NetPaw no longer needs admin rights", "Autostart now runs in your account. The old elevated task was removed.", ToolTipIcon.Info);
+        }
+        else if (wants && Autorun.RepairIfMissing(settingWantsEnabled: true))
+            _svc.Store.Log("autorun", "start-with-Windows Run entry was missing; re-created");
     }
 
     void OpenLog()
