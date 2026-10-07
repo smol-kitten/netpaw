@@ -10,7 +10,7 @@ namespace NetPaw.ServiceHost;
 /// Serves <c>\\.\pipe\NetPaw</c>. One request per connection; the caller's identity is read from the pipe
 /// for every request (docs/PLAN-v0.14.md, "IPC"). This step answers <see cref="RequestKind.Status"/> only.
 /// </summary>
-public sealed class PipeServer(ILogger<PipeServer> log) : BackgroundService
+public sealed class PipeServer(Action<string> log)
 {
     static readonly TimeSpan ReadTimeout = TimeSpan.FromSeconds(10);
 
@@ -27,10 +27,10 @@ public sealed class PipeServer(ILogger<PipeServer> log) : BackgroundService
         return acl;
     }
 
-    protected override async Task ExecuteAsync(CancellationToken stop)
+    public async Task Run(CancellationToken stop)
     {
         var acl = Acl();
-        log.LogInformation("listening on \\\\.\\pipe\\{Pipe}", ServiceProtocol.PipeName);
+        log($"listening on \\\\.\\pipe\\{ServiceProtocol.PipeName}");
         while (!stop.IsCancellationRequested)
         {
             var pipe = NamedPipeServerStreamAcl.Create(ServiceProtocol.PipeName, PipeDirection.InOut,
@@ -54,11 +54,11 @@ public sealed class PipeServer(ILogger<PipeServer> log) : BackgroundService
             if (line is null) return;
             var (req, err) = ServiceProtocol.ParseRequest(line);
             reply = req is null ? ServiceResponse.Fail(err!) : Handle(req, caller);
-            log.LogInformation("{Kind} from {User} (session {Session}): {Result}", req?.Kind.ToString() ?? "invalid", caller.User, caller.Session, reply.Ok ? "ok" : reply.Error);
+            log($"{req?.Kind.ToString() ?? "invalid"} from {caller.User} (session {caller.Session}): {(reply.Ok ? "ok" : reply.Error)}");
         }
         catch (Exception ex) when (ex is InvalidDataException or IOException or OperationCanceledException or UnauthorizedAccessException)
         {
-            log.LogWarning("request refused: {Message}", ex.Message);
+            log("request refused: " + ex.Message);
             reply = ServiceResponse.Fail(ex is OperationCanceledException ? "no complete request within 10 s" : ex.Message);
         }
         try { await pipe.WriteAsync(ServiceProtocol.Encode(reply), stop); await pipe.FlushAsync(stop); }
