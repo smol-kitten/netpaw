@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- NetPaw per-machine MSI (WiX v5). No custom actions: installs two files, creates the managed
-     profiles folder, adds a Start-menu shortcut and puts the CLI on PATH. Intune can upload this
+<!-- NetPaw per-machine MSI (WiX v5). No custom actions: installs the tray, the CLI and the NetPaw
+     service (netpaw-svc, LocalSystem, docs/PLAN-v0.14.md), creates the managed profiles folder, adds a
+     Start-menu shortcut and puts the CLI on PATH. Intune can upload this
      as a line-of-business app directly; GPO software installation accepts it as-is. -->
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
   <Package Name="NetPaw" Manufacturer="smol-kitten" Version="$(var.Version)" UpgradeCode="7b6a1d0e-5c1f-4e0a-9f2b-2d3e4f5a6b7c" Scope="perMachine" Language="1033" Codepage="1252" InstallerVersion="500">
@@ -24,6 +25,15 @@
         <Component Id="CliExe" Guid="c1a2b3c4-0002-4a5b-8c9d-0e1f2a3b4c5d" Bitness="always64">
           <File Id="NetPawCliExe" Source="$(var.BinDir)\netpaw-cli.exe" KeyPath="yes" />
           <Environment Id="PathEntry" Name="PATH" Value="[INSTALLFOLDER]" Permanent="no" Part="last" Action="set" System="yes" />
+        </Component>
+        <Component Id="ServiceExe" Guid="c1a2b3c4-0005-4a5b-8c9d-0e1f2a3b4c5d" Bitness="always64">
+          <File Id="NetPawSvcExe" Source="$(var.BinDir)\netpaw-svc.exe" KeyPath="yes" />
+          <ServiceInstall Id="NetPawSvc" Name="NetPaw" DisplayName="NetPaw"
+                          Description="Applies NetPaw network profiles for the tray and the CLI. The only NetPaw part that changes network settings."
+                          Type="ownProcess" Start="auto" ErrorControl="normal" Account="LocalSystem" Vital="yes" />
+          <!-- Recovery actions are set by netpaw-svc itself at start: MSI's ServiceConfigFailureActions fails
+               with error 1939 (access denied) for restart actions, measured on windows-latest. -->
+          <ServiceControl Id="NetPawSvcControl" Name="NetPaw" Start="install" Stop="both" Remove="uninstall" Wait="yes" />
         </Component>
       </Directory>
     </StandardDirectory>
@@ -51,6 +61,7 @@
     <Feature Id="Main" Title="NetPaw" Level="1">
       <ComponentRef Id="TrayExe" />
       <ComponentRef Id="CliExe" />
+      <ComponentRef Id="ServiceExe" />
       <ComponentRef Id="ProfilesFolder" />
       <ComponentRef Id="StartMenuShortcut" />
     </Feature>

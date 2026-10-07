@@ -48,6 +48,7 @@ const string Usage = """
       netpaw-cli export <file> [--managed]        write profiles as JSON (--managed: only for a profiles.d deployment file)
       netpaw-cli import <file>                    add profiles from a JSON file (same name = replace)
       netpaw-cli policy                           show the effective machine policy (HKLM\SOFTWARE\Policies\NetPaw)
+      netpaw-cli service status                   ask the NetPaw service whether it runs and who it sees calling
       netpaw-cli repo                             list repositories (trust, entry count, last sync)
       netpaw-cli repo add <url[|keyId:pubkey]> | remove <url> | sync | search <query>
       netpaw-cli pack keygen <dir>                create a signing key pair (private.pem + public.txt)
@@ -55,7 +56,7 @@ const string Usage = """
       netpaw-cli pack verify <index.json> [pubkey-base64]
       netpaw-cli pack build <presets.json> <index.json> [--name N]   turn a presets list into a pack
 
-    Exit codes: 0 ok · 1 a step failed · 2 usage/unknown · 3 not VLAN capable · 4 denied by policy
+    Exit codes: 0 ok · 1 a step failed · 2 usage/unknown · 3 not VLAN capable · 4 denied by policy · 5 service not reachable
 
     Profiles live in %APPDATA%\NetPaw\profiles.json (override with NETPAW_HOME).
     """;
@@ -74,6 +75,23 @@ if (argv[0] is "--version" or "version")
     var info = typeof(Program).Assembly.GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false)
         .OfType<System.Reflection.AssemblyInformationalVersionAttribute>().FirstOrDefault()?.InformationalVersion ?? "0";
     Console.WriteLine(info.Split('+')[0]);
+    return 0;
+}
+
+// `service status` talks only to the service: no profile store, so it works for any user (and from a
+// process whose %APPDATA% points at another account, as with runas).
+if (argv.Count > 0 && argv[0] == "service")
+{
+    if (argv.Count < 2 || argv[1] != "status") return Fail("usage: netpaw-cli service status");
+    var (resp, err) = NetPaw.Ipc.ServiceClient.Send(new(NetPaw.Ipc.ServiceProtocol.Version, NetPaw.Ipc.RequestKind.Status)).GetAwaiter().GetResult();
+    if (resp is null) { Console.Error.WriteLine("netpaw: " + err); return 5; }
+    if (!resp.Ok || resp.Status is null)
+    {
+        Console.Error.WriteLine("netpaw: service refused: " + (string.IsNullOrEmpty(resp.Error) ? "(no reason) " + System.Text.Json.JsonSerializer.Serialize(resp, NetPaw.Ipc.ServiceProtocol.Json) : resp.Error));
+        return 5;
+    }
+    Console.WriteLine($"service   running, version {resp.Status.Version} (protocol {resp.Status.ProtocolVersion})");
+    Console.WriteLine($"caller    {resp.Status.Caller} (session {resp.Status.CallerSession})");
     return 0;
 }
 
