@@ -14,6 +14,7 @@ public static class ApplyPlanner
 
     public static ApplyPlan Plan(Profile p, AdapterInfo adapter, VlanInfo? vlan = null)
     {
+        if (!Ipc.ProfileGuard.IsSafeAdapterName(adapter.Name)) throw new InvalidOperationException($"adapter name '{adapter.Name}' contains characters that are not allowed.");
         var plan = new ApplyPlan { Title = p.Name, Adapter = adapter.Name };
         var n = Q(adapter.Name);
         if (!adapter.Up) plan.Warnings.Add($"Adapter '{adapter.Name}' is down; settings are stored but will only take effect once it comes up.");
@@ -49,7 +50,7 @@ public static class ApplyPlanner
             plan.Steps.Add(Step.Netsh($"Interface metric {im}", $"interface ipv4 set interface {n} metric={im}", critical: false));
 
         if (p.DnsSuffix is not null)
-            plan.Steps.Add(Step.PowerShell($"DNS suffix '{p.DnsSuffix}'", $"Set-DnsClient -InterfaceAlias '{adapter.Name.Replace("'", "''")}' -ConnectionSpecificSuffix '{p.DnsSuffix.Replace("'", "''")}'", critical: false));
+            plan.Steps.Add(Step.PowerShell($"DNS suffix '{p.DnsSuffix}'", $"Set-DnsClient -InterfaceIndex {adapter.Index} -ConnectionSpecificSuffix '{p.DnsSuffix.Replace("'", "''")}'", critical: false));
 
         foreach (var r in p.Routes)
         {

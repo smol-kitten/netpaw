@@ -2,10 +2,10 @@ name: CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, 'release/**' ]
     tags: [ 'v*' ]
   pull_request:
-    branches: [ main ]
+    branches: [ main, 'release/**' ]
     paths-ignore: [ '**.md', 'docs/**', 'LICENSE', 'deploy/gpo/**', 'deploy/intune/**' ]
 
 concurrency:
@@ -327,6 +327,17 @@ jobs:
           if ($env:VER -ne '0.0.0' -and $v -ne $env:VER) { throw "installed version $v, expected $env:VER" }
           & "$dir\netpaw-cli.exe" where
           & "$dir\netpaw-cli.exe" policy
+          # 0.13.3: only admins may write where managed profiles live (no inherited ProgramData ACL).
+          foreach ($d in "$env:ProgramData\NetPaw", "$env:ProgramData\NetPaw\profiles.d") {
+            $acl = Get-Acl $d
+            if (-not $acl.AreAccessRulesProtected) { throw "$d still inherits its parent's ACL" }
+            $write = [System.Security.AccessControl.FileSystemRights]'WriteData, AppendData, WriteExtendedAttributes, WriteAttributes, Delete, ChangePermissions, TakeOwnership'
+            foreach ($r in $acl.Access) {
+              $sid = $r.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value
+              if ($r.AccessControlType -eq 'Allow' -and $sid -notin 'S-1-5-18', 'S-1-5-32-544' -and ($r.FileSystemRights -band $write)) { throw "$d grants write to $($r.IdentityReference) ($($r.FileSystemRights))" }
+            }
+            "``$d``: $($acl.Sddl)" >> $env:GITHUB_STEP_SUMMARY
+          }
           $p = Start-Process msiexec -ArgumentList "/x `"$msi`" /qn" -Wait -PassThru
           if ($p.ExitCode -ne 0) { throw "uninstall exit $($p.ExitCode)" }
           if (Test-Path "$dir\NetPaw.exe") { throw "NetPaw.exe still present after uninstall" }

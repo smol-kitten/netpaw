@@ -17,6 +17,17 @@ public sealed class MachineStore
 
     public MachineStore(string? directory = null) => Directory = directory ?? DefaultDirectory();
 
+    /// <summary>Returns why a file must not be trusted, or null. Windows: the file's owner must be SYSTEM or
+    /// Administrators. Tests replace it; null skips the check.</summary>
+    public Func<string, string?>? OwnerCheck { get; init; } = OperatingSystem.IsWindows() ? AdminOwned : null;
+
+    static string? AdminOwned(string file)
+    {
+        var owner = new FileInfo(file).GetAccessControl().GetOwner(typeof(System.Security.Principal.SecurityIdentifier)) as System.Security.Principal.SecurityIdentifier;
+        return owner is not null && (owner.IsWellKnown(System.Security.Principal.WellKnownSidType.LocalSystemSid) || owner.IsWellKnown(System.Security.Principal.WellKnownSidType.BuiltinAdministratorsSid))
+            ? null : $"skipped: owned by {owner?.Value ?? "unknown"}, not SYSTEM or Administrators";
+    }
+
     public static string DefaultDirectory()
     {
         var env = Environment.GetEnvironmentVariable("NETPAW_MACHINE_HOME");
@@ -35,9 +46,16 @@ public sealed class MachineStore
         {
             try
             {
+                // Only admins may deploy managed profiles. Before v0.13.3 the folder inherited ProgramData's ACL,
+                // so files written there by other users may still exist: they are skipped, not trusted.
+                if (OwnerCheck?.Invoke(file) is { } notAdmin) { Errors.Add($"{Path.GetFileName(file)}: {notAdmin}"); continue; }
                 var profiles = JsonSerializer.Deserialize<List<Profile>>(File.ReadAllText(file), Json) ?? [];
                 foreach (var p in profiles)
                 {
+                    var problems = Ipc.ProfileGuard.Check(p);
+                    if (problems.Count > 0) { Errors.Add($"{Path.GetFileName(file)}: profile '{p.Name}' skipped: {string.Join(" ", problems)}"); continue; }
+                    // Auto-switch is confirmed on this machine by the user (Settings), never by a file.
+                    p.AutoSwitchConfirmed = false;
                     p.Managed = true; p.Source = "managed";
                     // Deterministic id (file + name) so hotkeys and "current" checks are stable across machines.
                     p.Id = "m-" + Path.GetFileNameWithoutExtension(file) + "-" + p.Name.ToLowerInvariant().Replace(' ', '-');
