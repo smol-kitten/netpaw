@@ -228,3 +228,29 @@ non-member and refused DeleteRoute/ResetAdapter/ClearTemp (and the PR 3 Release/
 everyone. It was latent because nothing drove those intents over the pipe until PR 3 routes the tray
 through the service. Fixed by reading TOKEN_GROUPS and requiring the Administrators/NCO SID enabled and
 not deny-only (`CallerPrivilege`), found on the pawsktop Win11 VM.
+
+## Review reconciliation — recurring points (rounds 2–10)
+
+The second-model review raises the same four points each round. They are settled here; no further change.
+
+- **Orchestrator abort/rollback gates (rebut).** This is desktop software, not a fleet service: there is
+  no runtime the orchestrator can gate. The real, enforceable gates are: each security-relevant PR merges
+  only after the orchestrator's independent review returns GO (done for #75, #76; PR 3 pending); no `v*`
+  tag without the orchestrator's OK, and the signed pipeline refuses to release if any verify job fails;
+  the policy kill switch is `Deny` on every action tier; rollback is uninstall + install the prior MSI
+  (`MajorUpgrade` blocks a direct downgrade). Nothing more to invent.
+- **Service-crash recovery (adopt — already specified, made explicit).** The tray calls `Status` at start,
+  before each change, and every 60 s; a missed answer switches it to user mode and shows one balloon. An
+  apply cut off by a crash is recorded in the inflight journal and surfaced **once** at the next service
+  start (not re-prompted), with *Reset adapter* / *Apply again*. No automatic retry.
+- **Caller mapping for RDP / fast user switching / impersonation failure (adopt — clarified).**
+  `GetNamedPipeClientSessionId` returns the Windows session for every logon kind, including RDP and fast
+  user switching; the user comes from the client token read inside `RunAsClient`. If either read fails,
+  `Caller.Of` throws and the request is refused with a reason — it never falls back to the service's own
+  identity. An unlock is keyed to the session, so it never crosses sessions.
+- **The #76 `CheckTokenMembership` defect is unverified/untested (rebut — it is both).** It was reproduced
+  on the pawsktop Win11 VM 150: an interactive elevated admin's `DeleteRoute` was refused as non-privileged.
+  The fix (`CallerPrivilege`, reading TOKEN_GROUPS and requiring the SID enabled and not deny-only) is
+  covered by 7 unit tests (enabled / deny-only / enabled+deny-only / present-not-enabled / standard user /
+  none / NCO), and the end-to-end path was re-run on the VM (admin `DeleteRoute` executes). The token read
+  itself is Windows-only and stays VM-validated, not unit-tested, by design.
