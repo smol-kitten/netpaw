@@ -13,6 +13,8 @@ namespace NetPaw.ServiceHost;
 public sealed class PipeServer(Action<string> log)
 {
     static readonly TimeSpan ReadTimeout = TimeSpan.FromSeconds(10);
+    // Non-zero buffers: with 0 a write blocks until the other side reads, so two writers deadlock.
+    const int BufferSize = 4096;
 
     /// <summary>Who may open the pipe. Everyone not listed is refused by Windows before the service reads a
     /// byte. Remote (SMB) callers are denied explicitly, even if they belong to a listed group.</summary>
@@ -34,7 +36,7 @@ public sealed class PipeServer(Action<string> log)
         while (!stop.IsCancellationRequested)
         {
             var pipe = NamedPipeServerStreamAcl.Create(ServiceProtocol.PipeName, PipeDirection.InOut,
-                NamedPipeServerStream.MaxAllowedServerInstances, PipeTransmissionMode.Byte, PipeOptions.Asynchronous, 0, 0, acl);
+                NamedPipeServerStream.MaxAllowedServerInstances, PipeTransmissionMode.Byte, PipeOptions.Asynchronous, BufferSize, BufferSize, acl);
             try { await pipe.WaitForConnectionAsync(stop); }
             catch (OperationCanceledException) { await pipe.DisposeAsync(); break; }
             _ = Task.Run(() => Serve(pipe, stop), stop);
@@ -49,9 +51,10 @@ public sealed class PipeServer(Action<string> log)
         ServiceResponse reply;
         try
         {
-            var caller = Caller.Of(pipe);
+            // Read first: Windows lets a pipe server identify its client only after it has read from the pipe.
             var line = await ServiceProtocol.ReadLine(pipe, cts.Token);
             if (line is null) return;
+            var caller = Caller.Of(pipe);
             var (req, err) = ServiceProtocol.ParseRequest(line);
             reply = req is null ? ServiceResponse.Fail(err!) : Handle(req, caller);
             log($"{req?.Kind.ToString() ?? "invalid"} from {caller.User} (session {caller.Session}): {(reply.Ok ? "ok" : reply.Error)}");

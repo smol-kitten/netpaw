@@ -80,6 +80,16 @@ public static class ServiceClient
     /// (not installed, stopped, or the pipe ACL refused this user: the message says which).</summary>
     public static async Task<(ServiceResponse? Response, string? Error)> Send(ServiceRequest request, int timeoutMs = 2000, CancellationToken ct = default)
     {
+        // Bound the whole exchange, not only the connect: a service that accepts but never answers must not hang the caller.
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        cts.CancelAfter(timeoutMs + 15_000);
+        try { return await Exchange(request, timeoutMs, cts.Token).ConfigureAwait(false); }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested) { return (null, "the NetPaw service did not answer within 15 s"); }
+        catch (IOException ex) { return (null, "pipe error talking to the NetPaw service: " + ex.Message); }
+    }
+
+    static async Task<(ServiceResponse? Response, string? Error)> Exchange(ServiceRequest request, int timeoutMs, CancellationToken ct)
+    {
         using var pipe = new NamedPipeClientStream(".", ServiceProtocol.PipeName, PipeDirection.InOut, PipeOptions.Asynchronous,
             System.Security.Principal.TokenImpersonationLevel.Identification);   // lets the service read who is calling; it cannot act as us
         try { await pipe.ConnectAsync(timeoutMs, ct).ConfigureAwait(false); }

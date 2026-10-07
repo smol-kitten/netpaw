@@ -340,8 +340,10 @@ jobs:
           if (-not $svc) { throw "NetPaw service not installed" }
           "`n### service`n`n| state | start | account |`n|---|---|---|`n| $($svc.State) | $($svc.StartMode) | $($svc.StartName) |" >> $env:GITHUB_STEP_SUMMARY
           if ($svc.State -ne 'Running' -or $svc.StartMode -ne 'Auto' -or $svc.StartName -ne 'LocalSystem') { throw "service is $($svc.State)/$($svc.StartMode)/$($svc.StartName), expected Running/Auto/LocalSystem" }
-          & "$dir\netpaw-cli.exe" service status
-          if ($LASTEXITCODE -ne 0) { throw "netpaw-cli service status exit $LASTEXITCODE (as admin)" }
+          $j = Start-Job { & "$using:dir\netpaw-cli.exe" service status 2>&1; "exit=$LASTEXITCODE" }
+          if (-not (Wait-Job $j -Timeout 60)) { Stop-Job $j; throw "netpaw-cli service status hung for 60 s (as admin)" }
+          $st = (Receive-Job $j) -join "`n"; $st
+          if ($st -notmatch 'exit=0') { throw "netpaw-cli service status failed (as admin): $st" }
           $qf = (sc.exe qfailure NetPaw) -join "`n"
           if (($qf | Select-String -Pattern 'RESTART' -AllMatches).Matches.Count -lt 2) { throw "service recovery actions not set (expected restart twice):`n$qf" }
           # Pipe DACL: exactly SYSTEM, Administrators, Network Configuration Operators and INTERACTIVE allowed;
@@ -365,7 +367,8 @@ jobs:
           $cred = New-Object System.Management.Automation.PSCredential ("$env:COMPUTERNAME\nptest", $sec)
           $out = "$env:PUBLIC\np-status.txt"; $err = "$env:PUBLIC\np-status.err"
           $p = Start-Process "$dir\netpaw-cli.exe" -ArgumentList 'service', 'status' -Credential $cred -LoadUserProfile -WorkingDirectory $env:PUBLIC `
-               -RedirectStandardOutput $out -RedirectStandardError $err -Wait -PassThru
+               -RedirectStandardOutput $out -RedirectStandardError $err -PassThru
+          if (-not $p.WaitForExit(60000)) { $p.Kill(); throw "netpaw-cli service status hung for 60 s (as nptest)" }
           $text = (Get-Content $out -Raw) + (Get-Content $err -Raw)
           "`nas standard user nptest (exit $($p.ExitCode)):`n``````n$text``````" >> $env:GITHUB_STEP_SUMMARY
           if ($p.ExitCode -ne 0 -or $text -notmatch 'nptest') { throw "standard user could not reach the service: exit $($p.ExitCode): $text" }
