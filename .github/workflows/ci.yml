@@ -97,7 +97,7 @@ jobs:
       contents: read
       id-token: write
       attestations: write
-    uses: workcollection/fleet-actions/.github/workflows/catboy-sign.yml@v2.1.7
+    uses: workcollection/fleet-actions/.github/workflows/catboy-sign.yml@v2.1.8
     with:
       artifact-name: netpaw-bin
       pe-glob: '*.exe *.dll'
@@ -184,7 +184,7 @@ jobs:
       contents: read
       id-token: write
       attestations: write
-    uses: workcollection/fleet-actions/.github/workflows/catboy-sign.yml@v2.1.7
+    uses: workcollection/fleet-actions/.github/workflows/catboy-sign.yml@v2.1.8
     with:
       artifact-name: netpaw-pkg
       pe-glob: '*.msi'
