@@ -39,7 +39,7 @@ public sealed class IntentHandler(NetPawService svc, string journalDirectory, Ac
     /// adapter or deleting a route can take an uplink down, so until there is a policy tier for them the service
     /// allows them only for administrators and Network Configuration Operators. This keeps 0.14 from granting a
     /// standard user more than the elevated 0.13 tray did.</summary>
-    static readonly HashSet<RequestKind> PrivilegedOnly = [RequestKind.DeleteRoute, RequestKind.ResetAdapter, RequestKind.ClearTemp];
+    static readonly HashSet<RequestKind> PrivilegedOnly = [RequestKind.DeleteRoute, RequestKind.ResetAdapter, RequestKind.ClearTemp, RequestKind.Release, RequestKind.Prefer, RequestKind.SetMtu];
 
     public ServiceResponse Handle(ServiceRequest r, string caller, bool privileged)
     {
@@ -58,6 +58,10 @@ public sealed class IntentHandler(NetPawService svc, string journalDirectory, Ac
                     RequestKind.ClearTemp => ClearTemp(),
                     RequestKind.DeleteRoute => DeleteRoute(r, caller),
                     RequestKind.ResetAdapter => Run(ApplyPlanner.PlanResetAdapter(Adapter(r)), caller),
+                    RequestKind.Renew => Run(Connectivity.Advisor.PlanRenew(Adapter(r)), caller, require: Capability.Dhcp),
+                    RequestKind.Release => Run(Connectivity.Advisor.PlanRelease(Adapter(r)), caller),
+                    RequestKind.Prefer => Run(Connectivity.Advisor.PlanPrefer(Adapter(r), svc.GetAdapters()), caller),
+                    RequestKind.SetMtu => SetMtu(r, caller),
                     _ => throw new Rejected($"{r.Kind} is not a change request"),
                 };
                 return new(ServiceProtocol.Version, report.Success) { Apply = report, Error = report.Success ? null : "one or more steps failed" };
@@ -74,7 +78,11 @@ public sealed class IntentHandler(NetPawService svc, string journalDirectory, Ac
     AdapterInfo Adapter(ServiceRequest r)
     {
         if (r.Adapter is { Length: > 256 }) throw new Rejected("adapter name too long");
-        return svc.ResolveAdapter(r.Adapter);
+        var a = svc.ResolveAdapter(r.Adapter);
+        // A resolved name is still untrusted (a user can name a VPN phonebook entry anything). Every repair
+        // plan below puts the name straight into a command, so refuse an unsafe one centrally.
+        if (!ProfileGuard.IsSafeAdapterName(a.Name)) throw new Rejected($"adapter name '{a.Name}' contains characters that are not allowed");
+        return a;
     }
 
     ApplyReport ApplyProfile(ServiceRequest r, string caller)
@@ -125,6 +133,12 @@ public sealed class IntentHandler(NetPawService svc, string journalDirectory, Ac
         if (r.RouteGateway is not null && !Net.IpMath.IsIPv4(r.RouteGateway)) throw new Rejected("route gateway must be an IPv4 address");
         var adapter = Adapter(r);
         return Run(ApplyPlanner.PlanDeleteRoute(new RouteEntry(r.RoutePrefix, adapter.Index, r.RouteGateway, 0), adapter.Name), caller);
+    }
+
+    ApplyReport SetMtu(ServiceRequest r, string caller)
+    {
+        if (r.Mtu is not (>= 576 and <= 9000)) throw new Rejected("MTU must be 576..9000");
+        return Run(Connectivity.Advisor.PlanSetMtu(Adapter(r), r.Mtu!.Value), caller);
     }
 
     ApplyReport Run(ApplyPlan plan, string caller, Capability? require = null)

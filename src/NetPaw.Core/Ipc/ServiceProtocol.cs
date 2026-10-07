@@ -60,7 +60,7 @@ public static class ServiceProtocol
     }
 }
 
-public enum RequestKind { None, Status, ApplyProfile, Dhcp, Reach, ClearTemp, DeleteRoute, ResetAdapter }
+public enum RequestKind { None, Status, ApplyProfile, Dhcp, Reach, ClearTemp, DeleteRoute, ResetAdapter, Renew, Release, Prefer, SetMtu }
 
 /// <summary>One request: what the caller wants, never how. The service resolves the adapter against the live
 /// list, checks every value (<see cref="ProfileGuard"/>) and builds the commands itself.</summary>
@@ -75,6 +75,8 @@ public sealed record ServiceRequest(int V, RequestKind Kind)
     /// <summary>Reach: "a.b.c.d" or "a.b.c.d/n".</summary>
     public string? Target { get; init; }
     public bool? ReplacePrimary { get; init; }
+    /// <summary>SetMtu: bytes, 576..9000.</summary>
+    public int? Mtu { get; init; }
     /// <summary>DeleteRoute: "a.b.c.d/n" and the next hop, if the route has one.</summary>
     public string? RoutePrefix { get; init; }
     public string? RouteGateway { get; init; }
@@ -142,6 +144,38 @@ public static class ServiceClient
         try { return (JsonSerializer.Deserialize<ServiceResponse>(line, ServiceProtocol.Json), null); }
         catch (JsonException ex) { return (null, "unreadable answer from the service: " + ex.Message); }
     }
+}
+
+/// <summary>What a change request did, flattened for a caller (tray/CLI): success, an error to show, and the
+/// apply report when there is one.</summary>
+public sealed record ChangeResult(bool Ok, string? Error, ApplyReport? Report)
+{
+    public static ChangeResult Unreachable(string why) => new(false, why, null);
+}
+
+public static class ServiceChange
+{
+    /// <summary>Send one change request and flatten the answer. Synchronous: callers are UI handlers and the
+    /// existing CLI path, both of which block. A null response (no service / refused / squatter) becomes Ok=false
+    /// with the reason, never an exception.</summary>
+    public static ChangeResult Send(ServiceRequest request, int timeoutMs = 4000)
+    {
+        var (resp, err) = ServiceClient.Send(request, timeoutMs).GetAwaiter().GetResult();
+        if (resp is null) return ChangeResult.Unreachable(err ?? "the NetPaw service did not answer");
+        return new ChangeResult(resp.Ok, resp.Error, resp.Apply);
+    }
+
+    public static ServiceRequest Profile(Model.Profile p, string? adapter = null) => new(ServiceProtocol.Version, RequestKind.ApplyProfile) { Profile = p, Adapter = adapter };
+    public static ServiceRequest Managed(string profileId, string? adapter = null) => new(ServiceProtocol.Version, RequestKind.ApplyProfile) { ProfileId = profileId, Adapter = adapter };
+    public static ServiceRequest Dhcp(string? adapter = null) => new(ServiceProtocol.Version, RequestKind.Dhcp) { Adapter = adapter };
+    public static ServiceRequest Reach(string target, string? adapter = null, bool? replacePrimary = null) => new(ServiceProtocol.Version, RequestKind.Reach) { Target = target, Adapter = adapter, ReplacePrimary = replacePrimary };
+    public static ServiceRequest ClearTemp() => new(ServiceProtocol.Version, RequestKind.ClearTemp);
+    public static ServiceRequest DeleteRoute(string prefix, string? gateway, string? adapter = null) => new(ServiceProtocol.Version, RequestKind.DeleteRoute) { RoutePrefix = prefix, RouteGateway = gateway, Adapter = adapter };
+    public static ServiceRequest ResetAdapter(string? adapter = null) => new(ServiceProtocol.Version, RequestKind.ResetAdapter) { Adapter = adapter };
+    public static ServiceRequest Renew(string? adapter = null) => new(ServiceProtocol.Version, RequestKind.Renew) { Adapter = adapter };
+    public static ServiceRequest Release(string? adapter = null) => new(ServiceProtocol.Version, RequestKind.Release) { Adapter = adapter };
+    public static ServiceRequest Prefer(string? adapter = null) => new(ServiceProtocol.Version, RequestKind.Prefer) { Adapter = adapter };
+    public static ServiceRequest SetMtu(int mtu, string? adapter = null) => new(ServiceProtocol.Version, RequestKind.SetMtu) { Mtu = mtu, Adapter = adapter };
 }
 
 /// <summary>Is the process on the other end of the pipe the NetPaw service? (review of #75: pipe squatting)</summary>

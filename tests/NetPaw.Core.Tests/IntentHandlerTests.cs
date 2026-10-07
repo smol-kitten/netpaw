@@ -157,6 +157,46 @@ public class IntentHandlerTests
     }
 
     [Fact]
+    public void Renew_is_allowed_for_a_standard_user_release_and_mtu_are_not()
+    {
+        var r = Make();
+        // DHCP adapter so renew has a step.
+        var dir = Directory.CreateTempSubdirectory().FullName;
+        var runner = new FakeRunner();
+        var svc = new NetPawService(new JsonStore(Path.Combine(dir, "s")), new FakeAdapters(Fx.Nic("Ethernet", dhcp: true, addrs: ["192.168.1.10/24"], gw: "192.168.1.1")),
+            new FakeVlan(false), runner, new MachineStore(Path.Combine(dir, "pd")), () => Policy.None);
+        var h = new IntentHandler(svc, Path.Combine(dir, "s"), _ => { }, settleMs: 0);
+        Assert.True(h.Handle(Req(RequestKind.Renew), "u", privileged: false).Ok);
+        Assert.Contains(runner.Ran, s => s.Arguments.Contains("/renew"));
+        Assert.StartsWith("Release needs", h.Handle(Req(RequestKind.Release), "u", privileged: false).Error);
+        Assert.StartsWith("SetMtu needs", h.Handle(Req(RequestKind.SetMtu) with { Mtu = 1400 }, "u", privileged: false).Error);
+    }
+
+    [Theory]
+    [InlineData(500)]
+    [InlineData(99999)]
+    [InlineData(null)]
+    public void SetMtu_out_of_range_is_refused(int? mtu)
+    {
+        var r = Make();
+        var resp = r.Handler.Handle(Req(RequestKind.SetMtu) with { Mtu = mtu }, "u", privileged: true);
+        Assert.False(resp.Ok);
+        Assert.Contains("576..9000", resp.Error);
+        Assert.Empty(r.Runner.Ran);
+    }
+
+    [Fact]
+    public void Prefer_and_setmtu_run_for_a_privileged_caller()
+    {
+        var r = Make();
+        Assert.True(r.Handler.Handle(Req(RequestKind.Prefer), "a", privileged: true).Ok);
+        Assert.Contains(r.Runner.Ran, s => s.Arguments.Contains("set interface") && s.Arguments.Contains("metric=10"));
+        r.Runner.Ran.Clear();
+        Assert.True(r.Handler.Handle(Req(RequestKind.SetMtu) with { Mtu = 1400 }, "a", privileged: true).Ok);
+        Assert.Contains(r.Runner.Ran, s => s.Arguments.Contains("mtu=1400"));
+    }
+
+    [Fact]
     public void Status_is_not_a_change_request()
     {
         Assert.Contains("not a change request", Make().Handler.Handle(Req(RequestKind.Status), "u", privileged: true).Error);
