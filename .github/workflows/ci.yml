@@ -311,7 +311,14 @@ jobs:
         run: |
           $msi = Get-Item "signed/pkg/NetPaw-$env:VER.msi"
           $p = Start-Process msiexec -ArgumentList "/i `"$msi`" /qn /l*v install.log" -Wait -PassThru
-          if ($p.ExitCode -ne 0) { Get-Content install.log | Select-Object -Last 40; throw "install exit $($p.ExitCode)" }
+          if ($p.ExitCode -ne 0) {
+            # The real error sits before "Return value 3", not at the end of the log.
+            Select-String -Path install.log -Pattern 'Return value 3' -Context 25, 2 | Select-Object -First 1 | ForEach-Object { $_.Context.PreContext; $_.Line; $_.Context.PostContext }
+            Select-String -Path install.log -Pattern 'Error 19\d\d|Error 1603|Error 2\d\d\d' | Select-Object -First 10 | ForEach-Object Line
+            Get-WinEvent -FilterHashtable @{ LogName = 'System'; ProviderName = 'Service Control Manager'; StartTime = (Get-Date).AddMinutes(-10) } -ErrorAction SilentlyContinue | Select-Object -First 10 | Format-List TimeCreated, Id, Message
+            Get-WinEvent -FilterHashtable @{ LogName = 'Application'; StartTime = (Get-Date).AddMinutes(-10); Level = 2 } -ErrorAction SilentlyContinue | Select-Object -First 5 | Format-List TimeCreated, ProviderName, Message
+            throw "install exit $($p.ExitCode)"
+          }
           $dir = "$env:ProgramFiles\NetPaw"
           if (-not (Test-Path "$dir\NetPaw.exe")) { throw "NetPaw.exe missing after install" }
           if (-not (Test-Path "$env:ProgramData\NetPaw\profiles.d")) { throw "profiles.d missing after install" }
