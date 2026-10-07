@@ -425,10 +425,19 @@ jobs:
           (New-Object IO.StreamReader $c).ReadLine()
           '@
           $nic = (Get-NetAdapter | Where-Object Status -eq 'Up' | Select-Object -First 1).Name
-          '{"v":1,"kind":"DeleteRoute","adapter":"' + $nic + '","routePrefix":"203.0.113.0/24"}' | Set-Content "$env:PUBLIC\np-req.json"
+          # A standard user MAY reach: send the adapter's OWN current IP, which resolves to "already reachable"
+          # (an empty plan). This proves a standard user's typed request is processed by the service, and changes
+          # nothing on the runner's only NIC.
+          $ip = (Get-NetIPAddress -InterfaceAlias $nic -AddressFamily IPv4 | Select-Object -First 1).IPAddress
+          '{"v":1,"kind":"Reach","adapter":"' + $nic + '","target":"' + $ip + '"}' | Set-Content "$env:PUBLIC\np-req.json"
           $r1 = AsNptest $send
-          "`nDeleteRoute (TEST-NET, absent) as nptest: ``$r1``" >> $env:GITHUB_STEP_SUMMARY
-          if ($r1 -notmatch '"apply"' -or $r1 -notmatch 'delete route prefix=203.0.113.0/24') { SvcLog; throw "typed request from a standard user was not executed by the service: $r1" }
+          "`nReach own IP $ip as nptest (already reachable, empty plan): ``$r1``" >> $env:GITHUB_STEP_SUMMARY
+          if ($r1 -notmatch '"ok":true' -or $r1 -notmatch '"apply"') { SvcLog; throw "an allowed typed request from a standard user was not processed by the service: $r1" }
+          # A standard user may NOT reset an adapter or delete a route until PR 4's tiers (admin/NCO only).
+          '{"v":1,"kind":"DeleteRoute","adapter":"' + $nic + '","routePrefix":"203.0.113.0/24"}' | Set-Content "$env:PUBLIC\np-req.json"
+          $r1b = AsNptest $send
+          "DeleteRoute as nptest (expected refused): ``$r1b``" >> $env:GITHUB_STEP_SUMMARY
+          if ($r1b -notmatch '"ok":false' -or $r1b -notmatch 'administrator' -or $r1b -match '"apply"') { SvcLog; throw "DeleteRoute from a standard user was not gated: $r1b" }
           '{"v":1,"kind":"ApplyProfile","adapter":"' + $nic + '","profile":{"name":"x","dnsSuffix":"a'' ; calc ; ''","addresses":[{"address":"192.0.2.10","prefixLength":24}]}}' | Set-Content "$env:PUBLIC\np-req.json"
           $r2 = AsNptest $send
           "injection attempt as nptest: ``$r2``" >> $env:GITHUB_STEP_SUMMARY
