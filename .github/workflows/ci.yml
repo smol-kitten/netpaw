@@ -32,7 +32,7 @@ jobs:
       telemetry: ${{ steps.telemetry.outputs.built }}
     steps:
       - uses: actions/checkout@v7
-      - uses: workcollection/fleet-actions/.github/actions/setup-dotnet@v2.1.7
+      - uses: workcollection/fleet-actions/.github/actions/setup-dotnet@v2.1.8
         with:
           dotnet-version: 10.0.x
       - name: Version
@@ -252,7 +252,7 @@ jobs:
           set -o pipefail
           tools/verify-release.sh signed | tee verify.log
           { echo '## verify-signed'; echo; echo '```'; cat verify.log; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
-      - uses: workcollection/fleet-actions/.github/actions/setup-dotnet@v2.1.7
+      - uses: workcollection/fleet-actions/.github/actions/setup-dotnet@v2.1.8
         if: needs.sign-pkg.outputs.signed == 'true' && needs.sign-bin.outputs.signed == 'true'
         with:
           dotnet-version: 10.0.x
