@@ -165,6 +165,14 @@ public static class ServiceChange
         return new ChangeResult(resp.Ok, resp.Error, resp.Apply);
     }
 
+    /// <summary>Does a NetPaw service answer the pipe right now? One short Status round-trip; false when not
+    /// installed, stopped, refused, or a squatter holds the pipe. The change channel uses this to pick its mode.</summary>
+    public static bool ServiceAnswers(int timeoutMs = 800)
+    {
+        var (resp, _) = ServiceClient.Send(new ServiceRequest(ServiceProtocol.Version, RequestKind.Status), timeoutMs).GetAwaiter().GetResult();
+        return resp is { Ok: true };
+    }
+
     public static ServiceRequest Profile(Model.Profile p, string? adapter = null) => new(ServiceProtocol.Version, RequestKind.ApplyProfile) { Profile = p, Adapter = adapter };
     public static ServiceRequest Managed(string profileId, string? adapter = null) => new(ServiceProtocol.Version, RequestKind.ApplyProfile) { ProfileId = profileId, Adapter = adapter };
     public static ServiceRequest Dhcp(string? adapter = null) => new(ServiceProtocol.Version, RequestKind.Dhcp) { Adapter = adapter };

@@ -1,5 +1,6 @@
 using NetPaw;
 using NetPaw.Adapters;
+using NetPaw.Ipc;
 using NetPaw.Model;
 using NetPaw.Planning;
 using NetPaw.Presets;
@@ -134,15 +135,14 @@ try
             var p = Need(svc, argv, 1);
             var adapter = adapterName is not null ? svc.ResolveAdapter(adapterName) : svc.AdapterFor(p);
             var plan = svc.PlanProfile(p, adapter);
-            return Run(svc, plan, dryRun);
+            var request = p.Managed ? ServiceChange.Managed(p.Id, adapter.Name) : ServiceChange.Profile(p, adapter.Name);
+            return Run(svc, request, plan, dryRun);
         }
-        case "dhcp":
-            return Run(svc, ApplyPlanner.PlanDhcp(svc.ResolveAdapter(adapterName)), dryRun);
-        case "renew":
-            return Run(svc, NetPaw.Connectivity.Advisor.PlanRenew(svc.ResolveAdapter(adapterName)), dryRun);
-        case "release": return Run(svc, NetPaw.Connectivity.Advisor.PlanRelease(svc.ResolveAdapter(adapterName)), dryRun);
-        case "reset": return Run(svc, ApplyPlanner.PlanResetAdapter(svc.ResolveAdapter(adapterName)), dryRun);
-        case "prefer": { var all = svc.GetAdapters(); return Run(svc, NetPaw.Connectivity.Advisor.PlanPrefer(svc.ResolveAdapter(adapterName, all), all), dryRun); }
+        case "dhcp": { var a = svc.ResolveAdapter(adapterName); return Run(svc, ServiceChange.Dhcp(a.Name), ApplyPlanner.PlanDhcp(a), dryRun); }
+        case "renew": { var a = svc.ResolveAdapter(adapterName); return Run(svc, ServiceChange.Renew(a.Name), NetPaw.Connectivity.Advisor.PlanRenew(a), dryRun); }
+        case "release": { var a = svc.ResolveAdapter(adapterName); return Run(svc, ServiceChange.Release(a.Name), NetPaw.Connectivity.Advisor.PlanRelease(a), dryRun); }
+        case "reset": { var a = svc.ResolveAdapter(adapterName); return Run(svc, ServiceChange.ResetAdapter(a.Name), ApplyPlanner.PlanResetAdapter(a), dryRun); }
+        case "prefer": { var all = svc.GetAdapters(); var a = svc.ResolveAdapter(adapterName, all); return Run(svc, ServiceChange.Prefer(a.Name), NetPaw.Connectivity.Advisor.PlanPrefer(a, all), dryRun); }
         case "verify":
         {
             var p = Need(svc, argv, 1);
@@ -227,6 +227,8 @@ try
             Console.WriteLine(d.Explanation);
             if (d.Kind is ReachKind.Invalid) return 2;
             if (d.Kind is ReachKind.AlreadyReachable) return 0;
+            if (!dryRun && OperatingSystem.IsWindows() && ServiceChange.ServiceAnswers())
+                return ReportChange(ServiceChange.Send(ServiceChange.Reach(d.Target, adapter.Name, replace ? true : null)));
             var (plan, outcome) = svc.Reach(d, adapter, dryRun, replace ? true : null);
             return Report(plan, outcome, dryRun);
         }
@@ -246,6 +248,8 @@ try
                 var d = svc.ResolvePreset(hit, adapter);
                 Console.WriteLine(d.Explanation);
                 if (d.Kind is ReachKind.AlreadyReachable) return 0;
+                if (!dryRun && OperatingSystem.IsWindows() && ServiceChange.ServiceAnswers())
+                    return ReportChange(ServiceChange.Send(ServiceChange.Reach(d.Target, adapter.Name, replace ? true : null)));
                 var (plan, outcome) = svc.ApplyPreset(hit, adapter, dryRun, replace ? true : null);
                 return Report(plan, outcome, dryRun);
             }
@@ -283,7 +287,7 @@ try
             if (!int.TryParse(argv[2], out var id) || id is < 0 or > 4094) return Fail("VLAN id must be 0..4094");
             var plan = new ApplyPlan { Title = $"vlan {id}", Adapter = adapter.Name };
             plan.Steps.Add(ApplyPlanner.VlanStep(adapter.Name, id));
-            return Run(svc, plan, dryRun);
+            return RunLocal(svc, plan, dryRun);
         }
         case "repo":
         {
@@ -559,11 +563,38 @@ static Profile Need(NetPawService svc, List<string> argv, int i)
 
 static int Fail(string msg) { Console.Error.WriteLine("netpaw: " + msg); return 2; }
 
-static int Run(NetPawService svc, ApplyPlan plan, bool dryRun)
+// From v0.14 a change goes to the NetPaw service when one answers the pipe (the service re-plans from the
+// intent and applies); otherwise it runs in-process, which needs an elevated prompt. A dry run only prints the
+// local plan either way.
+static int Run(NetPawService svc, ServiceRequest request, ApplyPlan plan, bool dryRun)
+{
+    if (dryRun || plan.IsEmpty) return Report(plan, null, dryRun);
+    if (OperatingSystem.IsWindows() && ServiceChange.ServiceAnswers())
+        return ReportChange(ServiceChange.Send(request));
+    if (OperatingSystem.IsWindows() && !IsElevated())
+        return Fail("changing adapter settings needs the NetPaw service (install the MSI) or an elevated prompt (run as Administrator)");
+    return Report(plan, svc.ApplyAndVerify(plan), dryRun);
+}
+
+// VLAN tagging has no service intent (niche, driver-specific), so it stays an in-process, elevated change.
+static int RunLocal(NetPawService svc, ApplyPlan plan, bool dryRun)
 {
     if (!dryRun && !plan.IsEmpty && OperatingSystem.IsWindows() && !IsElevated())
         return Fail("changing adapter settings needs an elevated prompt (run as Administrator)");
     return Report(plan, dryRun ? null : svc.ApplyAndVerify(plan), dryRun);
+}
+
+/// <summary>Print a change the service applied, matching <see cref="Report"/>'s format and exit codes.</summary>
+static int ReportChange(ChangeResult result)
+{
+    if (result.Report is not { } rep) return Fail(result.Error ?? "the NetPaw service did not answer");
+    foreach (var w in rep.Warnings) Console.WriteLine("warn: " + w);
+    if (rep.Steps.Count == 0) { Console.WriteLine("(nothing to do)"); return 0; }
+    foreach (var s in rep.Steps)
+        Console.WriteLine($"[{(s.Ok ? "ok" : "FAIL")}] {s.Description}{(s.Ok || string.IsNullOrEmpty(s.Output) ? "" : " — " + s.Output.ReplaceLineEndings(" "))}");
+    Console.WriteLine(rep.Success ? $"applied '{rep.Title}' on {rep.Adapter}" : "FAILED" + (rep.Aborted ? " (aborted at first critical step)" : ""));
+    if (rep.VerifyDiffs.Count > 0) { Console.WriteLine("verify: Windows did not fully take the change — " + string.Join("; ", rep.VerifyDiffs) + "\n        try: netpaw-cli reset -a \"" + rep.Adapter + "\""); return 1; }
+    return rep.Success ? 0 : 1;
 }
 
 static int Report(ApplyPlan plan, ApplyOutcome? outcome, bool dryRun)

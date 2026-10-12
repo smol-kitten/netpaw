@@ -1,12 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <assembly manifestVersion="1.0" xmlns="urn:schemas-microsoft-com:asm.v1">
   <assemblyIdentity version="0.7.0.0" name="NetPaw"/>
-  <!-- Every action (netsh) needs admin, and a tray tool that UAC-prompts on each click is unusable,
-       so the process runs elevated from the start. "Start with Windows" uses a scheduled task with
-       highest privileges for the same reason. -->
+  <!-- From v0.14 the tray runs asInvoker: it never changes the network itself. Every change goes to the
+       privileged NetPaw service over a named pipe (the service re-plans from validated values); a portable,
+       elevated run applies in-process instead. asInvoker means no UAC prompt at launch and autostart is a
+       plain HKCU Run entry in the user's own account, not an elevated scheduled task. -->
   <trustInfo xmlns="urn:schemas-microsoft-com:asm.v2">
     <security><requestedPrivileges xmlns="urn:schemas-microsoft-com:asm.v3">
-      <requestedExecutionLevel level="requireAdministrator" uiAccess="false" />
+      <requestedExecutionLevel level="asInvoker" uiAccess="false" />
     </requestedPrivileges></security>
   </trustInfo>
   <compatibility xmlns="urn:schemas-microsoft-com:compatibility.v1">
