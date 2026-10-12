@@ -45,14 +45,15 @@ static class TelemetryHost
         _ = Exporter.Send(new LogRecord(DateTimeOffset.Now, severity, body, attrs));
     }
 
-    /// <summary>Outcome of an apply: what kind, how many steps, which step failed (description only — no command output).</summary>
-    public static void Apply(string kind, Planning.ApplyPlan plan, Planning.ApplyOutcome? outcome)
+    /// <summary>Outcome of an apply: what kind, how many steps, which step failed (description only — no command
+    /// output). Driven by the <see cref="Ipc.ApplyReport"/> both channel modes produce (null = the apply crashed).</summary>
+    public static void Apply(string kind, Planning.ApplyPlan plan, Ipc.ApplyReport? report)
     {
         if (Client is null) return;
-        var failed = outcome?.Failures.Select(f => f.Step.Description.Split(' ')[0]).ToList() ?? [];
-        _ = Client.Event("apply", kind, outcome is null ? "crashed" : outcome.Success ? "ok" : "failed", plan.Steps.Count,
+        var failed = report?.Steps.Where(s => !s.Ok).Select(s => s.Description.Split(' ')[0]).ToList() ?? [];
+        _ = Client.Event("apply", kind, report is null ? "crashed" : report.Success ? "ok" : "failed", plan.Steps.Count,
             new() { ["steps"] = plan.Steps.Count, ["warnings"] = plan.Warnings.Count, ["failed_steps"] = failed.Count == 0 ? null : string.Join(",", failed) });
-        if (outcome is { Success: false }) Client.Error("ApplyFailed", $"{kind}: {string.Join(", ", failed)} failed", "error", new() { ["kind"] = kind });
+        if (report is { Success: false }) Client.Error("ApplyFailed", $"{kind}: {string.Join(", ", failed)} failed", "error", new() { ["kind"] = kind });
     }
 
     public static void Event(string category, string action, string? label = null, double? value = null) => _ = Client?.Event(category, action, label, value);
@@ -71,7 +72,7 @@ static class TelemetryHost
     public static void Init(NetPawService svc) { }
     public static void Refresh(NetPawService svc) { }
     public static void Export(NetPawService svc, string severity, string body, Dictionary<string, object?> attrs, bool isIncident) { }
-    public static void Apply(string kind, Planning.ApplyPlan plan, Planning.ApplyOutcome? outcome) { }
+    public static void Apply(string kind, Planning.ApplyPlan plan, Ipc.ApplyReport? report) { }
     public static void Event(string category, string action, string? label = null, double? value = null) { }
     public static void Error(Exception ex, string where) { }
     public static void Error(Exception ex, string where, Dictionary<string, object?> context) { }

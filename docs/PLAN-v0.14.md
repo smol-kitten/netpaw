@@ -193,3 +193,64 @@ Second-model critique (three rounds) and MAGI (APPROVE, unanimous, 68), 2026-10-
   *Reset adapter* or *Apply again*. No change is retried automatically.
 - **Tray falls back to an elevated direct apply (rebut).** That brings back the UAC prompt and the
   wrong-account problem.
+
+## PR 3 design: tray asInvoker + user mode + autorun migration
+
+The tray stops being `requireAdministrator`. Every change then goes through the service, because an
+`asInvoker` process cannot run netsh/route changes itself. This must land as one change: a manifest
+flip without the rerouting would leave the tray unable to apply anything.
+
+- **Change channel.** The tray talks to the network through one seam with three modes:
+  - *service* — the service is running: the tray sends intents (`ServiceChange`) and shows the apply
+    report (steps, warnings, verify diffs) exactly as today.
+  - *elevated* — no service but the process is elevated (portable zip from an admin prompt): the
+    current direct `NetPawService` path.
+  - *user* — neither: diagnostics, info card and map work; every apply button is disabled with
+    "needs the NetPaw service (install the MSI) or an elevated run".
+  Mode is chosen at start and re-checked with `Status` before each change and every 60 s.
+- **Intents cover every change** the tray makes (ApplyProfile, Dhcp, Reach, ClearTemp, DeleteRoute,
+  ResetAdapter, Renew, Release, Prefer, SetMtu). Capture stays local (it only reads and writes the
+  user's own profile file). The destructive/reconfiguring intents need an admin/NCO caller until the
+  PR 4 tiers, so in user mode a standard user sees those disabled.
+- **Autorun → HKCU Run.** `asInvoker` means the Run key starts the tray at logon with no prompt, so
+  the scheduled task is gone. Migration at first start: delete the old `NetPaw` scheduled task if it
+  points at NetPaw, and if `StartOnLogon` is set, write the HKCU Run value for the real user. One
+  notice: "NetPaw no longer needs admin rights; autorun now runs in your account."
+- **CLI** uses the service when present, else the elevated-direct path (portable/scripting).
+- **verify-windows:** a standard user applies a managed profile through the service via the tray's
+  code path, and the autorun entry lands in that user's hive, not an admin's.
+
+## Note for the PR 3 body (merge history)
+
+PR 3 carries a correctness fix for a latent defect introduced in #76: the privileged-intent gate used
+`CheckTokenMembership`, which needs an impersonation-level token, so it marked a real elevated admin as a
+non-member and refused DeleteRoute/ResetAdapter/ClearTemp (and the PR 3 Release/Prefer/SetMtu) for
+everyone. It was latent because nothing drove those intents over the pipe until PR 3 routes the tray
+through the service. Fixed by reading TOKEN_GROUPS and requiring the Administrators/NCO SID enabled and
+not deny-only (`CallerPrivilege`), found on the pawsktop Win11 VM.
+
+## Review reconciliation — recurring points (rounds 2–10)
+
+The second-model review raises the same four points each round. They are settled here; no further change.
+
+- **Orchestrator abort/rollback gates (rebut).** This is desktop software, not a fleet service: there is
+  no runtime the orchestrator can gate. The real, enforceable gates are: each security-relevant PR merges
+  only after the orchestrator's independent review returns GO (done for #75, #76; PR 3 pending); no `v*`
+  tag without the orchestrator's OK, and the signed pipeline refuses to release if any verify job fails;
+  the policy kill switch is `Deny` on every action tier; rollback is uninstall + install the prior MSI
+  (`MajorUpgrade` blocks a direct downgrade). Nothing more to invent.
+- **Service-crash recovery (adopt — already specified, made explicit).** The tray calls `Status` at start,
+  before each change, and every 60 s; a missed answer switches it to user mode and shows one balloon. An
+  apply cut off by a crash is recorded in the inflight journal and surfaced **once** at the next service
+  start (not re-prompted), with *Reset adapter* / *Apply again*. No automatic retry.
+- **Caller mapping for RDP / fast user switching / impersonation failure (adopt — clarified).**
+  `GetNamedPipeClientSessionId` returns the Windows session for every logon kind, including RDP and fast
+  user switching; the user comes from the client token read inside `RunAsClient`. If either read fails,
+  `Caller.Of` throws and the request is refused with a reason — it never falls back to the service's own
+  identity. An unlock is keyed to the session, so it never crosses sessions.
+- **The #76 `CheckTokenMembership` defect is unverified/untested (rebut — it is both).** It was reproduced
+  on the pawsktop Win11 VM 150: an interactive elevated admin's `DeleteRoute` was refused as non-privileged.
+  The fix (`CallerPrivilege`, reading TOKEN_GROUPS and requiring the SID enabled and not deny-only) is
+  covered by 7 unit tests (enabled / deny-only / enabled+deny-only / present-not-enabled / standard user /
+  none / NCO), and the end-to-end path was re-run on the VM (admin `DeleteRoute` executes). The token read
+  itself is Windows-only and stays VM-validated, not unit-tested, by design.

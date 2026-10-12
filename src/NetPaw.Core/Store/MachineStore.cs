@@ -17,16 +17,34 @@ public sealed class MachineStore
 
     public MachineStore(string? directory = null) => Directory = directory ?? DefaultDirectory();
 
-    /// <summary>Returns why a file must not be trusted, or null. Windows: the file's owner must be SYSTEM or
-    /// Administrators. Tests replace it; null skips the check.</summary>
-    public Func<string, string?>? OwnerCheck { get; init; } = OperatingSystem.IsWindows() ? AdminOwned : null;
+    /// <summary>Returns why an opened file must not be trusted, or null. Windows: the owner read FROM THE OPEN
+    /// HANDLE must be SYSTEM or Administrators — checking the handle, not re-opening the path, so a file cannot be
+    /// swapped between the owner check and the read (TOCTOU). Tests replace it; null skips the check.</summary>
+    public Func<FileStream, string?>? OwnerCheck { get; init; } = OperatingSystem.IsWindows() ? AdminOwnedHandle : null;
 
-    static string? AdminOwned(string file)
+    /// <summary>Returns why the profiles.d folder itself must not be trusted, or null. ProgramData lets any user
+    /// create folders, so a pre-created profiles.d that is a reparse point (a junction to an admin-owned folder)
+    /// or is not owned by SYSTEM/Administrators is not trusted and nothing in it is loaded — mirrors
+    /// <c>ServiceFolder</c>. Tests replace it; null skips the check.</summary>
+    public Func<string, string?>? DirCheck { get; init; } = OperatingSystem.IsWindows() ? AdminOwnedDir : null;
+
+    static string? AdminOwnedHandle(FileStream fs)
     {
-        var owner = new FileInfo(file).GetAccessControl().GetOwner(typeof(System.Security.Principal.SecurityIdentifier)) as System.Security.Principal.SecurityIdentifier;
-        return owner is not null && (owner.IsWellKnown(System.Security.Principal.WellKnownSidType.LocalSystemSid) || owner.IsWellKnown(System.Security.Principal.WellKnownSidType.BuiltinAdministratorsSid))
-            ? null : $"skipped: owned by {owner?.Value ?? "unknown"}, not SYSTEM or Administrators";
+        var owner = fs.GetAccessControl().GetOwner(typeof(System.Security.Principal.SecurityIdentifier)) as System.Security.Principal.SecurityIdentifier;
+        return IsAdminOrSystem(owner) ? null : $"skipped: owned by {owner?.Value ?? "unknown"}, not SYSTEM or Administrators";
     }
+
+    static string? AdminOwnedDir(string dir)
+    {
+        var di = new DirectoryInfo(dir);
+        // A reparse point here means the real folder (and its ACL and owner) is somewhere else: never trust it.
+        if (di.Attributes.HasFlag(FileAttributes.ReparsePoint)) return "profiles.d is a reparse point; not trusted";
+        var owner = di.GetAccessControl().GetOwner(typeof(System.Security.Principal.SecurityIdentifier)) as System.Security.Principal.SecurityIdentifier;
+        return IsAdminOrSystem(owner) ? null : $"profiles.d owned by {owner?.Value ?? "unknown"}, not SYSTEM or Administrators";
+    }
+
+    static bool IsAdminOrSystem(System.Security.Principal.SecurityIdentifier? owner) =>
+        owner is not null && (owner.IsWellKnown(System.Security.Principal.WellKnownSidType.LocalSystemSid) || owner.IsWellKnown(System.Security.Principal.WellKnownSidType.BuiltinAdministratorsSid));
 
     public static string DefaultDirectory()
     {
@@ -42,12 +60,16 @@ public sealed class MachineStore
         Errors.Clear();
         var list = new List<Profile>();
         if (!System.IO.Directory.Exists(Directory)) return list;
+        // Gate the folder before reading anything in it: an untrusted profiles.d taints every file inside.
+        if (DirCheck?.Invoke(Directory) is { } badDir) { Errors.Add($"profiles.d not trusted, no managed profiles loaded: {badDir}"); return list; }
         foreach (var file in System.IO.Directory.EnumerateFiles(Directory, "*.json").OrderBy(f => f, StringComparer.OrdinalIgnoreCase))
         {
             try
             {
-                if (OwnerCheck?.Invoke(file) is { } notAdmin) { Errors.Add($"{Path.GetFileName(file)}: {notAdmin}"); continue; }
-                var profiles = JsonSerializer.Deserialize<List<Profile>>(File.ReadAllText(file), Json) ?? [];
+                // Open once; check the owner on THIS handle and read from THE SAME handle — no second open to race.
+                using var fs = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.Read);
+                if (OwnerCheck?.Invoke(fs) is { } notAdmin) { Errors.Add($"{Path.GetFileName(file)}: {notAdmin}"); continue; }
+                var profiles = JsonSerializer.Deserialize<List<Profile>>(new StreamReader(fs).ReadToEnd(), Json) ?? [];
                 foreach (var p in profiles)
                 {
                     var problems = Ipc.ProfileGuard.Check(p);

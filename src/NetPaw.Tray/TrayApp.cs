@@ -3,6 +3,7 @@ using System.Net.NetworkInformation;
 using NetPaw.Adapters;
 using NetPaw.Connectivity;
 using NetPaw.Hotkeys;
+using NetPaw.Ipc;
 using NetPaw.Model;
 using NetPaw.Net;
 using NetPaw.Planning;
@@ -15,6 +16,11 @@ namespace NetPaw.Tray;
 sealed class TrayApp : ApplicationContext
 {
     readonly NetPawService _svc;
+    // From v0.14 the tray is asInvoker and cannot run netsh itself: every change goes through this one seam,
+    // which sends typed intents to the service when it is running, applies in-process when elevated (portable
+    // zip), and otherwise refuses. Re-probed before each change and every 60 s.
+    readonly ChangeChannel _channel;
+    readonly System.Windows.Forms.Timer _channelTimer = new() { Interval = 60_000 };
     readonly NotifyIcon _tray;
     readonly ContextMenuStrip _menu;
     readonly HotkeyManager _hotkeys = new();
@@ -84,9 +90,12 @@ sealed class TrayApp : ApplicationContext
     {
         _svc = svc;
         CurrentUserMismatch = currentUserMismatch;
-        Autorun = new NetPaw.Autorun(args => RunSchTasks(args));
-        // schtasks can take up to 2x10 s (query + create); never block the constructor / UI thread with it.
-        _ = Task.Run(TryRepairAutorun);
+        _channel = new ChangeChannel(DetectMode);
+        _channelTimer.Tick += (_, _) => { var before = _channel.Mode; if (_channel.Refresh() != before) OnChannelModeChanged(before); };
+        _channelTimer.Start();
+        Autorun = new NetPaw.Autorun(new NetPaw.RegistryAutorunStore(), RunSchTasks);
+        // Registry + schtasks(for migration) can block; never run them on the constructor / UI thread.
+        _ = Task.Run(MigrateAndRepairAutorun);
         _checker = new ConnectivityChecker(Probe) { WlanReader = n => Wlan.Read(_svc.Runner, n), Dot1xReader = n => Dot1x.Read(_svc.Runner, n) };
         _menu = new ContextMenuStrip { Renderer = new DarkMenuRenderer(), Font = Theme.Base, ShowImageMargin = true, ShowCheckMargin = false };
         _menu.Opening += (_, _) => { _menuOpen = true; BuildMenu(); };
@@ -337,7 +346,7 @@ sealed class TrayApp : ApplicationContext
         var plan = Advisor.PlanRenew(w);
         if (!manual) { _renew.Mark(DateTimeOffset.Now); _svc.Store.Log($"auto-renew attempt {_renew.Attempts}/{_svc.Settings.Repair.AutoRenewMaxAttempts} on {w.Name}: {string.Join("; ", _advisories.Where(a => a.CanRenew).Select(a => a.Title))}"); }
         TelemetryHost.Event("repair", manual ? "renew-manual" : "renew-auto", _advisories.FirstOrDefault(a => a.CanRenew)?.Title);
-        RunInBackground($"Renewing DHCP lease on {w.Name}", () => _svc.Apply(plan), $"Renewed lease on {w.Name}");
+        RunInBackground($"Renewing DHCP lease on {w.Name}", () => _channel.Run(ServiceChange.Renew(w.Name), plan, () => _svc.Apply(plan)), $"Renewed lease on {w.Name}");
         // Re-probe once the lease had time to land.
         var later = new System.Windows.Forms.Timer { Interval = 8000 }; later.Tick += (_, _) => { later.Dispose(); _ = RunCheck(); }; later.Start();
     }
@@ -512,7 +521,9 @@ sealed class TrayApp : ApplicationContext
     {
         if (_autoSwitchUndo is null) return;
         var p = _autoSwitchUndo; _autoSwitchUndo = null; _autoSwitchArmed = false;
-        Execute(_svc.PlanProfile(p, _svc.AdapterFor(p, _adapters)), subtitle: "Undo the last automatic switch.");
+        var adapter = _svc.AdapterFor(p, _adapters);
+        Execute(p.Managed ? ServiceChange.Managed(p.Id, adapter.Name) : ServiceChange.Profile(p, adapter.Name),
+                _svc.PlanProfile(p, adapter), subtitle: "Undo the last automatic switch.");
     }
 
     /// <summary>Editor helper: learn the fingerprint of whatever the adapter runs now.</summary>
@@ -557,7 +568,12 @@ sealed class TrayApp : ApplicationContext
 
     /// <summary>Route table for the map's Routes tab and the "delete this stale route" action.</summary>
     public IReadOnlyList<RouteEntry> ReadRoutes() { try { return OperatingSystem.IsWindows() ? RouteTable.ReadAll(_svc.Runner) : []; } catch (Exception ex) { _svc.Store.Log("routes: " + ex.Message); return []; } }
-    public void DeleteRoute(RouteEntry r) => Execute(ApplyPlanner.PlanDeleteRoute(r, _adapters.FirstOrDefault(a => a.Index == r.InterfaceIndex)?.Name ?? r.InterfaceName), subtitle: "Removes one route; the adapter's own routes come back with the next apply or renew.");
+    public void DeleteRoute(RouteEntry r)
+    {
+        var adapterName = _adapters.FirstOrDefault(a => a.Index == r.InterfaceIndex)?.Name ?? r.InterfaceName;
+        Execute(ServiceChange.DeleteRoute(r.Prefix, r.Gateway, adapterName), ApplyPlanner.PlanDeleteRoute(r, adapterName),
+                subtitle: "Removes one route; the adapter's own routes come back with the next apply or renew.");
+    }
 
     /// <summary>Traceroute window; the probe is the same one the monitor uses.</summary>
     public void ShowTrace(string host) { var f = new TraceForm(Probe, host); f.Show(); Native.ForceForeground(f.Handle); }
@@ -747,7 +763,7 @@ sealed class TrayApp : ApplicationContext
     {
         var w = Work; if (w is null) { Notify("No adapter", "Pick a work adapter first.", ToolTipIcon.Warning); return; }
         if (!_svc.Allowed(Capability.Dhcp)) { Denied(Capability.Dhcp); return; }
-        Execute(ApplyPlanner.PlanDhcp(w));
+        Execute(ServiceChange.Dhcp(w.Name), ApplyPlanner.PlanDhcp(w));
     }
 
     void Denied(Capability c) { var msg = new DeniedByPolicyException(c).Message; Status?.Invoke(msg, "error"); Notify("Not allowed", msg, ToolTipIcon.Warning); }
@@ -758,7 +774,7 @@ sealed class TrayApp : ApplicationContext
         var d = _svc.ResolvePreset(preset, w);
         if (d.Kind == ReachKind.AlreadyReachable) { Status?.Invoke(d.Explanation, "ok"); Notify("Already reachable", d.Explanation, ToolTipIcon.Info); return; }
         var (plan, _) = _svc.Reach(d, w, dryRun: true);
-        Execute(plan, () => _svc.Reach(d, w).Outcome!, d.Explanation);
+        Execute(ServiceChange.Reach(d.Target, w.Name), plan, () => _svc.Reach(d, w).Outcome!, d.Explanation);
     }
 
     /// <summary>One TCP connect, verdict in the status line and a balloon. No address change — reach mode's read-only cousin.</summary>
@@ -785,9 +801,10 @@ sealed class TrayApp : ApplicationContext
             case ReachKind.AlreadyReachable: Status?.Invoke(d.Explanation, "ok"); Notify("Already reachable", d.Explanation, ToolTipIcon.Info); return;
         }
         var (plan, _) = _svc.Reach(d, w, dryRun: true, replace);
-        Execute(plan, () =>
+        Execute(ServiceChange.Reach(d.Target, w.Name, replace), plan, () =>
         {
-            // Re-run through the service so temp addresses get tracked; plan is identical.
+            // Elevated mode: re-run through the local service so temp addresses get tracked; plan is identical.
+            // (In service mode the NetPaw service does this and tracks the temp address in its own store.)
             var (_, outcome) = _svc.Reach(d, w, dryRun: false, replace);
             return outcome!;
         }, d.Explanation);
@@ -795,7 +812,8 @@ sealed class TrayApp : ApplicationContext
 
     public void ClearTemp()
     {
-        RunInBackground("Removing temporary addresses", () => _svc.ClearTemp() ?? new ApplyOutcome(), "Temporary addresses removed");
+        var plan = new ApplyPlan { Title = "Remove temporary addresses" };
+        RunInBackground("Removing temporary addresses", () => _channel.Run(ServiceChange.ClearTemp(), plan, () => _svc.ClearTemp() ?? new ApplyOutcome()), "Temporary addresses removed");
     }
 
     public void CaptureCurrent()
@@ -812,41 +830,69 @@ sealed class TrayApp : ApplicationContext
     public IReadOnlyList<string> LastVerifyDiffs { get; private set; } = [];
     public string? LastVerifyAdapter { get; private set; }
 
-    public void ApplyProfileVerified(Profile p, AdapterInfo adapter) => Execute(_svc.PlanProfile(p, adapter));
+    public void ApplyProfileVerified(Profile p, AdapterInfo adapter) =>
+        Execute(p.Managed ? ServiceChange.Managed(p.Id, adapter.Name) : ServiceChange.Profile(p, adapter.Name),
+                _svc.PlanProfile(p, adapter));
 
-    /// <summary>Default work for <see cref="Execute"/>: apply through the service's verify path. A mismatch (the documented
-    /// "still DHCP / two gateways" state, a route Windows refused, a metric it ignored) becomes a warning with a Reset action on that adapter.</summary>
-    ApplyOutcome ApplyVerified(ApplyPlan plan)
+    /// <summary>A verify mismatch (the documented "still DHCP / two gateways" state, a route Windows refused, a
+    /// metric it ignored) becomes a warning with a Reset action on that adapter. Driven by the apply report, so it
+    /// surfaces the same whether the change ran in-process or through the service. Called on the UI thread.</summary>
+    void SurfaceVerifyMismatch(ApplyReport report)
     {
-        LastVerifyDiffs = []; LastVerifyAdapter = null;
-        var o = _svc.ApplyAndVerify(plan);
-        if (o.VerifyDiffs.Count > 0)
-        {
-            LastVerifyDiffs = o.VerifyDiffs; LastVerifyAdapter = plan.Adapter;
-            var text = $"Windows did not fully take '{plan.Title}' on {plan.Adapter}: {string.Join("; ", o.VerifyDiffs)}. Network info → Reset adapter usually clears it.";
-            _hotkeys.BeginInvoke(() => { Status?.Invoke(text, "warn"); Notify("Apply not fully effective", text, ToolTipIcon.Warning, force: true); });
-            TelemetryHost.Event("apply", "verify-mismatch", plan.Profile?.Dhcp == true ? "dhcp" : "static", o.VerifyDiffs.Count);
-        }
-        return o;
+        LastVerifyDiffs = report.VerifyDiffs; LastVerifyAdapter = report.Adapter;
+        var text = $"Windows did not fully take '{report.Title}' on {report.Adapter}: {string.Join("; ", report.VerifyDiffs)}. Network info → Reset adapter usually clears it.";
+        Status?.Invoke(text, "warn"); Notify("Apply not fully effective", text, ToolTipIcon.Warning, force: true);
+        TelemetryHost.Event("apply", "verify-mismatch", report.Title, report.VerifyDiffs.Count);
+    }
+
+    // ---- change channel --------------------------------------------------------------------
+
+    /// <summary>Service answering the pipe → service mode; else an elevated process → elevated (portable, direct)
+    /// mode; else user (read-only) mode. The service probe is one short Status round-trip.</summary>
+    ChannelMode DetectMode()
+    {
+        if (OperatingSystem.IsWindows() && ServiceChange.ServiceAnswers()) return ChannelMode.Service;
+        return IsElevated() ? ChannelMode.Elevated : ChannelMode.User;
+    }
+
+    static bool IsElevated()
+    {
+        if (!OperatingSystem.IsWindows()) return false;
+        try { using var id = System.Security.Principal.WindowsIdentity.GetCurrent(); return new System.Security.Principal.WindowsPrincipal(id).IsInRole(System.Security.Principal.WindowsBuiltInRole.Administrator); }
+        catch { return false; }
+    }
+
+    /// <summary>Which path changes take right now (info card / menu).</summary>
+    public ChannelMode ChangeMode => _channel.Mode;
+
+    void OnChannelModeChanged(ChannelMode before)
+    {
+        _svc.Store.Log($"change channel: {before} -> {_channel.Mode}");
+        if (before == ChannelMode.Service && _channel.Mode != ChannelMode.Service)
+            Notify("NetPaw service not running", _channel.Mode == ChannelMode.Elevated
+                ? "Changes now run directly from this elevated session."
+                : "Changes are paused until the service is back, or run NetPaw as administrator. Diagnostics still work.", ToolTipIcon.Warning, force: true);
+        RefreshState();
     }
 
     /// <summary>Repair actions from advisories: Release/Reset on the named adapter, Prefer the work adapter.</summary>
     public void Repair(Advisory adv)
     {
         var target = _adapters.FirstOrDefault(a => a.Name == adv.RepairAdapter); if (target is null) return;
-        var plan = adv.Repair switch
+        (ApplyPlan Plan, ServiceRequest Request)? step = adv.Repair switch
         {
-            RepairKind.Renew => Advisor.PlanRenew(target),
-            RepairKind.Release => Advisor.PlanRelease(target),
-            RepairKind.Reset => ApplyPlanner.PlanResetAdapter(target),
-            RepairKind.Prefer => Advisor.PlanPrefer(target, _adapters),
-            RepairKind.SetMtu => Advisor.PlanSetMtu(target, adv.Value ?? 1500),
-            RepairKind.DeleteRoute when adv.Route is { } route => ApplyPlanner.PlanDeleteRoute(route, target.Name),
+            RepairKind.Renew => (Advisor.PlanRenew(target), ServiceChange.Renew(target.Name)),
+            RepairKind.Release => (Advisor.PlanRelease(target), ServiceChange.Release(target.Name)),
+            RepairKind.Reset => (ApplyPlanner.PlanResetAdapter(target), ServiceChange.ResetAdapter(target.Name)),
+            RepairKind.Prefer => (Advisor.PlanPrefer(target, _adapters), ServiceChange.Prefer(target.Name)),
+            RepairKind.SetMtu => (Advisor.PlanSetMtu(target, adv.Value ?? 1500), ServiceChange.SetMtu(adv.Value ?? 1500, target.Name)),
+            RepairKind.DeleteRoute when adv.Route is { } route => (ApplyPlanner.PlanDeleteRoute(route, target.Name), ServiceChange.DeleteRoute(route.Prefix, route.Gateway, target.Name)),
             _ => null,
         };
-        if (plan is null) return;
+        if (step is null) return;
+        var (plan, request) = step.Value;
         TelemetryHost.Event("repair", adv.Repair.ToString().ToLowerInvariant(), adv.Title);
-        Execute(plan, subtitle: adv.Title + " — " + adv.Text);
+        Execute(request, plan, subtitle: adv.Title + " — " + adv.Text);
     }
 
     /// <summary>Reset the named adapter, else the one the last verify complained about, else the work adapter.</summary>
@@ -854,11 +900,11 @@ sealed class TrayApp : ApplicationContext
     {
         var name = adapterName ?? LastVerifyAdapter ?? Work?.Name; if (name is null) return;
         var target = _adapters.FirstOrDefault(a => a.Name == name) ?? Work; if (target is null) return;
-        Execute(ApplyPlanner.PlanResetAdapter(target), subtitle: "Disable → enable. The documented cure for 'static applied but Windows still shows DHCP / two gateways'.");
+        Execute(ServiceChange.ResetAdapter(target.Name), ApplyPlanner.PlanResetAdapter(target), subtitle: "Disable → enable. The documented cure for 'static applied but Windows still shows DHCP / two gateways'.");
     }
 
     /// <summary>Runs a plan on a worker thread (netsh can take a couple of seconds), optionally after a preview.</summary>
-    public void Execute(ApplyPlan plan, Func<ApplyOutcome>? custom = null, string? subtitle = null, Action? after = null)
+    public void Execute(ServiceRequest request, ApplyPlan plan, Func<ApplyOutcome>? custom = null, string? subtitle = null, Action? after = null)
     {
         if (_busy) { Notify("Busy", "Another change is still running.", ToolTipIcon.Warning); return; }
         if (plan.IsEmpty)
@@ -867,39 +913,58 @@ sealed class TrayApp : ApplicationContext
             Status?.Invoke(text, "warn"); Notify(plan.Title, text, ToolTipIcon.Info);
             return;
         }
-        // Shift while choosing = show the exact netsh lines first, even when "Confirm" is off.
+        // Re-probe right before the change: a service that stopped since the last tick means user mode, where this is refused.
+        if (_channel.Refresh() == ChannelMode.User)
+        {
+            var text = "This change needs the NetPaw service (install the MSI), or run the portable copy as administrator. Diagnostics still work.";
+            Status?.Invoke(text, "warn"); Notify(plan.Title, text, ToolTipIcon.Warning, force: true);
+            return;
+        }
+        // Shift while choosing = show the exact netsh lines first, even when "Confirm" is off. (In service mode the
+        // service re-plans from the intent; the preview is the tray's own plan for the same change.)
         if (_svc.Settings.ConfirmBeforeApply || plan.Warnings.Count > 0 || (Control.ModifierKeys & Keys.Shift) == Keys.Shift)
             if (!PlanPreviewForm.Confirm(plan, subtitle)) { Status?.Invoke("Cancelled.", "warn"); return; }
         var kind = plan.Title == "DHCP" ? "dhcp" : plan.Title.StartsWith("reach ") ? "reach" : subtitle is not null ? "preset" : "profile";
-        RunInBackground($"Applying {plan.Title}", () => { ApplyOutcome? o = null; try { o = (custom ?? (() => ApplyVerified(plan)))(); return o; } finally { TelemetryHost.Apply(kind, plan, o); TelemetryHost.Export(_svc, o is { Success: true } ? "info" : "error", $"apply {kind} '{plan.Title}' on {plan.Adapter}: {(o is null ? "crashed" : o.Success ? "ok" : "failed")}", new() { ["adapter"] = plan.Adapter, ["kind"] = kind, ["profile"] = plan.Title, ["steps"] = plan.Steps.Count, ["result"] = o is null ? "crashed" : o.Success ? "ok" : "failed" }, isIncident: false); } }, $"{plan.Title} → {plan.Adapter}", after);
+        RunInBackground($"Applying {plan.Title}", () =>
+        {
+            ChangeResult? r = null;
+            try { var res = _channel.Run(request, plan, custom ?? (() => _svc.ApplyAndVerify(plan))); r = res; return res; }
+            finally
+            {
+                TelemetryHost.Apply(kind, plan, r?.Report);
+                TelemetryHost.Export(_svc, r is { Ok: true } ? "info" : "error", $"apply {kind} '{plan.Title}' on {plan.Adapter}: {(r is null ? "crashed" : r.Ok ? "ok" : "failed")}", new() { ["adapter"] = plan.Adapter, ["kind"] = kind, ["profile"] = plan.Title, ["steps"] = plan.Steps.Count, ["result"] = r is null ? "crashed" : r.Ok ? "ok" : "failed" }, isIncident: false);
+            }
+        }, $"{plan.Title} → {plan.Adapter}", after);
     }
 
-    void RunInBackground(string title, Func<ApplyOutcome> work, string doneText, Action? after = null)
+    void RunInBackground(string title, Func<ChangeResult> work, string doneText, Action? after = null)
     {
         _busy = true; RefreshState();
         Status?.Invoke(title + "…", "busy");
         Task.Run(work).ContinueWith(t =>
         {
             _busy = false;
-            var outcome = t.IsFaulted ? null : t.Result;
-            if (outcome is null)
+            var result = t.IsFaulted ? null : t.Result;
+            if (result is null)
             {
                 _svc.Store.Error("apply", "crashed: " + t.Exception);
                 if (t.Exception is not null) TelemetryHost.Error(t.Exception.GetBaseException(), "apply");
                 var msg = t.Exception?.GetBaseException().Message ?? "unknown";
                 Status?.Invoke(msg, "error"); Notify("NetPaw error", msg, ToolTipIcon.Error);
             }
-            else if (outcome.Success)
+            else if (result.Ok)
             {
                 after?.Invoke();
-                var soft = outcome.Failures.ToList();
-                var text = soft.Count == 0 ? "Done." : "Done, with warnings: " + string.Join("; ", soft.Select(f => f.Step.Description + ": " + f.Output));
+                var soft = result.Report?.Steps.Where(s => !s.Ok).Select(s => s.Description + ": " + s.Output).ToList() ?? [];
+                var text = soft.Count == 0 ? "Done." : "Done, with warnings: " + string.Join("; ", soft);
                 Status?.Invoke(doneText + " — " + text, soft.Count == 0 ? "ok" : "warn");
                 Notify(doneText, text, soft.Count == 0 ? ToolTipIcon.Info : ToolTipIcon.Warning);
+                LastVerifyDiffs = []; LastVerifyAdapter = null;
+                if (result.Report is { VerifyDiffs.Count: > 0 } rep) SurfaceVerifyMismatch(rep);
             }
             else
             {
-                var text = string.Join("; ", outcome.Failures.Select(f => f.Step.Description + ": " + f.Output));
+                var text = result.Error ?? (result.Report is { } rep ? string.Join("; ", rep.Steps.Where(s => !s.Ok).Select(s => s.Description + ": " + s.Output)) : "the change did not run");
                 Status?.Invoke(title + " failed — " + text, "error");
                 Notify(title + " failed", text, ToolTipIcon.Error);
             }
@@ -972,12 +1037,28 @@ sealed class TrayApp : ApplicationContext
     /// elevated installer or a re-signout dropped/redirected it), re-create it — but only when this
     /// process is running as the interactive user, never for a mismatched account.
     /// </summary>
-    void TryRepairAutorun()
+    void MigrateAndRepairAutorun()
     {
         if (CurrentUserMismatch is not null || !OperatingSystem.IsWindows()) return;
-        if (_svc.Settings.StartOnLogon != true) return;
-        if (Autorun.RepairIfMissing(settingWantsEnabled: true))
-            _svc.Store.Log("autorun", "start-with-Windows task was missing; re-created");
+        var wants = _svc.Settings.StartOnLogon == true;
+        // v0.14 upgrade: drop the old elevated scheduled task and move autostart to this user's HKCU Run.
+        switch (Autorun.MigrateFromScheduledTask(settingWantsEnabled: wants))
+        {
+            case NetPaw.MigrationResult.Migrated:
+                _svc.Store.Log("autorun", "migrated start-with-Windows from the elevated task to HKCU Run for this user");
+                Notify("NetPaw no longer needs admin rights", "Autostart now runs in your account. The old elevated task was removed.", ToolTipIcon.Info);
+                break;
+            case NetPaw.MigrationResult.TaskDeleteFailed:
+                // The asInvoker tray could not remove the old highest-privilege task. Do not pretend it is gone:
+                // it still launches NetPaw elevated at logon. Tell the user how to finish the migration.
+                _svc.Store.Error("autorun", "could not delete the old elevated 'NetPaw' scheduled task (needs admin); autostart not migrated");
+                Notify("NetPaw's old autostart needs admin to remove", "NetPaw couldn't remove its old elevated start-up task. Until it's gone, autostart still uses it. Delete the 'NetPaw' task in Task Scheduler (as administrator), or run NetPaw once elevated.", ToolTipIcon.Warning, force: true);
+                break;
+            case NetPaw.MigrationResult.NothingToDo:
+                if (wants && Autorun.RepairIfMissing(settingWantsEnabled: true))
+                    _svc.Store.Log("autorun", "start-with-Windows Run entry was missing; re-created");
+                break;
+        }
     }
 
     void OpenLog()
