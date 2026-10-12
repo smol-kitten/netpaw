@@ -220,6 +220,7 @@ public class IntentHandlerTests
     [InlineData(RequestKind.DeleteRoute)]
     [InlineData(RequestKind.ResetAdapter)]
     [InlineData(RequestKind.ClearTemp)]
+    [InlineData(RequestKind.Prefer)]
     public void Destructive_intents_need_a_privileged_caller(RequestKind kind)
     {
         var r = Make();

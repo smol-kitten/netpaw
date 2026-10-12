@@ -40,22 +40,29 @@ public sealed class Autorun(IAutorunStore store, Func<string, int>? schtasks = n
     }
 
     /// <summary>
-    /// Upgrade from the pre-0.14 elevated scheduled task. Deletes the <c>NetPaw</c> task when it exists and its
-    /// action points at NetPaw, and — when autostart is wanted — writes the HKCU Run value for this user.
-    /// Returns true when it changed anything, so the tray can show the one-time "autorun moved to your account"
-    /// notice. Never touches another account's task (schtasks only sees the current user's unless elevated).
+    /// Upgrade from the pre-0.14 elevated scheduled task. When the <c>NetPaw</c> task exists, delete it and
+    /// confirm it is really gone before moving autostart to this user's HKCU Run value.
+    ///
+    /// The old task ran with highest privileges; the <c>asInvoker</c> tray cannot delete it, and
+    /// <c>schtasks /delete</c> can report success spuriously, so we re-query rather than trust the exit code.
+    /// If it is still registered we return <see cref="MigrationResult.TaskDeleteFailed"/> and write nothing —
+    /// claiming the elevated task was removed when it was not would leave it launching NetPaw.exe elevated from a
+    /// user-writable portable folder (an elevation path), and a duplicate Run value would double-start NetPaw.
+    /// The tray then tells the user it needs an administrator. Never touches another account's task (schtasks
+    /// only sees the current user's unless elevated).
     /// </summary>
-    public bool MigrateFromScheduledTask(bool settingWantsEnabled)
+    public MigrationResult MigrateFromScheduledTask(bool settingWantsEnabled)
     {
         var changed = false;
         if (schtasks is not null && TaskPointsAtNetPaw())
         {
-            schtasks($"/delete /f /tn {TaskName}");
+            var code = schtasks($"/delete /f /tn {TaskName}");
+            if (code != 0 || TaskPointsAtNetPaw()) return MigrationResult.TaskDeleteFailed;
             changed = true;
         }
         if (settingWantsEnabled && !IsEnabled())
             changed |= Set(enable: true) is null;
-        return changed;
+        return changed ? MigrationResult.Migrated : MigrationResult.NothingToDo;
     }
 
     bool TaskPointsAtNetPaw()
@@ -72,6 +79,10 @@ public sealed class Autorun(IAutorunStore store, Func<string, int>? schtasks = n
         return $"\"{exe}\"";
     }
 }
+
+/// <summary>What the one-time pre-0.14 autostart migration did. <see cref="TaskDeleteFailed"/> means the old
+/// elevated task is still registered (deletion needs an administrator) and nothing was moved.</summary>
+public enum MigrationResult { NothingToDo, Migrated, TaskDeleteFailed }
 
 /// <summary>The one registry value autorun needs: <c>HKCU\Software\Microsoft\Windows\CurrentVersion\Run</c>,
 /// value name <see cref="Autorun.RunValueName"/>. Implemented on Windows by the tray; faked in tests.</summary>

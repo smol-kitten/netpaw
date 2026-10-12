@@ -430,6 +430,15 @@ jobs:
           # (e.g. 'Ethernet 4' on some runners), which has no address for the reach-own-IP check.
           $nic = (Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -notlike '169.254.*' -and $_.InterfaceAlias -notlike 'Loopback*' } | Select-Object -First 1).InterfaceAlias
           if (-not $nic) { throw "no adapter with an IPv4 address on this runner" }
+          # PR 3 / #76 regression: this job runs elevated, so an admin MUST pass the privilege gate over the pipe.
+          # Send a DeleteRoute for a route that does not exist (harmless — nothing to delete) from the job's own
+          # elevated context, and assert it was NOT refused for privilege and reached execution (an "apply"
+          # report). The #76 CheckTokenMembership defect wrongly refused a real elevated admin here; CallerPrivilege
+          # (TOKEN_GROUPS) accepts them. Until now only the VM proved this.
+          '{"v":1,"kind":"DeleteRoute","adapter":"' + $nic + '","routePrefix":"203.0.113.0/24"}' | Set-Content "$env:PUBLIC\np-req.json"
+          $ra = & ([ScriptBlock]::Create($send))
+          "`nDeleteRoute as elevated admin (gate must accept, #76 regression): ``$ra``" >> $env:GITHUB_STEP_SUMMARY
+          if ($ra -match 'needs an administrator' -or $ra -notmatch '"apply"') { SvcLog; throw "an elevated admin was refused the privilege gate over the pipe (the #76 regression): $ra" }
           # A standard user MAY reach: send the adapter's OWN current IP, which resolves to "already reachable"
           # (an empty plan). This proves a standard user's typed request is processed by the service, and changes
           # nothing on the runner's only NIC.
@@ -451,11 +460,13 @@ jobs:
           # tray now takes for every change. A properly-owned managed file IS loaded; the apply is pointed at a
           # bogus adapter so the service resolves the profile by id and validates it, then fails only on the
           # adapter (ResolveAdapter throws on a non-matching name — it never falls back to a live NIC).
+          # MachineStore assigns a deterministic id m-<file>-<name-lowercased, spaces to dashes>, ignoring any
+          # "id" in the file — so profiles.d/pr3.json with name "PR3Managed" is id "m-pr3-pr3managed".
           $managed = "$env:ProgramData\NetPaw\profiles.d\pr3.json"
-          '[{ "id": "pr3managed", "name": "PR3Managed", "addresses": [{ "address": "192.0.2.77", "prefixLength": 24 }], "gateway": "192.0.2.1" }]' | Set-Content $managed
+          '[{ "name": "PR3Managed", "addresses": [{ "address": "192.0.2.77", "prefixLength": 24 }], "gateway": "192.0.2.1" }]' | Set-Content $managed
           $listed0 = & "$dir\netpaw-cli.exe" list 2>&1 | Out-String
           if ($listed0 -notmatch 'PR3Managed') { throw "a properly-owned managed profile was not loaded: $listed0" }
-          '{"v":1,"kind":"ApplyProfile","adapter":"NoSuchAdapterPR3","profileId":"pr3managed"}' | Set-Content "$env:PUBLIC\np-req.json"
+          '{"v":1,"kind":"ApplyProfile","adapter":"NoSuchAdapterPR3","profileId":"m-pr3-pr3managed"}' | Set-Content "$env:PUBLIC\np-req.json"
           $r3 = AsNptest $send
           "`nManaged ApplyProfile by id as nptest (bogus adapter, nothing applied): ``$r3``" >> $env:GITHUB_STEP_SUMMARY
           if ($r3 -notmatch '"ok":false' -or $r3 -match 'no managed profile' -or $r3 -notmatch 'not found' -or $r3 -match '"apply"') { SvcLog; throw "a standard user's managed-profile apply did not route through the service as expected: $r3" }

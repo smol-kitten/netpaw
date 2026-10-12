@@ -143,7 +143,7 @@ public sealed record Caller(string User, int Session, int ProcessId, bool Privil
                     var sidPtr = Marshal.ReadIntPtr(entry);
                     var attr = (uint)Marshal.ReadInt32(entry, IntPtr.Size);
                     read.Add((new SecurityIdentifier(sidPtr).Value, attr));
-                    entry = IntPtr.Add(entry, IntPtr.Size + 8);   // SID_AND_ATTRIBUTES = PSID (IntPtr) + DWORD, padded to 8
+                    entry = IntPtr.Add(entry, 2 * IntPtr.Size);   // SID_AND_ATTRIBUTES = PSID (IntPtr) + DWORD padded to pointer size = 2*IntPtr.Size (16 on x64, 8 on x86)
                 }
                 return NetPaw.Ipc.CallerPrivilege.IsPrivileged(read, groups.Select(g => g.Value).ToArray());
             }

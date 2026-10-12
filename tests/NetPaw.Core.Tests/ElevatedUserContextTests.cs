@@ -93,16 +93,42 @@ public class ElevatedUserContextTests
         Assert.False(new Autorun(present).RepairIfMissing(settingWantsEnabled: true));
     }
 
+    // Simulates schtasks: the NetPaw task exists until a *successful* /delete (exit 0). deleteCode controls
+    // whether /delete is allowed to work — a non-elevated tray gets a non-zero code and the task stays.
+    static Func<string, int> SchTasks(List<string> calls, int deleteCode)
+    {
+        var exists = true;
+        return args =>
+        {
+            calls.Add(args);
+            if (args.StartsWith("/query")) return exists ? 0 : 1;
+            if (args.StartsWith("/delete")) { if (deleteCode == 0) exists = false; return deleteCode; }
+            return 0;
+        };
+    }
+
     [Fact]
     public void MigrationDeletesTheOldTaskAndWritesTheRunValue()
     {
         var store = new FakeStore();
         var calls = new List<string>();
-        // schtasks /query returns 0 (the old task exists), /delete returns 0.
-        var aut = new Autorun(store, args => { calls.Add(args); return 0; });
-        Assert.True(aut.MigrateFromScheduledTask(settingWantsEnabled: true));
+        var aut = new Autorun(store, SchTasks(calls, deleteCode: 0));
+        Assert.Equal(MigrationResult.Migrated, aut.MigrateFromScheduledTask(settingWantsEnabled: true));
         Assert.Contains(calls, c => c == $"/delete /f /tn {Autorun.TaskName}");
         Assert.True(store.Exists());                 // autostart moved to HKCU Run
+    }
+
+    [Fact]
+    public void MigrationReportsWhenTheOldElevatedTaskCannotBeDeleted()
+    {
+        // The asInvoker tray cannot delete a highest-privilege task. When /delete fails and the task is still
+        // there, migration must NOT claim success or write a duplicate Run value — doing so would leave the old
+        // elevated task launching NetPaw from a user-writable folder (an elevation path).
+        var store = new FakeStore();
+        var calls = new List<string>();
+        var aut = new Autorun(store, SchTasks(calls, deleteCode: 1));
+        Assert.Equal(MigrationResult.TaskDeleteFailed, aut.MigrateFromScheduledTask(settingWantsEnabled: true));
+        Assert.False(store.Exists());                // no Run value while the elevated task still exists
     }
 
     [Fact]
@@ -110,7 +136,7 @@ public class ElevatedUserContextTests
     {
         var store = new FakeStore();
         var aut = new Autorun(store, _ => 1);        // /query 1 = no task
-        Assert.False(aut.MigrateFromScheduledTask(settingWantsEnabled: false));
+        Assert.Equal(MigrationResult.NothingToDo, aut.MigrateFromScheduledTask(settingWantsEnabled: false));
         Assert.False(store.Exists());
     }
 

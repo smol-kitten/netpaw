@@ -1042,13 +1042,23 @@ sealed class TrayApp : ApplicationContext
         if (CurrentUserMismatch is not null || !OperatingSystem.IsWindows()) return;
         var wants = _svc.Settings.StartOnLogon == true;
         // v0.14 upgrade: drop the old elevated scheduled task and move autostart to this user's HKCU Run.
-        if (Autorun.MigrateFromScheduledTask(settingWantsEnabled: wants))
+        switch (Autorun.MigrateFromScheduledTask(settingWantsEnabled: wants))
         {
-            _svc.Store.Log("autorun", "migrated start-with-Windows from the elevated task to HKCU Run for this user");
-            Notify("NetPaw no longer needs admin rights", "Autostart now runs in your account. The old elevated task was removed.", ToolTipIcon.Info);
+            case NetPaw.MigrationResult.Migrated:
+                _svc.Store.Log("autorun", "migrated start-with-Windows from the elevated task to HKCU Run for this user");
+                Notify("NetPaw no longer needs admin rights", "Autostart now runs in your account. The old elevated task was removed.", ToolTipIcon.Info);
+                break;
+            case NetPaw.MigrationResult.TaskDeleteFailed:
+                // The asInvoker tray could not remove the old highest-privilege task. Do not pretend it is gone:
+                // it still launches NetPaw elevated at logon. Tell the user how to finish the migration.
+                _svc.Store.Error("autorun", "could not delete the old elevated 'NetPaw' scheduled task (needs admin); autostart not migrated");
+                Notify("NetPaw's old autostart needs admin to remove", "NetPaw couldn't remove its old elevated start-up task. Until it's gone, autostart still uses it. Delete the 'NetPaw' task in Task Scheduler (as administrator), or run NetPaw once elevated.", ToolTipIcon.Warning, force: true);
+                break;
+            case NetPaw.MigrationResult.NothingToDo:
+                if (wants && Autorun.RepairIfMissing(settingWantsEnabled: true))
+                    _svc.Store.Log("autorun", "start-with-Windows Run entry was missing; re-created");
+                break;
         }
-        else if (wants && Autorun.RepairIfMissing(settingWantsEnabled: true))
-            _svc.Store.Log("autorun", "start-with-Windows Run entry was missing; re-created");
     }
 
     void OpenLog()
