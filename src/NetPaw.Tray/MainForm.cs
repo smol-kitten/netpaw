@@ -142,13 +142,15 @@ sealed class MainForm : Form
     {
         readonly TrayApp _app; readonly ListView _list = new() { Dock = DockStyle.Fill, View = View.Details, FullRowSelect = true, MultiSelect = false, HeaderStyle = ColumnHeaderStyle.Nonclickable };
         readonly Dictionary<ListViewItem, Profile> _rows = [];
+        readonly Button _applyBtn, _scanBtn;   // the mutating buttons; disabled in user mode (no service / not elevated)
         public ProfilesPage(TrayApp app)
         {
             _app = app;
             foreach (var (h, w) in new[] { ("Profile", 200), ("Configuration", 300), ("Adapter", 130), ("Hotkey", 90), ("Status", 90) }) _list.Columns.Add(h, w);
             var bar = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, Padding = new Padding(0, 6, 0, 6) };
-            bar.Controls.Add(Btn("Apply", ApplySelected, 100)); bar.Controls.Add(Btn("Edit…", () => app.ShowEditor(), 100)); bar.Controls.Add(Btn("New…", () => app.ShowEditor(), 100));
-            bar.Controls.Add(Btn("Capture current…", app.CaptureCurrent, 150)); bar.Controls.Add(Btn("Scan for a working profile…", app.ShowScan, 200));
+            _applyBtn = Btn("Apply", ApplySelected, 100); _scanBtn = Btn("Scan for a working profile…", app.ShowScan, 200);
+            bar.Controls.Add(_applyBtn); bar.Controls.Add(Btn("Edit…", () => app.ShowEditor(), 100)); bar.Controls.Add(Btn("New…", () => app.ShowEditor(), 100));
+            bar.Controls.Add(Btn("Capture current…", app.CaptureCurrent, 150)); bar.Controls.Add(_scanBtn);
             _list.DoubleClick += (_, _) => ApplySelected();
             _list.KeyDown += (_, e) => { if (e.KeyCode == Keys.Enter) { ApplySelected(); e.Handled = true; } };
             Controls.Add(_list); Controls.Add(bar); Controls.Add(Hint("Double-click applies. Details, routes, VLAN and auto-switch live in the editor.")); Controls.Add(Heading("Profiles"));
@@ -165,6 +167,10 @@ sealed class MainForm : Form
                 _rows[item] = p; _list.Items.Add(item); if (p.Id == selected) item.Selected = true;
             }
             _list.EndUpdate();
+            // In user mode applying/scanning is refused anyway; disable the buttons and say why in the tooltip.
+            var canApply = _app.ChangeMode != NetPaw.Ipc.ChannelMode.User;
+            _applyBtn.Enabled = _scanBtn.Enabled = canApply;
+            _applyBtn.AccessibleDescription = _scanBtn.AccessibleDescription = canApply ? null : "Needs the NetPaw service (install the MSI) or an elevated run.";
         }
     }
 
