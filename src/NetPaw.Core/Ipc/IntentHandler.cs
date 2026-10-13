@@ -54,9 +54,10 @@ public sealed class IntentHandler(NetPawService svc, string journalDirectory, Ac
         _ => throw new Rejected($"{k} is not a change request"),
     };
 
-    /// <summary>Back-compat shim: a bool "privileged" is Network Configuration Operators tier (the pre-PR4 gate),
-    /// absent that tier it is StandardUser.</summary>
-    public ServiceResponse Handle(ServiceRequest r, string caller, bool privileged) =>
+    /// <summary>Test-only shim (internal): a bool "privileged" maps to Network Configuration Operators, absent it
+    /// to StandardUser. It deliberately cannot express Admin, so production uses the Tier overload; the pipe server
+    /// always passes the real caller tier.</summary>
+    internal ServiceResponse Handle(ServiceRequest r, string caller, bool privileged) =>
         Handle(r, caller, privileged ? Tier.NetworkConfigOperators : Tier.StandardUser);
 
     public ServiceResponse Handle(ServiceRequest r, string caller, Tier callerTier)
@@ -66,7 +67,7 @@ public sealed class IntentHandler(NetPawService svc, string journalDirectory, Ac
             try
             {
                 var overrides = _policy.Resolve();
-                if (!_policy.Decide(IntentFor(r.Kind), callerTier, overrides).Allowed)
+                if (!_policy.Decide(IntentFor(r.Kind), callerTier, overrides, caller).Allowed)
                     throw new Rejected($"{r.Kind} needs tier {PolicyTiers.Required(IntentFor(r.Kind), overrides)} or higher; you are {callerTier}");
                 svc.Reload();
                 var report = r.Kind switch
@@ -130,12 +131,15 @@ public sealed class IntentHandler(NetPawService svc, string journalDirectory, Ac
         // RESTRICT: when appliesTo is present it binds the profile for ANY caller — no match, no apply.
         if (p.AppliesTo is { IsEmpty: false } bind && !listed)
             throw new Rejected($"profile '{p.Name}' is restricted to [{bind.Describe()}] and does not match adapter '{adapter.Name}' ({adapter.Mac})");
-        // UNLOCK a non-host-facing (virtual) adapter: a managed (admin-defined) profile may, or a caller at the
-        // VirtualUnlock tier (default NCO, policy floor NCO). A standard user's own inline appliesTo must not let
-        // them reach a VPN/TAP adapter.
-        var mayUnlockVirtual = listed && (p.Managed || callerTier >= PolicyTiers.Required(PolicyIntent.VirtualUnlock, overrides));
-        if (!adapter.HostFacing && !mayUnlockVirtual)
-            throw new Rejected($"'{adapter.Name}' is a virtual adapter; only a managed profile or a caller at tier {PolicyTiers.Required(PolicyIntent.VirtualUnlock, overrides)} may target it (via appliesTo)");
+        // UNLOCK a non-host-facing (virtual) adapter: a managed (admin-defined) profile may, or a caller that the
+        // VirtualUnlock tier gate (default NCO, policy floor NCO) allows. A standard user's own inline appliesTo
+        // must not let them reach a VPN/TAP adapter. Routed through Decide so the decision is audited.
+        if (!adapter.HostFacing)
+        {
+            var mayUnlock = listed && (p.Managed || _policy.Decide(PolicyIntent.VirtualUnlock, callerTier, overrides, caller).Allowed);
+            if (!mayUnlock)
+                throw new Rejected($"'{adapter.Name}' is a virtual adapter; only a managed profile or a caller at tier {PolicyTiers.Required(PolicyIntent.VirtualUnlock, overrides)} may target it (via appliesTo)");
+        }
         var plan = svc.PlanProfile(p, adapter);
         return Journaled(plan, caller, () => svc.ApplyAndVerify(plan, settleMs));
     }

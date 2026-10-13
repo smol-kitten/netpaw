@@ -40,7 +40,9 @@ Set per-intent overrides under `HKLM\Software\Policies\NetPaw`, one string value
 The last policy that read cleanly is cached to a SYSTEM/Administrators-only file in the service store. If the
 policy later becomes unreadable or invalid (access denied, a bad tier value), the service uses that
 **last-known-good** cache — so a tightening an admin applied is not silently lost — and writes a warn audit line.
-On a first run with no cache, it falls back to the default table. It never denies everything: a user can always
-still renew a lease.
+On a first run with no cache, it falls back to the default table. This fallback never collapses to a blanket
+deny — it reverts to the last-known-good or default tiers. (An administrator may still deliberately tighten an
+intent, including Renew, up to Admin via policy; "never deny-all" is about the unreadable-policy fallback, not a
+promise that any intent stays available once policy raises it.)
 
 Every decision writes one audit line to the service log: caller user + tier, intent, required tier, allow/deny.

@@ -27,8 +27,8 @@ public sealed class RegistryPolicySource : ITierPolicySource
             {
                 var raw = key.GetValue("Tier." + intent);
                 if (raw is null) continue;
-                if (raw is not string s || !Enum.TryParse<Tier>(s, ignoreCase: true, out var tier))
-                    return (empty, false);           // present but malformed -> invalid -> last-known-good
+                if (raw is not string s || !PolicyTiers.TryParseTier(s, out var tier))
+                    return (empty, false);           // present but malformed (number, comma, unknown) -> invalid -> last-known-good
                 overrides[intent] = tier;
             }
             return (overrides, true);

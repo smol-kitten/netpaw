@@ -102,6 +102,21 @@ public class PolicyTiersTests
         Assert.Contains(audit, l => l.Contains("no cache"));
     }
 
+    [Theory]
+    [InlineData("Admin", true, Tier.Admin)]
+    [InlineData("admin", true, Tier.Admin)]
+    [InlineData("NetworkConfigOperators", true, Tier.NetworkConfigOperators)]
+    [InlineData("StandardUser", true, Tier.StandardUser)]
+    [InlineData("5", false, default(Tier))]                       // numeric -> unreachable tier -> rejected
+    [InlineData("StandardUser,Admin", false, default(Tier))]      // flags-style comma -> rejected
+    [InlineData("garbage", false, default(Tier))]
+    [InlineData("", false, default(Tier))]
+    public void TryParseTier_accepts_only_defined_names(string input, bool ok, Tier expected)
+    {
+        Assert.Equal(ok, PolicyTiers.TryParseTier(input, out var t));
+        if (ok) Assert.Equal(expected, t);
+    }
+
     [Fact]
     public void Every_decision_writes_one_audit_line()
     {

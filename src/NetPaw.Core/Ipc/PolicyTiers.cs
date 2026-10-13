@@ -101,25 +101,46 @@ public sealed class PolicyTiers
         return overrides.TryGetValue(intent, out var o) ? (o < floor ? floor : o) : Defaults[intent];
     }
 
-    /// <summary>Decide and audit. Allowed when the caller's tier is at least the required tier.</summary>
-    public PolicyDecision Decide(PolicyIntent intent, Tier caller, IReadOnlyDictionary<PolicyIntent, Tier> overrides)
+    /// <summary>Decide and audit. Allowed when the caller's tier is at least the required tier. <paramref name="who"/>
+    /// is the caller identity for the audit line.</summary>
+    public PolicyDecision Decide(PolicyIntent intent, Tier caller, IReadOnlyDictionary<PolicyIntent, Tier> overrides, string? who = null)
     {
         var required = Required(intent, overrides);
         var allowed = caller >= required;
         var via = overrides.ContainsKey(intent) ? "policy" : "default";
-        _audit($"tier decision: caller={caller} intent={intent} required={required} via={via} -> {(allowed ? "allow" : "DENY")}");
+        _audit($"tier decision: user={who ?? "?"} tier={caller} intent={intent} required={required} via={via} -> {(allowed ? "allow" : "DENY")}");
         return new PolicyDecision(intent, required, caller, allowed, via);
     }
 
+    /// <summary>Parse a tier from a policy/cache string: only an exact defined name (case-insensitive) is a tier.
+    /// A number ("5"), a flags-style comma list ("StandardUser,Admin"), or any undefined value is rejected — an
+    /// unreachable tier would deny an intent even to Admin and break the never-deny-all guarantee.</summary>
+    public static bool TryParseTier(string? s, out Tier tier)
+    {
+        tier = default;
+        if (string.IsNullOrWhiteSpace(s) || s.Contains(',') || s.Any(char.IsDigit)) return false;
+        return Enum.TryParse(s, ignoreCase: true, out tier) && Enum.IsDefined(tier);
+    }
+
+    static bool TryParseIntent(string? s, out PolicyIntent intent)
+    {
+        intent = default;
+        if (string.IsNullOrWhiteSpace(s) || s.Contains(',') || s.Any(char.IsDigit)) return false;
+        return Enum.TryParse(s, ignoreCase: false, out intent) && Enum.IsDefined(intent);
+    }
+
     static readonly IReadOnlyDictionary<PolicyIntent, Tier> EmptyOverrides = new Dictionary<PolicyIntent, Tier>();
+    string? _lastWritten;   // the JSON last persisted, so the cache is rewritten only when the policy changes
 
     void WriteCache(IReadOnlyDictionary<PolicyIntent, Tier> overrides)
     {
+        // Store names, not enum integers, so a reorder of the enum can never silently re-map a cached tier.
+        var json = JsonSerializer.Serialize(overrides.ToDictionary(kv => kv.Key.ToString(), kv => kv.Value.ToString()));
+        if (json == _lastWritten) return;   // unchanged: no write per request
         try
         {
-            // Store names, not enum integers, so a reorder of the enum can never silently re-map a cached tier.
-            var model = overrides.ToDictionary(kv => kv.Key.ToString(), kv => kv.Value.ToString());
-            File.WriteAllText(_cachePath, JsonSerializer.Serialize(model));
+            File.WriteAllText(_cachePath, json);
+            _lastWritten = json;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
@@ -136,7 +157,7 @@ public sealed class PolicyTiers
             if (model is null) return null;
             var o = new Dictionary<PolicyIntent, Tier>();
             foreach (var (k, v) in model)
-                if (Enum.TryParse<PolicyIntent>(k, out var intent) && Enum.TryParse<Tier>(v, out var tier))
+                if (TryParseIntent(k, out var intent) && TryParseTier(v, out var tier))
                     o[intent] = tier;
             return o;
         }
