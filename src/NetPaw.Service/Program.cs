@@ -85,7 +85,9 @@ static class Startup
     {
         var root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "NetPaw");
         var dir = ServiceFolder.Ensure(root, log);
-        var handler = new IntentHandler(NetPaw.NetPawService.CreateDefault(dir), dir, log);
+        // PR 4 tiers: read HKLM policy, cache the last-known-good in the (SYSTEM/Admins-owned) service folder, audit to the log.
+        var policy = new NetPaw.Ipc.PolicyTiers(new RegistryPolicySource(), Path.Combine(dir, "policy.cache.json"), log);
+        var handler = new IntentHandler(NetPaw.NetPawService.CreateDefault(dir), dir, log, policy: policy);
         handler.Interrupted();
         return handler;
     }

@@ -16,9 +16,12 @@ namespace NetPaw.Ipc;
 /// the middle is visible at the next start (<see cref="Interrupted"/>).</item>
 /// </list>
 /// </summary>
-public sealed class IntentHandler(NetPawService svc, string journalDirectory, Action<string> log, int settleMs = 2500)
+public sealed class IntentHandler(NetPawService svc, string journalDirectory, Action<string> log, int settleMs = 2500, PolicyTiers? policy = null)
 {
     readonly Lock _gate = new();
+    // PR 4: the one authorization point. When no policy is injected, an empty-but-valid source means the default
+    // table applies — i.e. exactly today's behaviour. The cache lives in the (SYSTEM/Admins-owned) service folder.
+    readonly PolicyTiers _policy = policy ?? new PolicyTiers(new EmptyPolicySource(), Path.Combine(journalDirectory, "policy.cache.json"), log);
     public string JournalPath { get; } = Path.Combine(journalDirectory, "inflight.json");
 
     public sealed record Journal(string Title, string Adapter, string Caller, DateTimeOffset At, IReadOnlyList<string> Commands);
@@ -35,24 +38,40 @@ public sealed class IntentHandler(NetPawService svc, string journalDirectory, Ac
         return j;
     }
 
-    /// <summary>Intents a non-privileged caller may not use until PR 4's per-action tiers exist. Resetting an
-    /// adapter or deleting a route can take an uplink down, so until there is a policy tier for them the service
-    /// allows them only for administrators and Network Configuration Operators. This keeps 0.14 from granting a
-    /// standard user more than the elevated 0.13 tray did.</summary>
-    static readonly HashSet<RequestKind> PrivilegedOnly = [RequestKind.DeleteRoute, RequestKind.ResetAdapter, RequestKind.ClearTemp, RequestKind.Release, RequestKind.Prefer, RequestKind.SetMtu];
+    /// <summary>Maps a change request to its policy intent (what the tier gate keys on).</summary>
+    static PolicyIntent IntentFor(RequestKind k) => k switch
+    {
+        RequestKind.ApplyProfile => PolicyIntent.ApplyProfile,
+        RequestKind.Dhcp => PolicyIntent.Dhcp,
+        RequestKind.Reach => PolicyIntent.Reach,
+        RequestKind.Renew => PolicyIntent.Renew,
+        RequestKind.ClearTemp => PolicyIntent.ClearTemp,
+        RequestKind.DeleteRoute => PolicyIntent.DeleteRoute,
+        RequestKind.ResetAdapter => PolicyIntent.ResetAdapter,
+        RequestKind.Release => PolicyIntent.Release,
+        RequestKind.Prefer => PolicyIntent.Prefer,
+        RequestKind.SetMtu => PolicyIntent.SetMtu,
+        _ => throw new Rejected($"{k} is not a change request"),
+    };
 
-    public ServiceResponse Handle(ServiceRequest r, string caller, bool privileged)
+    /// <summary>Back-compat shim: a bool "privileged" is Network Configuration Operators tier (the pre-PR4 gate),
+    /// absent that tier it is StandardUser.</summary>
+    public ServiceResponse Handle(ServiceRequest r, string caller, bool privileged) =>
+        Handle(r, caller, privileged ? Tier.NetworkConfigOperators : Tier.StandardUser);
+
+    public ServiceResponse Handle(ServiceRequest r, string caller, Tier callerTier)
     {
         lock (_gate)
         {
             try
             {
-                if (PrivilegedOnly.Contains(r.Kind) && !privileged)
-                    throw new Rejected($"{r.Kind} needs an administrator or a Network Configuration Operator (until policy tiers arrive)");
+                var overrides = _policy.Resolve();
+                if (!_policy.Decide(IntentFor(r.Kind), callerTier, overrides).Allowed)
+                    throw new Rejected($"{r.Kind} needs tier {PolicyTiers.Required(IntentFor(r.Kind), overrides)} or higher; you are {callerTier}");
                 svc.Reload();
                 var report = r.Kind switch
                 {
-                    RequestKind.ApplyProfile => ApplyProfile(r, caller, privileged),
+                    RequestKind.ApplyProfile => ApplyProfile(r, caller, callerTier, overrides),
                     RequestKind.Dhcp => Run(ApplyPlanner.PlanDhcp(Adapter(r)), caller, require: Capability.Dhcp),
                     RequestKind.Reach => Reach(r, caller),
                     RequestKind.ClearTemp => ClearTemp(),
@@ -85,7 +104,7 @@ public sealed class IntentHandler(NetPawService svc, string journalDirectory, Ac
         return a;
     }
 
-    ApplyReport ApplyProfile(ServiceRequest r, string caller, bool privileged)
+    ApplyReport ApplyProfile(ServiceRequest r, string caller, Tier callerTier, IReadOnlyDictionary<PolicyIntent, Tier> overrides)
     {
         Model.Profile p;
         if (r.ProfileId is not null)
@@ -111,11 +130,12 @@ public sealed class IntentHandler(NetPawService svc, string journalDirectory, Ac
         // RESTRICT: when appliesTo is present it binds the profile for ANY caller — no match, no apply.
         if (p.AppliesTo is { IsEmpty: false } bind && !listed)
             throw new Rejected($"profile '{p.Name}' is restricted to [{bind.Describe()}] and does not match adapter '{adapter.Name}' ({adapter.Mac})");
-        // UNLOCK a non-host-facing (virtual) adapter: only a managed (admin-defined) profile or a privileged caller
-        // may opt in. A standard user's own inline appliesTo must not let them reach a VPN/TAP adapter.
-        var mayUnlockVirtual = listed && (p.Managed || privileged);
+        // UNLOCK a non-host-facing (virtual) adapter: a managed (admin-defined) profile may, or a caller at the
+        // VirtualUnlock tier (default NCO, policy floor NCO). A standard user's own inline appliesTo must not let
+        // them reach a VPN/TAP adapter.
+        var mayUnlockVirtual = listed && (p.Managed || callerTier >= PolicyTiers.Required(PolicyIntent.VirtualUnlock, overrides));
         if (!adapter.HostFacing && !mayUnlockVirtual)
-            throw new Rejected($"'{adapter.Name}' is a virtual adapter; only a managed profile or an administrator may target it (via appliesTo)");
+            throw new Rejected($"'{adapter.Name}' is a virtual adapter; only a managed profile or a caller at tier {PolicyTiers.Required(PolicyIntent.VirtualUnlock, overrides)} may target it (via appliesTo)");
         var plan = svc.PlanProfile(p, adapter);
         return Journaled(plan, caller, () => svc.ApplyAndVerify(plan, settleMs));
     }

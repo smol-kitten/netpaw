@@ -14,9 +14,16 @@ public sealed record PolicyDecision(PolicyIntent Intent, Tier Required, Tier Cal
 /// Valid=false ONLY when a policy is present but cannot be read or parsed (access denied, a bad tier value); an
 /// absent policy is Valid=true with no overrides — not configuring policy is not an error.
 /// </summary>
-public interface IPolicySource
+public interface ITierPolicySource
 {
     (IReadOnlyDictionary<PolicyIntent, Tier> Overrides, bool Valid) Read();
+}
+
+/// <summary>No machine policy configured: valid, no overrides, so the default table (= today) applies. The
+/// default when the service wires no real source, and in tests.</summary>
+public sealed class EmptyPolicySource : ITierPolicySource
+{
+    public (IReadOnlyDictionary<PolicyIntent, Tier>, bool) Read() => (new Dictionary<PolicyIntent, Tier>(), true);
 }
 
 /// <summary>
@@ -55,11 +62,11 @@ public sealed class PolicyTiers
     public static Tier DefaultFor(PolicyIntent i) => Defaults[i];
     public static Tier FloorFor(PolicyIntent i) => Floors.GetValueOrDefault(i, Tier.StandardUser);
 
-    readonly IPolicySource _source;
+    readonly ITierPolicySource _source;
     readonly string _cachePath;
     readonly Action<string> _audit;
 
-    public PolicyTiers(IPolicySource source, string cachePath, Action<string>? audit = null)
+    public PolicyTiers(ITierPolicySource source, string cachePath, Action<string>? audit = null)
     {
         _source = source;
         _cachePath = cachePath;

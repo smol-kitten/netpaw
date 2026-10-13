@@ -37,11 +37,47 @@
       <string id="AllowIntentWatch">Allow the intent watcher (unanswered connections → profile advice)</string>
       <string id="AllowIntentWatch_Help">Disabled: NetPaw never reads the local TCP table to spot programs waiting on an unreachable address, and never recommends a profile for it. The watcher sends nothing; it only reads the table on this machine.</string>
       <string id="AllowUpdateCheck_Help">Disabled: NetPaw never contacts api.github.com to look for a newer release. Managed fleets that ship NetPaw through Intune/GPO should disable this.</string>
+      <string id="TierItem_StandardUser">Standard user</string>
+      <string id="TierItem_NetworkConfigOperators">Network Configuration Operators</string>
+      <string id="TierItem_Admin">Administrators</string>
+      <string id="Tier_ApplyProfile">Minimum tier to apply a profile</string>
+      <string id="Tier_ApplyProfile_Help">Lowest caller tier allowed to apply a profile through the NetPaw service. Not configured: the default (StandardUser).</string>
+      <string id="Tier_Dhcp">Minimum tier to switch an adapter to DHCP</string>
+      <string id="Tier_Dhcp_Help">Lowest caller tier allowed to switch an adapter to DHCP through the NetPaw service. Not configured: the default (StandardUser).</string>
+      <string id="Tier_Reach">Minimum tier to reach mode (temporary address)</string>
+      <string id="Tier_Reach_Help">Lowest caller tier allowed to reach mode (temporary address) through the NetPaw service. Not configured: the default (StandardUser).</string>
+      <string id="Tier_Renew">Minimum tier to renew a DHCP lease</string>
+      <string id="Tier_Renew_Help">Lowest caller tier allowed to renew a DHCP lease through the NetPaw service. Not configured: the default (StandardUser).</string>
+      <string id="Tier_ClearTemp">Minimum tier to remove temporary addresses</string>
+      <string id="Tier_ClearTemp_Help">Lowest caller tier allowed to remove temporary addresses through the NetPaw service. Not configured: the default (NetworkConfigOperators).</string>
+      <string id="Tier_DeleteRoute">Minimum tier to delete a route</string>
+      <string id="Tier_DeleteRoute_Help">Lowest caller tier allowed to delete a route through the NetPaw service. Not configured: the default (NetworkConfigOperators).</string>
+      <string id="Tier_ResetAdapter">Minimum tier to reset (disable/enable) an adapter</string>
+      <string id="Tier_ResetAdapter_Help">Lowest caller tier allowed to reset (disable/enable) an adapter through the NetPaw service. Not configured: the default (NetworkConfigOperators).</string>
+      <string id="Tier_Release">Minimum tier to release a DHCP lease</string>
+      <string id="Tier_Release_Help">Lowest caller tier allowed to release a DHCP lease through the NetPaw service. Not configured: the default (NetworkConfigOperators).</string>
+      <string id="Tier_Prefer">Minimum tier to prefer an adapter (interface metric)</string>
+      <string id="Tier_Prefer_Help">Lowest caller tier allowed to prefer an adapter (interface metric) through the NetPaw service. Not configured: the default (NetworkConfigOperators).</string>
+      <string id="Tier_SetMtu">Minimum tier to set an adapter MTU</string>
+      <string id="Tier_SetMtu_Help">Lowest caller tier allowed to set an adapter MTU through the NetPaw service. Not configured: the default (NetworkConfigOperators).</string>
+      <string id="Tier_VirtualUnlock">Minimum tier to target a virtual (non-host-facing) adapter</string>
+      <string id="Tier_VirtualUnlock_Help">Lowest caller tier allowed to target a virtual (non-host-facing) adapter through the NetPaw service. Not configured: the default (NetworkConfigOperators). The floor for this action is Network Configuration Operators; a lower setting is raised to it.</string>
     </stringTable>
     <presentationTable>
       <presentation id="WorkAdapter"><textBox refId="WorkAdapter"><label>Adapter name:</label></textBox></presentation>
       <presentation id="PanelHotkey"><textBox refId="PanelHotkey"><label>Hotkey:</label></textBox></presentation>
       <presentation id="RepoUrls"><multiTextBox refId="RepoUrls">Repository index URLs (one per line):</multiTextBox></presentation>
+      <presentation id="Tier_ApplyProfile"><dropdownList refId="Tier_ApplyProfile">Minimum tier:</dropdownList></presentation>
+      <presentation id="Tier_Dhcp"><dropdownList refId="Tier_Dhcp">Minimum tier:</dropdownList></presentation>
+      <presentation id="Tier_Reach"><dropdownList refId="Tier_Reach">Minimum tier:</dropdownList></presentation>
+      <presentation id="Tier_Renew"><dropdownList refId="Tier_Renew">Minimum tier:</dropdownList></presentation>
+      <presentation id="Tier_ClearTemp"><dropdownList refId="Tier_ClearTemp">Minimum tier:</dropdownList></presentation>
+      <presentation id="Tier_DeleteRoute"><dropdownList refId="Tier_DeleteRoute">Minimum tier:</dropdownList></presentation>
+      <presentation id="Tier_ResetAdapter"><dropdownList refId="Tier_ResetAdapter">Minimum tier:</dropdownList></presentation>
+      <presentation id="Tier_Release"><dropdownList refId="Tier_Release">Minimum tier:</dropdownList></presentation>
+      <presentation id="Tier_Prefer"><dropdownList refId="Tier_Prefer">Minimum tier:</dropdownList></presentation>
+      <presentation id="Tier_SetMtu"><dropdownList refId="Tier_SetMtu">Minimum tier:</dropdownList></presentation>
+      <presentation id="Tier_VirtualUnlock"><dropdownList refId="Tier_VirtualUnlock">Minimum tier:</dropdownList></presentation>
     </presentationTable>
   </resources>
 </policyDefinitionResources>

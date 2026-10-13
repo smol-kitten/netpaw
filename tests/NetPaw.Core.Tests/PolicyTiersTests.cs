@@ -7,14 +7,14 @@ namespace NetPaw.Tests;
 /// an unreadable policy, and a tier computed from the caller's token groups.</summary>
 public class PolicyTiersTests
 {
-    sealed class FakeSource(IReadOnlyDictionary<PolicyIntent, Tier> overrides, bool valid) : IPolicySource
+    sealed class FakeSource(IReadOnlyDictionary<PolicyIntent, Tier> overrides, bool valid) : ITierPolicySource
     {
         public IReadOnlyDictionary<PolicyIntent, Tier> Overrides = overrides;
         public bool Valid = valid;
         public (IReadOnlyDictionary<PolicyIntent, Tier>, bool) Read() => (Overrides, Valid);
     }
 
-    static PolicyTiers Make(IPolicySource src, out List<string> audit)
+    static PolicyTiers Make(ITierPolicySource src, out List<string> audit)
     {
         var a = new List<string>();
         audit = a;

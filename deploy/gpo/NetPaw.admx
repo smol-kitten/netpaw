@@ -75,5 +75,115 @@
       <parentCategory ref="NetPaw" /><supportedOn ref="windows:SUPPORTED_Windows_10_0" />
       <enabledValue><decimal value="1" /></enabledValue><disabledValue><decimal value="0" /></disabledValue>
     </policy>
+    <policy name="Tier_ApplyProfile" class="Machine" displayName="$(string.Tier_ApplyProfile)" explainText="$(string.Tier_ApplyProfile_Help)" presentation="$(presentation.Tier_ApplyProfile)" key="SOFTWARE\Policies\NetPaw">
+      <parentCategory ref="NetPaw" /><supportedOn ref="windows:SUPPORTED_Windows_10_0" />
+      <elements>
+        <enum id="Tier_ApplyProfile" valueName="Tier.ApplyProfile" required="true">
+          <item displayName="$(string.TierItem_StandardUser)"><value><string>StandardUser</string></value></item>
+          <item displayName="$(string.TierItem_NetworkConfigOperators)"><value><string>NetworkConfigOperators</string></value></item>
+          <item displayName="$(string.TierItem_Admin)"><value><string>Admin</string></value></item>
+        </enum>
+      </elements>
+    </policy>
+    <policy name="Tier_Dhcp" class="Machine" displayName="$(string.Tier_Dhcp)" explainText="$(string.Tier_Dhcp_Help)" presentation="$(presentation.Tier_Dhcp)" key="SOFTWARE\Policies\NetPaw">
+      <parentCategory ref="NetPaw" /><supportedOn ref="windows:SUPPORTED_Windows_10_0" />
+      <elements>
+        <enum id="Tier_Dhcp" valueName="Tier.Dhcp" required="true">
+          <item displayName="$(string.TierItem_StandardUser)"><value><string>StandardUser</string></value></item>
+          <item displayName="$(string.TierItem_NetworkConfigOperators)"><value><string>NetworkConfigOperators</string></value></item>
+          <item displayName="$(string.TierItem_Admin)"><value><string>Admin</string></value></item>
+        </enum>
+      </elements>
+    </policy>
+    <policy name="Tier_Reach" class="Machine" displayName="$(string.Tier_Reach)" explainText="$(string.Tier_Reach_Help)" presentation="$(presentation.Tier_Reach)" key="SOFTWARE\Policies\NetPaw">
+      <parentCategory ref="NetPaw" /><supportedOn ref="windows:SUPPORTED_Windows_10_0" />
+      <elements>
+        <enum id="Tier_Reach" valueName="Tier.Reach" required="true">
+          <item displayName="$(string.TierItem_StandardUser)"><value><string>StandardUser</string></value></item>
+          <item displayName="$(string.TierItem_NetworkConfigOperators)"><value><string>NetworkConfigOperators</string></value></item>
+          <item displayName="$(string.TierItem_Admin)"><value><string>Admin</string></value></item>
+        </enum>
+      </elements>
+    </policy>
+    <policy name="Tier_Renew" class="Machine" displayName="$(string.Tier_Renew)" explainText="$(string.Tier_Renew_Help)" presentation="$(presentation.Tier_Renew)" key="SOFTWARE\Policies\NetPaw">
+      <parentCategory ref="NetPaw" /><supportedOn ref="windows:SUPPORTED_Windows_10_0" />
+      <elements>
+        <enum id="Tier_Renew" valueName="Tier.Renew" required="true">
+          <item displayName="$(string.TierItem_StandardUser)"><value><string>StandardUser</string></value></item>
+          <item displayName="$(string.TierItem_NetworkConfigOperators)"><value><string>NetworkConfigOperators</string></value></item>
+          <item displayName="$(string.TierItem_Admin)"><value><string>Admin</string></value></item>
+        </enum>
+      </elements>
+    </policy>
+    <policy name="Tier_ClearTemp" class="Machine" displayName="$(string.Tier_ClearTemp)" explainText="$(string.Tier_ClearTemp_Help)" presentation="$(presentation.Tier_ClearTemp)" key="SOFTWARE\Policies\NetPaw">
+      <parentCategory ref="NetPaw" /><supportedOn ref="windows:SUPPORTED_Windows_10_0" />
+      <elements>
+        <enum id="Tier_ClearTemp" valueName="Tier.ClearTemp" required="true">
+          <item displayName="$(string.TierItem_StandardUser)"><value><string>StandardUser</string></value></item>
+          <item displayName="$(string.TierItem_NetworkConfigOperators)"><value><string>NetworkConfigOperators</string></value></item>
+          <item displayName="$(string.TierItem_Admin)"><value><string>Admin</string></value></item>
+        </enum>
+      </elements>
+    </policy>
+    <policy name="Tier_DeleteRoute" class="Machine" displayName="$(string.Tier_DeleteRoute)" explainText="$(string.Tier_DeleteRoute_Help)" presentation="$(presentation.Tier_DeleteRoute)" key="SOFTWARE\Policies\NetPaw">
+      <parentCategory ref="NetPaw" /><supportedOn ref="windows:SUPPORTED_Windows_10_0" />
+      <elements>
+        <enum id="Tier_DeleteRoute" valueName="Tier.DeleteRoute" required="true">
+          <item displayName="$(string.TierItem_StandardUser)"><value><string>StandardUser</string></value></item>
+          <item displayName="$(string.TierItem_NetworkConfigOperators)"><value><string>NetworkConfigOperators</string></value></item>
+          <item displayName="$(string.TierItem_Admin)"><value><string>Admin</string></value></item>
+        </enum>
+      </elements>
+    </policy>
+    <policy name="Tier_ResetAdapter" class="Machine" displayName="$(string.Tier_ResetAdapter)" explainText="$(string.Tier_ResetAdapter_Help)" presentation="$(presentation.Tier_ResetAdapter)" key="SOFTWARE\Policies\NetPaw">
+      <parentCategory ref="NetPaw" /><supportedOn ref="windows:SUPPORTED_Windows_10_0" />
+      <elements>
+        <enum id="Tier_ResetAdapter" valueName="Tier.ResetAdapter" required="true">
+          <item displayName="$(string.TierItem_StandardUser)"><value><string>StandardUser</string></value></item>
+          <item displayName="$(string.TierItem_NetworkConfigOperators)"><value><string>NetworkConfigOperators</string></value></item>
+          <item displayName="$(string.TierItem_Admin)"><value><string>Admin</string></value></item>
+        </enum>
+      </elements>
+    </policy>
+    <policy name="Tier_Release" class="Machine" displayName="$(string.Tier_Release)" explainText="$(string.Tier_Release_Help)" presentation="$(presentation.Tier_Release)" key="SOFTWARE\Policies\NetPaw">
+      <parentCategory ref="NetPaw" /><supportedOn ref="windows:SUPPORTED_Windows_10_0" />
+      <elements>
+        <enum id="Tier_Release" valueName="Tier.Release" required="true">
+          <item displayName="$(string.TierItem_StandardUser)"><value><string>StandardUser</string></value></item>
+          <item displayName="$(string.TierItem_NetworkConfigOperators)"><value><string>NetworkConfigOperators</string></value></item>
+          <item displayName="$(string.TierItem_Admin)"><value><string>Admin</string></value></item>
+        </enum>
+      </elements>
+    </policy>
+    <policy name="Tier_Prefer" class="Machine" displayName="$(string.Tier_Prefer)" explainText="$(string.Tier_Prefer_Help)" presentation="$(presentation.Tier_Prefer)" key="SOFTWARE\Policies\NetPaw">
+      <parentCategory ref="NetPaw" /><supportedOn ref="windows:SUPPORTED_Windows_10_0" />
+      <elements>
+        <enum id="Tier_Prefer" valueName="Tier.Prefer" required="true">
+          <item displayName="$(string.TierItem_StandardUser)"><value><string>StandardUser</string></value></item>
+          <item displayName="$(string.TierItem_NetworkConfigOperators)"><value><string>NetworkConfigOperators</string></value></item>
+          <item displayName="$(string.TierItem_Admin)"><value><string>Admin</string></value></item>
+        </enum>
+      </elements>
+    </policy>
+    <policy name="Tier_SetMtu" class="Machine" displayName="$(string.Tier_SetMtu)" explainText="$(string.Tier_SetMtu_Help)" presentation="$(presentation.Tier_SetMtu)" key="SOFTWARE\Policies\NetPaw">
+      <parentCategory ref="NetPaw" /><supportedOn ref="windows:SUPPORTED_Windows_10_0" />
+      <elements>
+        <enum id="Tier_SetMtu" valueName="Tier.SetMtu" required="true">
+          <item displayName="$(string.TierItem_StandardUser)"><value><string>StandardUser</string></value></item>
+          <item displayName="$(string.TierItem_NetworkConfigOperators)"><value><string>NetworkConfigOperators</string></value></item>
+          <item displayName="$(string.TierItem_Admin)"><value><string>Admin</string></value></item>
+        </enum>
+      </elements>
+    </policy>
+    <policy name="Tier_VirtualUnlock" class="Machine" displayName="$(string.Tier_VirtualUnlock)" explainText="$(string.Tier_VirtualUnlock_Help)" presentation="$(presentation.Tier_VirtualUnlock)" key="SOFTWARE\Policies\NetPaw">
+      <parentCategory ref="NetPaw" /><supportedOn ref="windows:SUPPORTED_Windows_10_0" />
+      <elements>
+        <enum id="Tier_VirtualUnlock" valueName="Tier.VirtualUnlock" required="true">
+          <item displayName="$(string.TierItem_StandardUser)"><value><string>StandardUser</string></value></item>
+          <item displayName="$(string.TierItem_NetworkConfigOperators)"><value><string>NetworkConfigOperators</string></value></item>
+          <item displayName="$(string.TierItem_Admin)"><value><string>Admin</string></value></item>
+        </enum>
+      </elements>
+    </policy>
   </policies>
 </policyDefinitions>
