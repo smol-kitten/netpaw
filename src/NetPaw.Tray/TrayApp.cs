@@ -629,6 +629,7 @@ sealed class TrayApp : ApplicationContext
         _tray.Icon = Icons.Paw(color, problem ? Theme.Error : null);
         var current = w is null ? null : _svc.Profiles.FirstOrDefault(p => ApplyPlanner.Matches(p, w));
         var text = w is null ? "NetPaw — no adapter" : $"NetPaw — {w.Name}: {(current?.Name is { } n ? n + " · " : "")}{w.Summary()}{(_snapshot is { ChecksEnabled: true } ? " · " + Snapshot.Describe(_snapshot.State) : "")}";
+        if (ChangeMode == ChannelMode.User) text += " · read-only (no service)";
         _tray.Text = text.Length > 127 ? text[..124] + "…" : text;
         _panel?.RefreshHeader();
     }
@@ -665,11 +666,18 @@ sealed class TrayApp : ApplicationContext
         }
         _menu.Items.Add(new ToolStripSeparator());
 
+        // User mode (no service, not elevated): applying is refused anyway, so disable the change items and say why
+        // once, rather than letting the user click into a refusal. Diagnostics, capture and the map stay enabled.
+        var canApply = ChangeMode != ChannelMode.User;
+        if (!canApply)
+            _menu.Items.Add(new ToolStripMenuItem("Read-only — changes need the NetPaw service (install the MSI) or an elevated run")
+            { Enabled = false, Tag = Theme.Error, Font = Theme.Small });
+
         var profiles = _svc.Profiles.Where(p => !p.Temporary).ToList();
         if (profiles.Count == 0) _menu.Items.Add(new ToolStripMenuItem("No profiles yet — Manage profiles…") { Enabled = false });
         foreach (var p in profiles)
         {
-            var item = new ToolStripMenuItem(p.Name) { ShortcutKeyDisplayString = p.Hotkey, Image = Icons.Dot(p.Dhcp ? Theme.Dhcp : Theme.Static) };
+            var item = new ToolStripMenuItem(p.Name) { ShortcutKeyDisplayString = p.Hotkey, Image = Icons.Dot(p.Dhcp ? Theme.Dhcp : Theme.Static), Enabled = canApply };
             item.ToolTipText = p.Summary();
             if (w is not null && ApplyPlanner.Matches(p, w)) item.Checked = true;
             item.Click += (_, _) => ApplyProfile(p);
@@ -677,17 +685,17 @@ sealed class TrayApp : ApplicationContext
         }
         _menu.Items.Add(new ToolStripSeparator());
         if (_svc.Allowed(Capability.Dhcp))
-            _menu.Items.Add(new ToolStripMenuItem("DHCP now", Icons.Dot(Theme.Dhcp), (_, _) => ApplyDhcp()) { Checked = w?.Dhcp == true });
+            _menu.Items.Add(new ToolStripMenuItem("DHCP now", Icons.Dot(Theme.Dhcp), (_, _) => ApplyDhcp()) { Checked = w?.Dhcp == true, Enabled = canApply });
         if (w is { Dhcp: true })
-            _menu.Items.Add(new ToolStripMenuItem("Renew DHCP lease", null, (_, _) => Renew(manual: true)));
+            _menu.Items.Add(new ToolStripMenuItem("Renew DHCP lease", null, (_, _) => Renew(manual: true)) { Enabled = canApply });
         if (w is not null)
-            _menu.Items.Add(new ToolStripMenuItem("Reset adapter (disable → enable)", null, (_, _) => ResetAdapter()));
+            _menu.Items.Add(new ToolStripMenuItem("Reset adapter (disable → enable)", null, (_, _) => ResetAdapter()) { Enabled = canApply });
         if (_autoSwitchUndo is not null)
-            _menu.Items.Add(new ToolStripMenuItem("Undo last auto-switch", Icons.Dot(Theme.Temp), (_, _) => UndoAutoSwitch()));
+            _menu.Items.Add(new ToolStripMenuItem("Undo last auto-switch", Icons.Dot(Theme.Temp), (_, _) => UndoAutoSwitch()) { Enabled = canApply });
         if (_svc.Allowed(Capability.Reach))
-            _menu.Items.Add(new ToolStripMenuItem("Reach IP…", null, (_, _) => ShowPanel()) { ShortcutKeyDisplayString = _svc.Settings.PanelHotkey });
+            _menu.Items.Add(new ToolStripMenuItem("Reach IP…", null, (_, _) => ShowPanel()) { ShortcutKeyDisplayString = _svc.Settings.PanelHotkey, Enabled = canApply });
 
-        var presets = new ToolStripMenuItem("Device presets") { Visible = _svc.Allowed(Capability.Reach) && _svc.Allowed(Capability.TempAddresses) };
+        var presets = new ToolStripMenuItem("Device presets") { Visible = _svc.Allowed(Capability.Reach) && _svc.Allowed(Capability.TempAddresses), Enabled = canApply };
         foreach (var vendor in _svc.Presets.GroupBy(p => p.Vendor).OrderBy(g => g.Key))
         {
             var vm = new ToolStripMenuItem(vendor.Key);
@@ -704,7 +712,7 @@ sealed class TrayApp : ApplicationContext
 
         var temps = _svc.TempAddresses;
         if (temps.Count > 0)
-            _menu.Items.Add(new ToolStripMenuItem($"Remove {temps.Count} temporary address{(temps.Count == 1 ? "" : "es")}", Icons.Dot(Theme.Temp), (_, _) => ClearTemp()));
+            _menu.Items.Add(new ToolStripMenuItem($"Remove {temps.Count} temporary address{(temps.Count == 1 ? "" : "es")}", Icons.Dot(Theme.Temp), (_, _) => ClearTemp()) { Enabled = canApply });
 
         _menu.Items.Add(new ToolStripSeparator());
         var adapters = new ToolStripMenuItem("Work adapter");
