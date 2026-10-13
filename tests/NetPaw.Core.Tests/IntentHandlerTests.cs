@@ -311,4 +311,19 @@ public class IntentHandlerTests
         var opted = Fx.Static("v", "10.0.0.1", "10.0.0.5/24"); opted.AppliesTo = new AppliesTo { Names = ["tap0"] };
         Assert.True(r.Handler.Handle(ApplyInline(opted, "tap0"), "u", privileged: true).Ok);
     }
+
+    [Fact]
+    public void A_standard_user_cannot_opt_a_virtual_adapter_in_via_inline_appliesTo()
+    {
+        // A non-privileged caller's OWN inline appliesTo may restrict but must not UNLOCK a VPN/TAP adapter;
+        // only a managed (admin-defined) profile or a privileged caller may target a non-host-facing adapter.
+        var r = MakeWith(Fx.Nic(name: "tap0", physical: false, addrs: ["10.0.0.5/24"], gw: "10.0.0.1"));
+        var p = Fx.Static("v", "10.0.0.1", "10.0.0.5/24"); p.AppliesTo = new AppliesTo { Names = ["tap0"] };
+        var refused = r.Handler.Handle(ApplyInline(p, "tap0"), "u", privileged: false);
+        Assert.False(refused.Ok);
+        Assert.Contains("virtual adapter", refused.Error);
+        Assert.Empty(r.Runner.Ran);
+        // the same profile from a privileged caller IS allowed to unlock it
+        Assert.True(r.Handler.Handle(ApplyInline(p, "tap0"), "admin", privileged: true).Ok);
+    }
 }
