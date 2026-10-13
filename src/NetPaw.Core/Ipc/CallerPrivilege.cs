@@ -8,6 +8,9 @@ namespace NetPaw.Ipc;
 /// Administrators SID as deny-only, and such a caller must be treated as unprivileged (it uses the
 /// admin-unlock helper instead, PR 5).
 /// </summary>
+/// <summary>What a caller may do, lowest to highest. PR 4 policy tiers gate each intent on a minimum of these.</summary>
+public enum Tier { StandardUser, NetworkConfigOperators, Admin }
+
 public static class CallerPrivilege
 {
     public const uint SE_GROUP_ENABLED = 0x4;
@@ -24,5 +27,18 @@ public static class CallerPrivilege
         return groups.Any(g => (g.Attributes & SE_GROUP_ENABLED) != 0
                                && (g.Attributes & SE_GROUP_USE_FOR_DENY_ONLY) == 0
                                && want.Contains(g.Sid));
+    }
+
+    /// <summary>The caller's tier: Admin if the Administrators SID is enabled and not deny-only, else NCO if the
+    /// Network Configuration Operators SID is, else StandardUser. Same enabled-and-not-deny-only rule as
+    /// <see cref="IsPrivileged"/>, so a UAC-filtered admin token reads as StandardUser.</summary>
+    public static Tier TierOf(IEnumerable<(string Sid, uint Attributes)> groups)
+    {
+        bool Has(string sid) => groups.Any(g => (g.Attributes & SE_GROUP_ENABLED) != 0
+                                                && (g.Attributes & SE_GROUP_USE_FOR_DENY_ONLY) == 0
+                                                && g.Sid == sid);
+        return Has(AdministratorsSid) ? Tier.Admin
+             : Has(NetworkConfigurationOperatorsSid) ? Tier.NetworkConfigOperators
+             : Tier.StandardUser;
     }
 }

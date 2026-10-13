@@ -254,3 +254,66 @@ The second-model review raises the same four points each round. They are settled
   covered by 7 unit tests (enabled / deny-only / enabled+deny-only / present-not-enabled / standard user /
   none / NCO), and the end-to-end path was re-run on the VM (admin `DeleteRoute` executes). The token read
   itself is Windows-only and stays VM-validated, not unit-tested, by design.
+
+## PR 4 plan: policy tiers (for review — no code yet)
+
+**Goal.** A per-intent *minimum caller tier* the service enforces, overridable by machine policy. The default
+table equals today's behaviour exactly, so existing installs see no change. One evaluation point, fail-closed,
+one audit line per decision.
+
+**Tiers.** `StandardUser < NetworkConfigOperators (NCO) < Admin`. A caller's tier is computed from the pipe
+token (reuse `CallerPrivilege`/TOKEN_GROUPS): Admin if the Administrators SID is enabled and not deny-only; else
+NCO if `S-1-5-32-556` is; else StandardUser. (Today "privileged" = NCO-or-Admin.)
+
+**Default table (= today, a golden test pins this).** Capabilities (UserProfiles/Dhcp/Reach) stay orthogonal —
+feature on/off; tiers are *who*. A call must pass BOTH.
+
+| intent | default min tier | today's rule it reproduces |
+|---|---|---|
+| Status | StandardUser | ungated |
+| ApplyProfile (managed) | StandardUser | ungated (admin-owned file) |
+| ApplyProfile (inline) | StandardUser | `UserProfiles` cap; virtual-unlock needs managed/priv (#87) |
+| Dhcp / Renew | StandardUser | `Dhcp` cap |
+| Reach | StandardUser | `Reach` cap |
+| ClearTemp / DeleteRoute / ResetAdapter / Release / Prefer / SetMtu | NCO | `PrivilegedOnly` |
+| virtual-adapter unlock (special, not an intent) | managed, else NCO/Admin | #87 |
+
+**Policy source.** `HKLM\Software\Policies\NetPaw` (machine; GPO/ADMX + Intune). One value per intent,
+`Tier.<Intent>` = `StandardUser|NetworkConfigOperators|Admin`. An override may tighten *or* loosen, bounded by a
+hard floor table in code (policy cannot lower a floor intent).
+
+**Evaluation.** Replace the `PrivilegedOnly` check with a single `PolicyTiers.Require(intent, caller, ctx)` at the
+top of `IntentHandler.Handle`. Audit: one line per decision — caller user + computed tier, intent, required tier,
+allow/deny.
+
+**Fail-closed via last-known-good (Q3, decided).** A readable, valid policy is cached to a service-owned file
+(`%ProgramData%\NetPaw\service`, SYSTEM/Admins-only ACL via `ServiceFolder`), written **only after a successful
+parse**. An unreadable or invalid policy at read time falls back to that **last-known-good cache** (so an
+override an admin had tightened stays tight — a silent loosen to defaults is the trap we avoid), plus a warn
+audit line. With no cache yet (first run), fall back to the DEFAULT table + warn. Never deny-all — a user must
+still be able to Renew.
+
+**ADMX/ADML + docs.** Hand-written `deploy/gpo/NetPaw.admx` + `en-US/NetPaw.adml` (one enum policy per intent),
+and a `docs/policy.md` table. Small and stable, so hand-written over generated.
+
+**Tests.** (1) golden: for every (intent × caller-tier), allow/deny equals the pre-PR4 `PrivilegedOnly`+caps
+behaviour. (2) each override tightens and loosens as written. (3) tightened-then-unreadable → **still tight**
+(last-known-good); first run with an unreadable policy → defaults + warn. (4) no override can lower a floor-table
+intent below its floor (inline virtual-unlock floor = NCO). (5) an audit line is emitted per decision.
+
+**Non-goals (this PR).** No per-user policy. No new intents. Autorun stays tray-side in HKCU (not a service
+intent; asInvoker, no elevation) — out of this policy.
+
+**Decisions (orchestrator, m-5032).**
+- **Q1 — inline virtual-unlock floor = NCO.** Default stays today's (managed, else NCO/Admin). The hard floor for
+  the *inline* virtual-adapter unlock is **NCO**: a policy may tighten it to Admin, never loosen it below NCO. The
+  managed-profile unlock is unchanged (admin-defined by nature).
+- **Q2 — autorun dropped (N/A).** Autorun is HKCU + asInvoker, not a service intent; the #85 old-elevated-task
+  removal path stays as is. No autorun entry in the tier table.
+- **Q3 — last-known-good on unreadable policy** (see Fail-closed above): cache the last valid policy
+  (SYSTEM/Admins ACL, written after a successful parse); unreadable → last-known-good + warn; first run → default
+  + warn; never deny-all.
+
+**Plan-review reconciliation (PR 4).** The looping second-model review (through round 12) re-raises only the four
+PR-3 points already settled in the section above (abort/rollback gates, service-crash recovery, RDP caller
+mapping, the #76 evidence); none concern PR 4, so they stand as reconciled, no change.

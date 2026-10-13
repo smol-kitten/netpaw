@@ -326,4 +326,40 @@ public class IntentHandlerTests
         // the same profile from a privileged caller IS allowed to unlock it
         Assert.True(r.Handler.Handle(ApplyInline(p, "tap0"), "admin", privileged: true).Ok);
     }
+
+    sealed class InlineSource(IReadOnlyDictionary<PolicyIntent, Tier> o) : ITierPolicySource
+    {
+        public (IReadOnlyDictionary<PolicyIntent, Tier>, bool) Read() => (o, true);
+    }
+
+    [Fact]
+    public void Policy_cannot_lower_the_virtual_unlock_below_its_NCO_floor_via_the_service()
+    {
+        var dir = Directory.CreateTempSubdirectory().FullName;
+        var svc = new NetPawService(new JsonStore(Path.Combine(dir, "service")), new FakeAdapters(Fx.Nic(name: "tap0", physical: false, addrs: ["10.0.0.5/24"], gw: "10.0.0.1")), new FakeVlan(false), new FakeRunner(),
+            new MachineStore(Path.Combine(dir, "profiles.d")), () => PolicyReader.Read(new DictionaryPolicySource(new Dictionary<string, object>())));
+        // A policy tries to loosen VirtualUnlock to StandardUser; the floor clamps it to NCO.
+        var policy = new PolicyTiers(new InlineSource(new Dictionary<PolicyIntent, Tier> { [PolicyIntent.VirtualUnlock] = Tier.StandardUser }), Path.Combine(dir, "policy.cache.json"));
+        var h = new IntentHandler(svc, Path.Combine(dir, "service"), _ => { }, settleMs: 0, policy: policy);
+        var p = Fx.Static("v", "10.0.0.1", "10.0.0.5/24"); p.AppliesTo = new AppliesTo { Names = ["tap0"] };
+        // StandardUser still cannot unlock the virtual adapter (floor is NCO, policy could not lower it).
+        Assert.False(h.Handle(ApplyInline(p, "tap0"), "u", Tier.StandardUser).Ok);
+        // An NCO caller can.
+        Assert.True(h.Handle(ApplyInline(p, "tap0"), "nco", Tier.NetworkConfigOperators).Ok);
+    }
+
+    [Fact]
+    public void Handle_enforces_a_policy_tightened_tier_end_to_end()
+    {
+        var dir = Directory.CreateTempSubdirectory().FullName;
+        var svc = new NetPawService(new JsonStore(Path.Combine(dir, "service")), new FakeAdapters(Fx.Adapter(gw: "192.168.1.1")), new FakeVlan(false), new FakeRunner(),
+            new MachineStore(Path.Combine(dir, "profiles.d")), () => PolicyReader.Read(new DictionaryPolicySource(new Dictionary<string, object>())));
+        var policy = new PolicyTiers(new InlineSource(new Dictionary<PolicyIntent, Tier> { [PolicyIntent.Dhcp] = Tier.Admin }), Path.Combine(dir, "policy.cache.json"));
+        var h = new IntentHandler(svc, Path.Combine(dir, "service"), _ => { }, settleMs: 0, policy: policy);
+        // Dhcp tightened to Admin: an NCO caller is now denied, an Admin caller is allowed.
+        Assert.False(h.Handle(Req(RequestKind.Dhcp), "u", Tier.NetworkConfigOperators).Ok);
+        Assert.True(h.Handle(Req(RequestKind.Dhcp), "a", Tier.Admin).Ok);
+        // DeleteRoute keeps its NCO default: a StandardUser is denied through the tier overload.
+        Assert.False(h.Handle(Req(RequestKind.DeleteRoute) with { RoutePrefix = "10.0.0.0/8" }, "u", Tier.StandardUser).Ok);
+    }
 }

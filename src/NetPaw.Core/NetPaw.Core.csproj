@@ -16,6 +16,7 @@
     <EmbeddedResource Include="..\..\deploy\pki\t0.crt" LogicalName="t0.crt" />
   </ItemGroup>
   <ItemGroup>
+    <InternalsVisibleTo Include="NetPaw.Core.Tests" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="System.Security.Cryptography.Pkcs" Version="10.0.12" />
