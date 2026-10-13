@@ -1,0 +1,141 @@
+using System.Text.Json;
+
+namespace NetPaw.Ipc;
+
+/// <summary>The gated units policy tiers apply to. Most map 1:1 to <see cref="RequestKind"/>; VirtualUnlock is the
+/// extra gate for targeting a non-host-facing adapter (not a request kind of its own).</summary>
+public enum PolicyIntent { Status, ApplyProfile, Dhcp, Reach, Renew, ClearTemp, DeleteRoute, ResetAdapter, Release, Prefer, SetMtu, VirtualUnlock }
+
+/// <summary>One tier decision, for the audit line and the caller.</summary>
+public sealed record PolicyDecision(PolicyIntent Intent, Tier Required, Tier Caller, bool Allowed, string Via);
+
+/// <summary>
+/// Reads per-intent tier overrides from machine policy (Windows: HKLM\Software\Policies\NetPaw). Returns
+/// Valid=false ONLY when a policy is present but cannot be read or parsed (access denied, a bad tier value); an
+/// absent policy is Valid=true with no overrides — not configuring policy is not an error.
+/// </summary>
+public interface IPolicySource
+{
+    (IReadOnlyDictionary<PolicyIntent, Tier> Overrides, bool Valid) Read();
+}
+
+/// <summary>
+/// PR 4: the service's one authorization point. Each intent has a default minimum tier equal to pre-PR4 behaviour
+/// and a hard floor a policy may never loosen below. A machine policy may tighten or loosen each intent within
+/// [floor, Admin]. On an unreadable/invalid policy the last-known-good (the last policy that parsed, cached to a
+/// SYSTEM/Admins-only file) is used so a tightened override is not silently lost; with no cache, the defaults.
+/// Never denies everything. Every decision writes one audit line.
+/// </summary>
+public sealed class PolicyTiers
+{
+    // Default table == today's behaviour: StandardUser for the everyday intents, NCO for the destructive ones.
+    static readonly IReadOnlyDictionary<PolicyIntent, Tier> Defaults = new Dictionary<PolicyIntent, Tier>
+    {
+        [PolicyIntent.Status] = Tier.StandardUser,
+        [PolicyIntent.ApplyProfile] = Tier.StandardUser,
+        [PolicyIntent.Dhcp] = Tier.StandardUser,
+        [PolicyIntent.Reach] = Tier.StandardUser,
+        [PolicyIntent.Renew] = Tier.StandardUser,
+        [PolicyIntent.ClearTemp] = Tier.NetworkConfigOperators,
+        [PolicyIntent.DeleteRoute] = Tier.NetworkConfigOperators,
+        [PolicyIntent.ResetAdapter] = Tier.NetworkConfigOperators,
+        [PolicyIntent.Release] = Tier.NetworkConfigOperators,
+        [PolicyIntent.Prefer] = Tier.NetworkConfigOperators,
+        [PolicyIntent.SetMtu] = Tier.NetworkConfigOperators,
+        [PolicyIntent.VirtualUnlock] = Tier.NetworkConfigOperators,
+    };
+
+    // A policy may tighten above the floor but never loosen below it. Only the inline virtual-adapter unlock has a
+    // floor above StandardUser (orchestrator m-5032 Q1: never below NCO).
+    static readonly IReadOnlyDictionary<PolicyIntent, Tier> Floors = new Dictionary<PolicyIntent, Tier>
+    {
+        [PolicyIntent.VirtualUnlock] = Tier.NetworkConfigOperators,
+    };
+
+    public static Tier DefaultFor(PolicyIntent i) => Defaults[i];
+    public static Tier FloorFor(PolicyIntent i) => Floors.GetValueOrDefault(i, Tier.StandardUser);
+
+    readonly IPolicySource _source;
+    readonly string _cachePath;
+    readonly Action<string> _audit;
+
+    public PolicyTiers(IPolicySource source, string cachePath, Action<string>? audit = null)
+    {
+        _source = source;
+        _cachePath = cachePath;
+        _audit = audit ?? (_ => { });
+    }
+
+    /// <summary>Resolve the active overrides: the policy when it reads clean (and refresh the cache), else the
+    /// last-known-good cache, else none (= defaults). Read once per request by the handler.</summary>
+    public IReadOnlyDictionary<PolicyIntent, Tier> Resolve()
+    {
+        var (overrides, valid) = _source.Read();
+        if (valid)
+        {
+            WriteCache(overrides);
+            return overrides;
+        }
+        var cached = ReadCache();
+        if (cached is not null)
+        {
+            _audit("policy unreadable or invalid; using the last-known-good cached policy");
+            return cached;
+        }
+        _audit("policy unreadable or invalid and no cache; using the default tier table");
+        return EmptyOverrides;
+    }
+
+    /// <summary>The effective minimum tier for an intent under these overrides: the override clamped to the floor,
+    /// else the default.</summary>
+    public static Tier Required(PolicyIntent intent, IReadOnlyDictionary<PolicyIntent, Tier> overrides)
+    {
+        var floor = FloorFor(intent);
+        return overrides.TryGetValue(intent, out var o) ? (o < floor ? floor : o) : Defaults[intent];
+    }
+
+    /// <summary>Decide and audit. Allowed when the caller's tier is at least the required tier.</summary>
+    public PolicyDecision Decide(PolicyIntent intent, Tier caller, IReadOnlyDictionary<PolicyIntent, Tier> overrides)
+    {
+        var required = Required(intent, overrides);
+        var allowed = caller >= required;
+        var via = overrides.ContainsKey(intent) ? "policy" : "default";
+        _audit($"tier decision: caller={caller} intent={intent} required={required} via={via} -> {(allowed ? "allow" : "DENY")}");
+        return new PolicyDecision(intent, required, caller, allowed, via);
+    }
+
+    static readonly IReadOnlyDictionary<PolicyIntent, Tier> EmptyOverrides = new Dictionary<PolicyIntent, Tier>();
+
+    void WriteCache(IReadOnlyDictionary<PolicyIntent, Tier> overrides)
+    {
+        try
+        {
+            // Store names, not enum integers, so a reorder of the enum can never silently re-map a cached tier.
+            var model = overrides.ToDictionary(kv => kv.Key.ToString(), kv => kv.Value.ToString());
+            File.WriteAllText(_cachePath, JsonSerializer.Serialize(model));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            _audit("could not write the policy cache: " + ex.Message);
+        }
+    }
+
+    IReadOnlyDictionary<PolicyIntent, Tier>? ReadCache()
+    {
+        try
+        {
+            if (!File.Exists(_cachePath)) return null;
+            var model = JsonSerializer.Deserialize<Dictionary<string, string>>(File.ReadAllText(_cachePath));
+            if (model is null) return null;
+            var o = new Dictionary<PolicyIntent, Tier>();
+            foreach (var (k, v) in model)
+                if (Enum.TryParse<PolicyIntent>(k, out var intent) && Enum.TryParse<Tier>(v, out var tier))
+                    o[intent] = tier;
+            return o;
+        }
+        catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+}
