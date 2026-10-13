@@ -69,6 +69,9 @@ jobs:
           sys.exit(1 if bad else 0)
           EOF
       - name: Publish (self-contained, no runtime needed)
+        # ~77 MB and only a RELEASE deliverable, so build it on tags only — every PR/main run otherwise uploaded
+        # (and signed) a standalone nobody downloads. The MSI/verify paths use the framework-dependent build above.
+        if: startsWith(github.ref, 'refs/tags/v')
         run: |
           dotnet publish src/NetPaw.Tray -c Release -r win-x64 --self-contained true -p:IncludeNativeLibrariesForSelfExtract=true $VERSION_PROP -o bin/netpaw-win-x64-standalone
           dotnet publish src/NetPaw.Cli  -c Release -r win-x64 --self-contained true $VERSION_PROP -o bin/netpaw-win-x64-standalone
@@ -164,7 +167,10 @@ jobs:
         shell: pwsh
         run: |
           Add-Type -AssemblyName System.IO.Compression.FileSystem
-          foreach ($d in 'netpaw-win-x64', 'netpaw-win-x64-standalone') {
+          # The self-contained standalone is only published on tag runs (release deliverable); zip it only when present.
+          $dirs = @('netpaw-win-x64')
+          if (Test-Path 'bin/netpaw-win-x64-standalone') { $dirs += 'netpaw-win-x64-standalone' }
+          foreach ($d in $dirs) {
             [IO.Compression.ZipFile]::CreateFromDirectory("bin/$d", "pkg/$d.zip", 'Optimal', $true)
           }
           Get-ChildItem pkg
