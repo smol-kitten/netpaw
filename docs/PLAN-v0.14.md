@@ -254,3 +254,57 @@ The second-model review raises the same four points each round. They are settled
   covered by 7 unit tests (enabled / deny-only / enabled+deny-only / present-not-enabled / standard user /
   none / NCO), and the end-to-end path was re-run on the VM (admin `DeleteRoute` executes). The token read
   itself is Windows-only and stays VM-validated, not unit-tested, by design.
+
+## PR 4 plan: policy tiers (for review — no code yet)
+
+**Goal.** A per-intent *minimum caller tier* the service enforces, overridable by machine policy. The default
+table equals today's behaviour exactly, so existing installs see no change. One evaluation point, fail-closed,
+one audit line per decision.
+
+**Tiers.** `StandardUser < NetworkConfigOperators (NCO) < Admin`. A caller's tier is computed from the pipe
+token (reuse `CallerPrivilege`/TOKEN_GROUPS): Admin if the Administrators SID is enabled and not deny-only; else
+NCO if `S-1-5-32-556` is; else StandardUser. (Today "privileged" = NCO-or-Admin.)
+
+**Default table (= today, a golden test pins this).** Capabilities (UserProfiles/Dhcp/Reach) stay orthogonal —
+feature on/off; tiers are *who*. A call must pass BOTH.
+
+| intent | default min tier | today's rule it reproduces |
+|---|---|---|
+| Status | StandardUser | ungated |
+| ApplyProfile (managed) | StandardUser | ungated (admin-owned file) |
+| ApplyProfile (inline) | StandardUser | `UserProfiles` cap; virtual-unlock needs managed/priv (#87) |
+| Dhcp / Renew | StandardUser | `Dhcp` cap |
+| Reach | StandardUser | `Reach` cap |
+| ClearTemp / DeleteRoute / ResetAdapter / Release / Prefer / SetMtu | NCO | `PrivilegedOnly` |
+| virtual-adapter unlock (special, not an intent) | managed, else NCO/Admin | #87 |
+
+**Policy source.** `HKLM\Software\Policies\NetPaw` (machine; GPO/ADMX + Intune). One value per intent,
+`Tier.<Intent>` = `StandardUser|NetworkConfigOperators|Admin`. An override may tighten *or* loosen, bounded by a
+hard floor table in code (policy cannot lower a floor intent).
+
+**Evaluation.** Replace the `PrivilegedOnly` check with a single `PolicyTiers.Require(intent, caller, ctx)` at the
+top of `IntentHandler.Handle`. Policy read once per request (cached, invalidated on the Reload the handler already
+does). Fail-closed: unreadable/malformed policy → fall back to the DEFAULT table + a loud warn [OPEN Q3]. Audit:
+one line per decision — caller user + computed tier, intent, required tier, allow/deny.
+
+**ADMX/ADML + docs.** Hand-written `deploy/gpo/NetPaw.admx` + `en-US/NetPaw.adml` (one enum policy per intent),
+and a `docs/policy.md` table. Small and stable, so hand-written over generated.
+
+**Tests.** (1) golden: for every (intent × caller-tier), allow/deny equals the pre-PR4 `PrivilegedOnly`+caps
+behaviour. (2) each override tightens and loosens as written. (3) unreadable policy → default + warn [Q3].
+(4) no override can lower a floor-table intent below its floor. (5) an audit line is emitted per decision.
+
+**Non-goals (this PR).** No per-user policy. No new intents. Autorun stays tray-side in HKCU (not a service
+intent; asInvoker, no elevation) — out of this policy.
+
+**Open questions for the orchestrator:**
+- **Q1 (virtual-adapter unlock floor).** "Never below Admin" conflicts with "default == today": today inline
+  unlock is NCO-or-Admin (#87), not Admin. Proposal: default stays today's (managed, else NCO/Admin) and the
+  floor for the *inline* unlock is **Admin** only in the sense that policy may tighten to Admin but not loosen
+  below NCO — i.e. the hard floor is NCO, not Admin. Or do you want a true Admin default for inline unlock (a
+  behaviour change)? Your call.
+- **Q2 (autorun elevation).** v0.14 autorun is a plain HKCU Run value (asInvoker, no elevation) and is not a
+  service intent, so I read "autorun elevation, never below Admin" as N/A and drop it. Confirm, or name the
+  surface you mean.
+- **Q3 (unreadable policy).** Default-table + warn (my lean: preserves function, fail-closed to *today's* gate)
+  vs deny-all (most conservative). You hinted both — pick.
