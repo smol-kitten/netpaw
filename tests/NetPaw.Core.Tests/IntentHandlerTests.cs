@@ -257,4 +257,73 @@ public class IntentHandlerTests
         var wire = ServiceProtocol.Encode(new ServiceResponse(1, true) { Apply = ApplyReport.From(plan, outcome) });
         Assert.True(wire.Length < ServiceProtocol.MaxLine);
     }
+
+    // ---- appliesTo adapter binding + virtual-adapter guard (t-0e5511) -------------------------
+
+    static Rig MakeWith(Adapters.AdapterInfo adapter)
+    {
+        var dir = Directory.CreateTempSubdirectory().FullName;
+        var runner = new FakeRunner();
+        var svc = new NetPawService(new JsonStore(Path.Combine(dir, "service")), new FakeAdapters(adapter), new FakeVlan(false), runner,
+            new MachineStore(Path.Combine(dir, "profiles.d")), () => PolicyReader.Read(new DictionaryPolicySource(new Dictionary<string, object>())));
+        var log = new List<string>();
+        return new Rig(new IntentHandler(svc, Path.Combine(dir, "service"), log.Add, settleMs: 0), runner, dir, log);
+    }
+
+    static ServiceRequest ApplyInline(Profile p, string adapter) => Req(RequestKind.ApplyProfile) with { Profile = p, Adapter = adapter };
+
+    [Fact]
+    public void AppliesTo_absent_applies_to_any_named_adapter()
+    {
+        var r = Make();
+        Assert.True(r.Handler.Handle(ApplyInline(Fx.Static("lab", "192.168.1.1", "192.168.1.50/24"), "Ethernet"), "u", privileged: true).Ok);
+    }
+
+    [Fact]
+    public void AppliesTo_name_pattern_or_mac_match_is_allowed()
+    {
+        var r = Make();
+        var byName = Fx.Static("lab", "192.168.1.1", "192.168.1.50/24"); byName.AppliesTo = new AppliesTo { Names = ["Ether*"] };
+        Assert.True(r.Handler.Handle(ApplyInline(byName, "Ethernet"), "u", privileged: true).Ok);
+        var byMac = Fx.Static("lab", "192.168.1.1", "192.168.1.50/24"); byMac.AppliesTo = new AppliesTo { Macs = ["aa-bb-cc-dd-ee-ff"] };   // separators differ, still matches
+        Assert.True(r.Handler.Handle(ApplyInline(byMac, "Ethernet"), "u", privileged: true).Ok);
+    }
+
+    [Fact]
+    public void AppliesTo_mismatch_is_refused_before_planning()
+    {
+        var r = Make();
+        var p = Fx.Static("lab", "192.168.1.1", "192.168.1.50/24"); p.AppliesTo = new AppliesTo { Names = ["Wi-Fi*"], Macs = ["11:22:33:44:55:66"] };
+        var resp = r.Handler.Handle(ApplyInline(p, "Ethernet"), "u", privileged: true);
+        Assert.False(resp.Ok);
+        Assert.Contains("restricted to", resp.Error);
+        Assert.Empty(r.Runner.Ran);
+    }
+
+    [Fact]
+    public void A_virtual_adapter_is_refused_unless_the_profile_lists_it()
+    {
+        var r = MakeWith(Fx.Nic(name: "tap0", physical: false, addrs: ["10.0.0.5/24"], gw: "10.0.0.1"));
+        var refused = r.Handler.Handle(ApplyInline(Fx.Static("v", "10.0.0.1", "10.0.0.5/24"), "tap0"), "u", privileged: true);
+        Assert.False(refused.Ok);
+        Assert.Contains("virtual adapter", refused.Error);
+        Assert.Empty(r.Runner.Ran);
+        var opted = Fx.Static("v", "10.0.0.1", "10.0.0.5/24"); opted.AppliesTo = new AppliesTo { Names = ["tap0"] };
+        Assert.True(r.Handler.Handle(ApplyInline(opted, "tap0"), "u", privileged: true).Ok);
+    }
+
+    [Fact]
+    public void A_standard_user_cannot_opt_a_virtual_adapter_in_via_inline_appliesTo()
+    {
+        // A non-privileged caller's OWN inline appliesTo may restrict but must not UNLOCK a VPN/TAP adapter;
+        // only a managed (admin-defined) profile or a privileged caller may target a non-host-facing adapter.
+        var r = MakeWith(Fx.Nic(name: "tap0", physical: false, addrs: ["10.0.0.5/24"], gw: "10.0.0.1"));
+        var p = Fx.Static("v", "10.0.0.1", "10.0.0.5/24"); p.AppliesTo = new AppliesTo { Names = ["tap0"] };
+        var refused = r.Handler.Handle(ApplyInline(p, "tap0"), "u", privileged: false);
+        Assert.False(refused.Ok);
+        Assert.Contains("virtual adapter", refused.Error);
+        Assert.Empty(r.Runner.Ran);
+        // the same profile from a privileged caller IS allowed to unlock it
+        Assert.True(r.Handler.Handle(ApplyInline(p, "tap0"), "admin", privileged: true).Ok);
+    }
 }

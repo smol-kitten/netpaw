@@ -52,7 +52,7 @@ public sealed class IntentHandler(NetPawService svc, string journalDirectory, Ac
                 svc.Reload();
                 var report = r.Kind switch
                 {
-                    RequestKind.ApplyProfile => ApplyProfile(r, caller),
+                    RequestKind.ApplyProfile => ApplyProfile(r, caller, privileged),
                     RequestKind.Dhcp => Run(ApplyPlanner.PlanDhcp(Adapter(r)), caller, require: Capability.Dhcp),
                     RequestKind.Reach => Reach(r, caller),
                     RequestKind.ClearTemp => ClearTemp(),
@@ -85,7 +85,7 @@ public sealed class IntentHandler(NetPawService svc, string journalDirectory, Ac
         return a;
     }
 
-    ApplyReport ApplyProfile(ServiceRequest r, string caller)
+    ApplyReport ApplyProfile(ServiceRequest r, string caller, bool privileged)
     {
         Model.Profile p;
         if (r.ProfileId is not null)
@@ -106,6 +106,16 @@ public sealed class IntentHandler(NetPawService svc, string journalDirectory, Ac
             if (errors.Count > 0) throw new Rejected("profile refused: " + string.Join(" ", errors));
         }
         var adapter = r.Adapter is null && p.Adapter is not null ? svc.ResolveAdapter(p.Adapter) : Adapter(r);
+        // appliesTo binding + virtual-adapter guard (t-0e5511).
+        var listed = p.AppliesTo is { IsEmpty: false } b && b.Matches(adapter.Name, adapter.Mac);
+        // RESTRICT: when appliesTo is present it binds the profile for ANY caller — no match, no apply.
+        if (p.AppliesTo is { IsEmpty: false } bind && !listed)
+            throw new Rejected($"profile '{p.Name}' is restricted to [{bind.Describe()}] and does not match adapter '{adapter.Name}' ({adapter.Mac})");
+        // UNLOCK a non-host-facing (virtual) adapter: only a managed (admin-defined) profile or a privileged caller
+        // may opt in. A standard user's own inline appliesTo must not let them reach a VPN/TAP adapter.
+        var mayUnlockVirtual = listed && (p.Managed || privileged);
+        if (!adapter.HostFacing && !mayUnlockVirtual)
+            throw new Rejected($"'{adapter.Name}' is a virtual adapter; only a managed profile or an administrator may target it (via appliesTo)");
         var plan = svc.PlanProfile(p, adapter);
         return Journaled(plan, caller, () => svc.ApplyAndVerify(plan, settleMs));
     }
