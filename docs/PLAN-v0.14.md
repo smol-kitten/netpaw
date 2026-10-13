@@ -283,28 +283,37 @@ feature on/off; tiers are *who*. A call must pass BOTH.
 hard floor table in code (policy cannot lower a floor intent).
 
 **Evaluation.** Replace the `PrivilegedOnly` check with a single `PolicyTiers.Require(intent, caller, ctx)` at the
-top of `IntentHandler.Handle`. Policy read once per request (cached, invalidated on the Reload the handler already
-does). Fail-closed: unreadable/malformed policy → fall back to the DEFAULT table + a loud warn [OPEN Q3]. Audit:
-one line per decision — caller user + computed tier, intent, required tier, allow/deny.
+top of `IntentHandler.Handle`. Audit: one line per decision — caller user + computed tier, intent, required tier,
+allow/deny.
+
+**Fail-closed via last-known-good (Q3, decided).** A readable, valid policy is cached to a service-owned file
+(`%ProgramData%\NetPaw\service`, SYSTEM/Admins-only ACL via `ServiceFolder`), written **only after a successful
+parse**. An unreadable or invalid policy at read time falls back to that **last-known-good cache** (so an
+override an admin had tightened stays tight — a silent loosen to defaults is the trap we avoid), plus a warn
+audit line. With no cache yet (first run), fall back to the DEFAULT table + warn. Never deny-all — a user must
+still be able to Renew.
 
 **ADMX/ADML + docs.** Hand-written `deploy/gpo/NetPaw.admx` + `en-US/NetPaw.adml` (one enum policy per intent),
 and a `docs/policy.md` table. Small and stable, so hand-written over generated.
 
 **Tests.** (1) golden: for every (intent × caller-tier), allow/deny equals the pre-PR4 `PrivilegedOnly`+caps
-behaviour. (2) each override tightens and loosens as written. (3) unreadable policy → default + warn [Q3].
-(4) no override can lower a floor-table intent below its floor. (5) an audit line is emitted per decision.
+behaviour. (2) each override tightens and loosens as written. (3) tightened-then-unreadable → **still tight**
+(last-known-good); first run with an unreadable policy → defaults + warn. (4) no override can lower a floor-table
+intent below its floor (inline virtual-unlock floor = NCO). (5) an audit line is emitted per decision.
 
 **Non-goals (this PR).** No per-user policy. No new intents. Autorun stays tray-side in HKCU (not a service
 intent; asInvoker, no elevation) — out of this policy.
 
-**Open questions for the orchestrator:**
-- **Q1 (virtual-adapter unlock floor).** "Never below Admin" conflicts with "default == today": today inline
-  unlock is NCO-or-Admin (#87), not Admin. Proposal: default stays today's (managed, else NCO/Admin) and the
-  floor for the *inline* unlock is **Admin** only in the sense that policy may tighten to Admin but not loosen
-  below NCO — i.e. the hard floor is NCO, not Admin. Or do you want a true Admin default for inline unlock (a
-  behaviour change)? Your call.
-- **Q2 (autorun elevation).** v0.14 autorun is a plain HKCU Run value (asInvoker, no elevation) and is not a
-  service intent, so I read "autorun elevation, never below Admin" as N/A and drop it. Confirm, or name the
-  surface you mean.
-- **Q3 (unreadable policy).** Default-table + warn (my lean: preserves function, fail-closed to *today's* gate)
-  vs deny-all (most conservative). You hinted both — pick.
+**Decisions (orchestrator, m-5032).**
+- **Q1 — inline virtual-unlock floor = NCO.** Default stays today's (managed, else NCO/Admin). The hard floor for
+  the *inline* virtual-adapter unlock is **NCO**: a policy may tighten it to Admin, never loosen it below NCO. The
+  managed-profile unlock is unchanged (admin-defined by nature).
+- **Q2 — autorun dropped (N/A).** Autorun is HKCU + asInvoker, not a service intent; the #85 old-elevated-task
+  removal path stays as is. No autorun entry in the tier table.
+- **Q3 — last-known-good on unreadable policy** (see Fail-closed above): cache the last valid policy
+  (SYSTEM/Admins ACL, written after a successful parse); unreadable → last-known-good + warn; first run → default
+  + warn; never deny-all.
+
+**Plan-review reconciliation (PR 4).** The looping second-model review (through round 12) re-raises only the four
+PR-3 points already settled in the section above (abort/rollback gates, service-crash recovery, RDP caller
+mapping, the #76 evidence); none concern PR 4, so they stand as reconciled, no change.
