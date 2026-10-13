@@ -106,6 +106,13 @@ public sealed class IntentHandler(NetPawService svc, string journalDirectory, Ac
             if (errors.Count > 0) throw new Rejected("profile refused: " + string.Join(" ", errors));
         }
         var adapter = r.Adapter is null && p.Adapter is not null ? svc.ResolveAdapter(p.Adapter) : Adapter(r);
+        // appliesTo binding + virtual-adapter guard (t-0e5511). A match also opts the profile in to a
+        // non-host-facing (virtual) adapter, which is otherwise refused; loopback/tunnel never reach here.
+        var listed = p.AppliesTo is { IsEmpty: false } b && b.Matches(adapter.Name, adapter.Mac);
+        if (p.AppliesTo is { IsEmpty: false } bind && !listed)
+            throw new Rejected($"profile '{p.Name}' is restricted to [{bind.Describe()}] and does not match adapter '{adapter.Name}' ({adapter.Mac})");
+        if (!adapter.HostFacing && !listed)
+            throw new Rejected($"'{adapter.Name}' is a virtual adapter; the profile must list it in appliesTo to target it");
         var plan = svc.PlanProfile(p, adapter);
         return Journaled(plan, caller, () => svc.ApplyAndVerify(plan, settleMs));
     }

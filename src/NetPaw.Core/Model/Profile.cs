@@ -74,6 +74,11 @@ public sealed class Profile
     public string? Adapter { get; set; }
     /// <summary>MAC of that adapter, so the binding survives "Ethernet" → "Ethernet 3" after a dock/driver change. Resolved before the name.</summary>
     public string? AdapterMac { get; set; }
+    /// <summary>Optional: restrict which adapters this profile may be applied to (enforced by the service). Absent =
+    /// any adapter the caller names. Distinct from <see cref="Adapter"/>/<see cref="AdapterMac"/>, which only pick a
+    /// default target. See <see cref="NetPaw.Model.AppliesTo"/>.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public AppliesTo? AppliesTo { get; set; }
     public bool Dhcp { get; set; }
     public List<IpAddr> Addresses { get; set; } = [];
     public string? Gateway { get; set; }
