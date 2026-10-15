@@ -58,14 +58,15 @@ operator verifies each rc before the final tag; the orchestrator gives the tag O
 
 ### M1 — v0.15.0 "cheap safety + docs"
 - G1 netsh/ipconfig/powershell by full `%SystemRoot%\System32` path; update FileName/CommandLine tests. (M)
-- G2 `sc sidtype restricted` + trimmed `sc privs` next to `sc failure`; VM-measured that netsh still applies. (S)
+- G2 trimmed `sc privs` + `sc sidtype unrestricted` next to `sc failure`; VM-measured 2026-10-16 that netsh still applies.
+  `restricted` was tried and measured out: a write-restricted token gets "access denied" from `netsh ... set address`. (S)
 - G3 `PIPE_REJECT_REMOTE_CLIENTS` + FirstPipeInstance on every re-created instance. (S)
 - G8 SECURITY.md + threat-model page with the four documented decisions. (M)
 - G6-docs: state IPv4-only and the IPv6 DNS-leak caveat. (S)
 - G9-lite: fail closed on an unknown policy schema version (the cheap half of G9). (S)
 - QuickPanel greying in user mode (completes #89). (S)
 - Exit, safety (measured by netpaw, reviewed by the orchestrator): VM trace shows full-path launches;
-  `sc qsidtype` = RESTRICTED and `sc qprivs` = the trimmed set with a working apply; a remote pipe open
+  `sc qsidtype` = UNRESTRICTED and `sc qprivs` = the trimmed set with a working apply (VM pass 4, 2026-10-16); a remote pipe open
   is refused and a pre-start squat still fails loud; SECURITY.md and the threat model exist.
 - Exit, release: CI green on the rc tag incl. verify-windows; unit suite green; operator installs the rc
   and confirms autostart + one apply; orchestrator tag OK.

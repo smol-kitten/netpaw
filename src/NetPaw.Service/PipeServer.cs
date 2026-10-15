@@ -24,6 +24,11 @@ public sealed class PipeServer(Action<string> log, IntentHandler? intents = null
         acl.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
         acl.AddAccessRule(new PipeAccessRule(new SecurityIdentifier(WellKnownSidType.NetworkSid, null), PipeAccessRights.FullControl, AccessControlType.Deny));
         acl.AddAccessRule(new PipeAccessRule(new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null), PipeAccessRights.FullControl, AccessControlType.Allow));
+        // NT SERVICE\NetPaw: with sc sidtype restricted the service token is write-restricted, and creating a further
+        // instance of an existing pipe is a write access check against the first instance's DACL, which must then grant
+        // the restricting SID too. VM-measured 2026-10-16 (pass 2): without this ACE the second instance failed with
+        // "Access to the path is denied" right after the first request and the service died (G2).
+        acl.AddAccessRule(new PipeAccessRule(new SecurityIdentifier(NetPaw.Ipc.ServiceSid.For("NetPaw")), PipeAccessRights.FullControl, AccessControlType.Allow));
         // ReadWrite|Synchronize is enough for a client to open the pipe (verified from an interactive session on
         // a Windows 11 test VM). No CreateNewInstance, so allowed users cannot add server instances. A caller
         // whose token carries the NETWORK SID (a remote SMB open, or an SSH network logon) is denied above.

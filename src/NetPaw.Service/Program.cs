@@ -71,13 +71,15 @@ sealed class NetPawWindowsService : ServiceBase
     {
         // failureflag 1: also act when the service stops itself with a non-zero exit code (a dead listener
         // below), not only on a crash; without it the SCM treats Stop() with ExitCode=1 as a clean stop.
-        // G2 hardening (audit t-db6795), idempotent. sidtype restricted = a write-restricted token: writes succeed only
-        // where the DACL also grants NT SERVICE\NetPaw (ServiceFolder.Acl, the MSI root ACL). privs = the least set the
-        // service needs: traverse, impersonate the pipe client to read its token (RunAsClient), create global objects
-        // for the pipe. Both take effect at the NEXT start. VM-measured before this ships (plan M1 exit).
-        var hardening = new List<string> { "privs NetPaw SeChangeNotifyPrivilege/SeImpersonatePrivilege/SeCreateGlobalPrivilege" };
-        if (!Query("qsidtype NetPaw").Contains("RESTRICTED", StringComparison.OrdinalIgnoreCase)) hardening.Insert(0, "sidtype NetPaw restricted");
-        foreach (var args in new[] { "failure NetPaw reset= 86400 actions= restart/5000/restart/5000//0", "failureflag NetPaw 1" }.Concat(hardening))
+        // G2 hardening (audit t-db6795), idempotent, takes effect at the NEXT start. privs = the least set the service
+        // needs: traverse, impersonate the pipe client to read its token (RunAsClient), create global objects for the
+        // pipe. sidtype unrestricted only adds NT SERVICE\NetPaw to the token (so the store ACL can name the service).
+        // NOT "restricted": VM-measured 2026-10-16 (pass 3) a write-restricted token is refused by Windows for the one
+        // thing this service exists for — `netsh interface ipv4 set address ... source=static` -> "Zugriff verweigert"
+        // (access denied), while its own file, Event Log and pipe writes succeeded once their DACLs named the service
+        // SID. The trimmed privileges alone are measured in pass 4 of the same run.
+        foreach (var args in new[] { "failure NetPaw reset= 86400 actions= restart/5000/restart/5000//0", "failureflag NetPaw 1",
+                                     "privs NetPaw SeChangeNotifyPrivilege/SeImpersonatePrivilege/SeCreateGlobalPrivilege", "sidtype NetPaw unrestricted" })
         {
             try
             {
