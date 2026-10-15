@@ -462,7 +462,7 @@ jobs:
             $events = Get-WinEvent -FilterHashtable @{ LogName = 'Application'; ProviderName = 'NetPaw'; StartTime = $since } -ErrorAction SilentlyContinue | ForEach-Object Message
             $refused = $events | Where-Object { $_ -match '^remote client refused' } | Select-Object -First 1
             $status = $events | Where-Object { $_ -match '^Status from' } | Select-Object -First 1
-            "SMB-loopback open of the pipe as $who`: **$result**`n  service: ``$refused`` / ``$status``" >> $env:GITHUB_STEP_SUMMARY
+            "SMB-loopback open of the pipe as $who`: **$result**`n  service: ``$refused`` / ``$status``" | Tee-Object -Append -FilePath $env:GITHUB_STEP_SUMMARY | Write-Host
             if ($result -eq 'REMOTE_DENIED') { "  -> refused by the pipe DACL (NETWORK deny) before the service saw it." >> $env:GITHUB_STEP_SUMMARY; return }
             if ($status) { SvcLog; throw "an SMB-loopback request ($who) was served: $result / $status" }
             if (-not $refused) { SvcLog; throw "SMB-loopback open ($who) was neither denied by the DACL nor refused by the computer-name check: $result" }
