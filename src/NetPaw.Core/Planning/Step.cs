@@ -1,6 +1,9 @@
 namespace NetPaw.Planning;
 
-/// <summary>One external command in an apply plan. Shown verbatim in "preview" so admins see exactly what will run.</summary>
+/// <summary>One external command in an apply plan. Shown verbatim in "preview" so admins see exactly what will run.
+/// <see cref="FileName"/> is set only by planner code (<see cref="Netsh"/>, <see cref="PowerShell"/> and the explicit
+/// ipconfig steps); no policy, profile or IPC field ever reaches it. The launcher maps it to a System32 path
+/// (<see cref="SystemTool"/>).</summary>
 /// <param name="ExpectFailure">A failure is normal (e.g. deleting something that may not exist) and is not reported.</param>
 public sealed record Step(string Description, string FileName, string Arguments, bool Critical = true, bool ExpectFailure = false)
 {

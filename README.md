@@ -146,8 +146,9 @@ in the tray menu).
 
 ### What it runs
 
-No drivers, no service, no hidden WMI writes: a profile becomes plain `netsh` commands, shown in the
-preview and in the log.
+No drivers, no hidden WMI writes: a profile becomes plain `netsh` commands, shown in the preview and in
+the log. Since v0.14 those commands run in the NetPaw service (`netpaw-svc`, LocalSystem), which re-plans
+each change from validated values; the tray itself runs as you, with no UAC prompt.
 
 <details>
 <summary>The commands for the example profile</summary>
@@ -191,8 +192,8 @@ The release pipeline is described in [docs/signed-release.md](docs/signed-releas
 
 </details>
 
-**Not (yet) in scope:** IPv6, Wi-Fi profile switching, multi-VLAN trunk NICs, per-profile firewall
-rules. PRs welcome — the planner is pure and tested, so a new step is a small change with a test next to it.
+**Not (yet) in scope:** IPv6 (see [Limitations](docs/features.md#limitations) — on dual-stack networks a
+profile pins IPv4 DNS only), Wi-Fi profile switching, multi-VLAN trunk NICs, per-profile firewall rules. PRs welcome — the planner is pure and tested, so a new step is a small change with a test next to it.
 
 ---
 

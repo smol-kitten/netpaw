@@ -36,7 +36,7 @@ public sealed class PktmonCapture
         catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException) { return (-1, ex.Message); }
     }
 
-    static Task<(int Code, string Out)> Pktmon(string args, int timeoutMs = 20_000, CancellationToken ct = default) => RunAsync("pktmon", args, timeoutMs, ct);
+    static Task<(int Code, string Out)> Pktmon(string args, int timeoutMs = 20_000, CancellationToken ct = default) => RunAsync(NetPaw.Planning.SystemTool.Resolve("pktmon"), args, timeoutMs, ct);
 
     /// <summary>The ETL→pcapng verb this build offers, from `pktmon help` (cached per process).</summary>
     public static async Task<string?> ConvertVerb(CancellationToken ct = default)
