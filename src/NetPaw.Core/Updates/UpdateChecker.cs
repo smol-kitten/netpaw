@@ -96,7 +96,7 @@ public sealed class UpdateChecker(Func<string, CancellationToken, Task<string>> 
         var check = UpdateTrust.Verify(msi, info.MsiName, System.Text.Encoding.UTF8.GetString(sigs), roots);
         if (!check.Ok) return new(false, check.Reason);
         Directory.CreateDirectory(dir);
-        var path = Path.Combine(dir, info.MsiName);
+        var path = Path.Combine(dir, Path.GetFileName(info.MsiName));   // the feed names the file; never let it carry a directory
         await File.WriteAllBytesAsync(path, msi, ct);
         return new(true, $"signed by {check.Signer}, timestamped {check.Timestamp:yyyy-MM-dd HH:mm} UTC", path);
     }
