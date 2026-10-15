@@ -10,7 +10,9 @@ Ship v0.14.0 now, then a 0.15 QoL + cheap-safety release, then close the audit g
 
 ## Given state (measured 2026-10-15)
 
-- v0.13.3 is the public stable. v0.14.0-rc.2 (main @2388025) is verified by CI, the VM and the operator.
+- v0.13.3 is the public stable. v0.14.0-rc.2 (main @2388025) is verified: CI incl. verify-windows on the
+  tag run, the VM pass of 2026-10-12, the orchestrator's check (m-5066), and the operator's go. Evidence is
+  listed in the audit page `netpaw-audit-2026-10`, section "Validation evidence".
   All v0.14 code gates are merged (#85 service + asInvoker tray, #86 artifacts, #87 appliesTo, #88 policy
   tiers, #89 user-mode UI). #89 is not in rc.2.
 - Audit: the core is strong (typed intents, pipe DACL + Identification + SCM-PID, TOKEN_GROUPS tiers,
@@ -37,8 +39,12 @@ v0.14.0 = rc.2 re-tagged. Then small releases, each cut only from a verified rc,
 ## Steps (milestones and their feature sets)
 
 ### M0 — v0.14.0 (now)
-- Tag v0.14.0 at 2388025 after the orchestrator's OK. Release = latest, signed assets, notes = rc.1+rc.2
-  changes and known limits. Site stays on stable (it only promotes non-prerelease). Merge #90, #91.
+- Tag v0.14.0 at 2388025. The orchestrator's GO is on record (bus m-5760/m-5774, 2026-10-15). Timing rule:
+  the release workflow runs on self-hosted n4 runners, so the tag goes after 00:00 Berlin (quiet hours
+  16–24). Release = latest, signed assets, notes = rc.1+rc.2 changes and known limits. The site promotes
+  0.14.0 as the default install (intended). #90 (documentation ranges in docs/tests) and #91 (two
+  hardening nits) are hygiene PRs, not security-model changes; the orchestrator cleared both to merge on
+  green. The tag is a main commit; no branch state affects it.
 
 ### M1 — v0.15 "QoL + cheap safety" (target: the week after 0.14.0)
 QoL (operator's ask):
@@ -68,7 +74,8 @@ Exit: rc → operator verification → v0.15.0.
 ### M3 — v0.17 "supply chain + IPv6 decision"
 - G7 t-1cb463: global.json, NuGet lock + locked restore, Deterministic/ContinuousIntegrationBuild, bin
   attestations (today attest:false), SBOM attestation, `gh attestation verify` in the release recipe.
-- G14 t-3e2f95: fleet-actions pinning policy (fleet decision; apply whatever the fleet decides).
+- G14 t-3e2f95: closed. Fleet policy (m-5774): first-party reusable-workflow release tags are immutable
+  by ruleset, so exact-tag pinning is accepted; SHA pinning is required only for third-party actions.
 - G6 t-62e6d4: IPv6 support (addresses, DNS, routes) or a firm, documented v4-only scope for 1.0.
 - G10 t-a9b04c: SmartScreen/private-PKI reality in docs + a public OV / Azure Trusted Signing path.
 
@@ -101,3 +108,14 @@ Exit: a 1.0 rc verified on the VM harness + CI + the operator; then 1.0.0.
 - G2 `sc privs` can break netsh if trimmed too far: measure on the VM before shipping; keep SeChangeNotify.
 - IPv6 (G6) may not fit 1.0: the plan allows a documented v4-only 1.0.
 - Operator time: every rc needs the operator's verification; keep rcs small and few.
+
+## Review reconciliation (round 1)
+
+- "M0 tags without the orchestrator's OK" — adopted: the GO and its timing rule are now stated in M0.
+- "#90/#91 are security PRs that skip review" — rebutted: #90 changes documentation ranges in docs and
+  tests; #91 is two hardening nits (GetFileName on a feed name, a workflow token scope). Neither changes
+  the security model. The orchestrator cleared both to merge on green.
+- "rc.2 verification is an unverified assumption" — rebutted: the evidence is on record (audit page,
+  bus m-5066); the reviewer cannot see the bus, so the plan now points at it.
+- "dirty files in the plan branch risk the release" — rebutted: the tag is an existing main commit
+  (2388025); the plan branch holds only this document.
