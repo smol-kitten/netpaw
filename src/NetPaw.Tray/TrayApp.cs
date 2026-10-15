@@ -714,6 +714,9 @@ sealed class TrayApp : ApplicationContext
         var temps = _svc.TempAddresses;
         if (temps.Count > 0)
             _menu.Items.Add(new ToolStripMenuItem($"Remove {temps.Count} temporary address{(temps.Count == 1 ? "" : "es")}", Icons.Dot(Theme.Temp), (_, _) => ClearTemp()) { Enabled = canApply });
+        // G13: the service keeps a snapshot of the adapter from just before its last apply; one click puts it back.
+        if (ChangeMode == ChannelMode.Service && ServiceChange.LastStatus?.LastApply is { } lastApply)
+            _menu.Items.Add(new ToolStripMenuItem("Revert last apply", Icons.Dot(Theme.Temp), (_, _) => RevertLastApply()) { ToolTipText = "Undo: " + lastApply + " (as of the last service check; restores DHCP/addresses/gateway/DNS, not metrics, VLAN, routes or IPv6)", Enabled = canApply });
 
         _menu.Items.Add(new ToolStripSeparator());
         var adapters = new ToolStripMenuItem("Work adapter");
@@ -817,6 +820,14 @@ sealed class TrayApp : ApplicationContext
             var (_, outcome) = _svc.Reach(d, w, dryRun: false, replace);
             return outcome!;
         }, d.Explanation);
+    }
+
+    public void RevertLastApply()
+    {
+        var plan = new ApplyPlan { Title = "Revert last apply" };
+        RunInBackground("Reverting the last apply", () => _channel.Run(ServiceChange.RevertLastApply(), plan,
+            () => throw new InvalidOperationException("Revert needs the NetPaw service; it keeps the pre-apply snapshot.")), "Adapter put back to its pre-apply state",
+            after: () => { ServiceChange.ServiceAnswers(); RefreshState(); });
     }
 
     public void ClearTemp()

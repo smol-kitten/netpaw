@@ -1,3 +1,4 @@
+using NetPaw.Adapters;
 using System.Text;
 using NetPaw.Ipc;
 using NetPaw.Model;
@@ -361,5 +362,147 @@ public class IntentHandlerTests
         Assert.True(h.Handle(Req(RequestKind.Dhcp), "a", Tier.Admin).Ok);
         // DeleteRoute keeps its NCO default: a StandardUser is denied through the tier overload.
         Assert.False(h.Handle(Req(RequestKind.DeleteRoute) with { RoutePrefix = "10.0.0.0/8" }, "u", Tier.StandardUser).Ok);
+    }
+}
+
+public class RevertLastApplyTests
+{
+    sealed class MutableAdapters(AdapterInfo first) : IAdapterProvider
+    {
+        public AdapterInfo Current = first;
+        public IReadOnlyList<AdapterInfo> GetAdapters() => [Current];
+    }
+
+    sealed record Rig(IntentHandler Handler, FakeRunner Runner, MutableAdapters Adapters, List<string> Log);
+    sealed class TierSource(IReadOnlyDictionary<PolicyIntent, Tier> o) : ITierPolicySource { public (IReadOnlyDictionary<PolicyIntent, Tier>, bool, string?) Read() => (o, true, null); }
+
+    static Rig Make(AdapterInfo? adapter = null, Dictionary<string, object>? storePolicy = null, Dictionary<PolicyIntent, Tier>? tiers = null)
+    {
+        var dir = Directory.CreateTempSubdirectory().FullName;
+        var runner = new FakeRunner();
+        var adapters = new MutableAdapters(adapter ?? Fx.Adapter(gw: "192.168.1.1"));
+        var svc = new NetPawService(new JsonStore(Path.Combine(dir, "service")), adapters, new FakeVlan(false), runner,
+            new MachineStore(Path.Combine(dir, "profiles.d")), () => PolicyReader.Read(new DictionaryPolicySource(storePolicy ?? [])));
+        var log = new List<string>();
+        var policy = tiers is null ? null : new PolicyTiers(new TierSource(tiers), Path.Combine(dir, "service", "policy.cache.json"), log.Add);
+        return new Rig(new IntentHandler(svc, Path.Combine(dir, "service"), log.Add, settleMs: 0, policy: policy), runner, adapters, log);
+    }
+
+    static ServiceRequest Revert() => new(ServiceProtocol.Version, RequestKind.RevertLastApply);
+    static ServiceRequest Apply(string ip) => new ServiceRequest(ServiceProtocol.Version, RequestKind.ApplyProfile) { Profile = Fx.Static("lab", "192.168.1.1", ip) };
+    static IEnumerable<string> Netsh(Rig r, int from) => r.Runner.Ran.Skip(from).Select(s => s.Arguments);
+
+    [Fact]
+    public void Nothing_recorded_is_refused_with_a_reason()
+    {
+        var r = Make();
+        var resp = r.Handler.Handle(Revert(), "PC\\anna (session 2)", privileged: false);
+        Assert.False(resp.Ok); Assert.Contains("nothing to revert", resp.Error);
+        Assert.Null(r.Handler.LastApplySummary());
+    }
+
+    [Fact]
+    public void Static_pre_state_is_restored_with_its_addresses_and_a_standard_user_may_do_it()
+    {
+        var r = Make();   // Ethernet is static 192.168.1.10/24 gw .1 before the apply
+        Assert.True(r.Handler.Handle(Apply("192.168.1.50/24"), "PC\\anna (session 2)", privileged: false).Ok);
+        var pre = r.Handler.LastApply()!;
+        Assert.Equal("Ethernet", pre.Adapter); Assert.Equal("PC\\anna (session 2)", pre.Caller); Assert.Equal(pre.Mac, pre.Before.AdapterMac);
+        Assert.Contains("192.168.1.10/24", pre.Before.Addresses.Select(a => a.ToString()));
+        Assert.Contains("on Ethernet at", r.Handler.LastApplySummary());
+        var n = r.Runner.Ran.Count;
+        var revert = r.Handler.Handle(Revert(), "PC\\bob (session 3)", privileged: false);
+        Assert.True(revert.Ok, revert.Error);
+        Assert.Contains(Netsh(r, n), a => a.Contains("set address name=\"Ethernet\" source=static address=192.168.1.10"));
+        Assert.Contains(r.Log, l => l.StartsWith("revert to the pre-apply state for PC\\bob"));
+    }
+
+    [Fact]
+    public void Dhcp_pre_state_is_restored_as_dhcp()
+    {
+        var r = Make(Fx.Adapter(dhcp: true, addrs: ["192.168.1.77/24"], gw: "192.168.1.1"));
+        Assert.True(r.Handler.Handle(Apply("192.168.1.50/24"), "PC\\anna (session 2)", privileged: false).Ok);
+        Assert.True(r.Handler.LastApply()!.Before.Dhcp);
+        var n = r.Runner.Ran.Count;
+        Assert.True(r.Handler.Handle(Revert(), "PC\\anna (session 2)", privileged: false).Ok);
+        Assert.Contains(Netsh(r, n), a => a.Contains("set address name=\"Ethernet\" source=dhcp"));
+    }
+
+    [Fact]
+    public void Two_reverts_return_to_the_post_apply_state_and_do_not_loop()
+    {
+        var r = Make();
+        Assert.True(r.Handler.Handle(Apply("192.168.1.50/24"), "PC\\anna (session 2)", privileged: false).Ok);
+        r.Adapters.Current = Fx.Adapter(addrs: ["192.168.1.50/24"], gw: "192.168.1.1");   // what the apply produced
+        var n1 = r.Runner.Ran.Count;
+        Assert.True(r.Handler.Handle(Revert(), "PC\\anna (session 2)", privileged: false).Ok);
+        Assert.Contains(Netsh(r, n1), a => a.Contains("source=static address=192.168.1.10"));   // back to the pre-apply state
+        r.Adapters.Current = Fx.Adapter(addrs: ["192.168.1.10/24"], gw: "192.168.1.1");
+        var n2 = r.Runner.Ran.Count;
+        Assert.True(r.Handler.Handle(Revert(), "PC\\anna (session 2)", privileged: false).Ok);
+        Assert.Contains(Netsh(r, n2), a => a.Contains("source=static address=192.168.1.50"));   // the revert's own snapshot: the post-apply state
+        Assert.DoesNotContain(Netsh(r, n2), a => a.Contains("address=192.168.1.10"));
+        Assert.Equal(2, r.Log.Count(l => l.StartsWith("revert to the pre-apply state")));          // exactly the two explicit calls
+    }
+
+    [Fact]
+    public void A_policy_can_raise_the_revert_tier()
+    {
+        var r = Make(tiers: new() { [PolicyIntent.RevertLastApply] = Tier.Admin });
+        Assert.True(r.Handler.Handle(Apply("192.168.1.50/24"), "PC\\anna (session 2)", privileged: false).Ok);
+        var resp = r.Handler.Handle(Revert(), "PC\\anna (session 2)", privileged: true);   // NCO, not Admin
+        Assert.False(resp.Ok); Assert.Contains("needs tier Admin", resp.Error);
+    }
+
+    [Fact]
+    public void A_virtual_adapter_snapshot_needs_the_virtual_unlock_tier()
+    {
+        var tap = Fx.Nic("TAP-Windows", "TAP-Windows Adapter V9", physical: false, addrs: ["10.8.0.2/24"]);
+        var r = Make(tap);
+        Directory.CreateDirectory(Path.GetDirectoryName(r.Handler.PreApplyPath)!);
+        File.WriteAllText(r.Handler.PreApplyPath, System.Text.Json.JsonSerializer.Serialize(
+            new IntentHandler.PreApply(tap.Name, tap.Mac, "corp-vpn", "PC\\admin (session 1)", DateTimeOffset.Now, new Profile { Name = "pre-apply", Dhcp = true }), ServiceProtocol.Json));
+        var user = r.Handler.Handle(Revert(), "PC\\anna (session 2)", privileged: false);
+        Assert.False(user.Ok); Assert.Contains("virtual adapter", user.Error);
+        var n = r.Runner.Ran.Count;
+        Assert.True(r.Handler.Handle(Revert(), "PC\\ops (session 2)", privileged: true).Ok);   // NCO = the VirtualUnlock default
+        Assert.Contains(Netsh(r, n), a => a.Contains("source=dhcp"));
+    }
+
+    [Fact]
+    public void Without_user_profiles_only_a_dhcp_pre_state_can_be_restored()
+    {
+        var r = Make(storePolicy: new() { ["AllowUserProfiles"] = 0 });
+        Directory.CreateDirectory(Path.GetDirectoryName(r.Handler.PreApplyPath)!);
+        var a = r.Adapters.Current;
+        File.WriteAllText(r.Handler.PreApplyPath, System.Text.Json.JsonSerializer.Serialize(
+            new IntentHandler.PreApply(a.Name, a.Mac, "corp", "PC\\admin (session 1)", DateTimeOffset.Now, new Profile { Name = "pre-apply", Addresses = [IpAddr.Parse("192.168.1.10/24")] }), ServiceProtocol.Json));
+        var resp = r.Handler.Handle(Revert(), "PC\\anna (session 2)", privileged: false);
+        Assert.False(resp.Ok); Assert.Contains("denied by policy", resp.Error);
+    }
+
+    [Fact]
+    public void A_snapshot_of_another_adapter_identity_is_refused()
+    {
+        var r = Make();
+        var stale = new IntentHandler.PreApply("Ethernet", "11:22:33:44:55:66", "lab", "PC\\anna (session 2)", DateTimeOffset.Now, new Profile { Name = "pre-apply", Dhcp = true });
+        Directory.CreateDirectory(Path.GetDirectoryName(r.Handler.PreApplyPath)!);
+        File.WriteAllText(r.Handler.PreApplyPath, System.Text.Json.JsonSerializer.Serialize(stale, ServiceProtocol.Json));
+        var resp = r.Handler.Handle(Revert(), "PC\\anna (session 2)", privileged: false);
+        Assert.False(resp.Ok); Assert.Contains("MAC differs", resp.Error);
+    }
+
+    [Fact]
+    public void A_failed_snapshot_removes_the_previous_one()
+    {
+        var r = Make();
+        Assert.True(r.Handler.Handle(Apply("192.168.1.50/24"), "PC\\anna (session 2)", privileged: false).Ok);
+        Assert.NotNull(r.Handler.LastApply());
+        // the next apply names an adapter the provider no longer lists: the old snapshot must not survive as "last apply"
+        var resp = r.Handler.Handle(new ServiceRequest(ServiceProtocol.Version, RequestKind.Dhcp) { Adapter = "Ethernet" }, "PC\\anna (session 2)", privileged: false);
+        r.Adapters.Current = Fx.Adapter(name: "Ethernet 9");
+        var dhcp = r.Handler.Handle(new ServiceRequest(ServiceProtocol.Version, RequestKind.Dhcp) { Adapter = "Ethernet 9" }, "PC\\anna (session 2)", privileged: false);
+        Assert.True(dhcp.Ok, dhcp.Error);
+        Assert.Equal("Ethernet 9", r.Handler.LastApply()!.Adapter);
     }
 }

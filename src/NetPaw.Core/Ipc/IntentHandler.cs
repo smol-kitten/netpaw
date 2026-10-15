@@ -23,6 +23,8 @@ public sealed class IntentHandler(NetPawService svc, string journalDirectory, Ac
     // table applies — i.e. exactly today's behaviour. The cache lives in the (SYSTEM/Admins-owned) service folder.
     readonly PolicyTiers _policy = policy ?? new PolicyTiers(new EmptyPolicySource(), Path.Combine(journalDirectory, "policy.cache.json"), log);
     public string JournalPath { get; } = Path.Combine(journalDirectory, "inflight.json");
+    /// <summary>G13: the adapter state captured just before the last journaled apply, what <see cref="RequestKind.RevertLastApply"/> restores.</summary>
+    public string PreApplyPath { get; } = Path.Combine(journalDirectory, "last-apply.json");
 
     public sealed record Journal(string Title, string Adapter, string Caller, DateTimeOffset At, IReadOnlyList<string> Commands);
 
@@ -51,6 +53,7 @@ public sealed class IntentHandler(NetPawService svc, string journalDirectory, Ac
         RequestKind.Release => PolicyIntent.Release,
         RequestKind.Prefer => PolicyIntent.Prefer,
         RequestKind.SetMtu => PolicyIntent.SetMtu,
+        RequestKind.RevertLastApply => PolicyIntent.RevertLastApply,
         _ => throw new Rejected($"{k} is not a change request"),
     };
 
@@ -82,6 +85,7 @@ public sealed class IntentHandler(NetPawService svc, string journalDirectory, Ac
                     RequestKind.Release => Run(Connectivity.Advisor.PlanRelease(Adapter(r)), caller),
                     RequestKind.Prefer => Run(Connectivity.Advisor.PlanPrefer(Adapter(r), svc.GetAdapters()), caller),
                     RequestKind.SetMtu => SetMtu(r, caller),
+                    RequestKind.RevertLastApply => RevertLastApply(caller, callerTier, overrides),
                     _ => throw new Rejected($"{r.Kind} is not a change request"),
                 };
                 return new(ServiceProtocol.Version, report.Success) { Apply = report, Error = report.Success ? null : "one or more steps failed" };
@@ -181,10 +185,70 @@ public sealed class IntentHandler(NetPawService svc, string journalDirectory, Ac
         return Journaled(plan, caller, () => svc.Apply(plan));
     }
 
+    // ---- G13: pre-apply snapshot + revert ------------------------------------------------------------------------
+
+    /// <summary>What the adapter looked like right before an apply: enough to put it back — DHCP on/off, IPv4 addresses, the
+    /// first gateway and the DNS servers. NOT captured: metrics, DNS suffix, VLAN, routes, IPv6, and "DHCP address + static DNS"
+    /// (a DHCP pre-state restores DNS from DHCP too, as PlanDhcp does).</summary>
+    public sealed record PreApply(string Adapter, string Mac, string Title, string Caller, DateTimeOffset At, Model.Profile Before);
+
+    void SavePreState(ApplyPlan plan, string caller)
+    {
+        if (string.IsNullOrEmpty(plan.Adapter)) return;   // clear-temp and the like: no adapter is touched, the last snapshot stays valid
+        try
+        {
+            var a = svc.GetAdapters().FirstOrDefault(x => string.Equals(x.Name, plan.Adapter, StringComparison.OrdinalIgnoreCase));
+            if (a is null) { DropPreState("adapter not found"); return; }   // never leave a PREVIOUS apply's snapshot as "last apply" (review of #105)
+            var before = new Model.Profile { Name = "pre-apply", Adapter = a.Name, AdapterMac = a.Mac, Dhcp = a.Dhcp };
+            if (!a.Dhcp) { before.Addresses = [.. a.Addresses]; before.Gateway = a.Gateways.FirstOrDefault(); before.Dns = [.. a.Dns]; }
+            File.WriteAllText(PreApplyPath, JsonSerializer.Serialize(new PreApply(a.Name, a.Mac, plan.Title, caller, DateTimeOffset.Now, before), ServiceProtocol.Json));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { DropPreState(ex.Message); }
+    }
+
+    void DropPreState(string why)
+    {
+        try { File.Delete(PreApplyPath); } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { log("stale pre-apply snapshot could not be removed: " + ex.Message); }
+        log("pre-apply snapshot not written (" + why + "); nothing to revert after this apply");
+    }
+
+    /// <summary>The recorded pre-apply state, or null when there is none (or it is unreadable).</summary>
+    public PreApply? LastApply()
+    {
+        try { return File.Exists(PreApplyPath) ? JsonSerializer.Deserialize<PreApply>(File.ReadAllText(PreApplyPath), ServiceProtocol.Json) : null; }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException) { return null; }
+    }
+
+    /// <summary>One line for Status / the tray menu: "DHCP on Ethernet 2 at 00:58 by PC\anna (session 2)".</summary>
+    public string? LastApplySummary() => LastApply() is { } la ? $"{la.Title} on {la.Adapter} at {la.At:HH:mm} by {la.Caller}" : null;
+
+    ApplyReport RevertLastApply(string caller, Tier callerTier, IReadOnlyDictionary<PolicyIntent, Tier> overrides)
+    {
+        var pre = LastApply() ?? throw new Rejected("nothing to revert: no apply has been recorded");
+        var adapter = Adapter(new ServiceRequest(ServiceProtocol.Version, RequestKind.RevertLastApply) { Adapter = pre.Adapter });
+        if (!string.Equals(adapter.Mac, pre.Mac, StringComparison.OrdinalIgnoreCase))
+            throw new Rejected($"'{pre.Adapter}' is not the adapter the last apply changed any more (MAC differs); nothing reverted");
+        // A managed profile may have targeted a VPN/TAP adapter (appliesTo); a revert must not let a lower tier flip that
+        // non-host-facing adapter between two states — same gate as the apply, audited (review of #105).
+        if (!adapter.HostFacing && !_policy.Decide(PolicyIntent.VirtualUnlock, callerTier, overrides, caller).Allowed)
+            throw new Rejected($"'{adapter.Name}' is a virtual adapter; reverting it needs tier {PolicyTiers.Required(PolicyIntent.VirtualUnlock, overrides)} or higher; you are {callerTier}");
+        log($"revert to the pre-apply state for {caller}: undoing '{pre.Title}' on {pre.Adapter} ({pre.At:HH:mm}, by {pre.Caller})");
+        if (pre.Before.Dhcp)
+        {
+            svc.Require(Capability.Dhcp);
+            return Journaled(ApplyPlanner.PlanDhcp(adapter), caller, () => svc.Apply(ApplyPlanner.PlanDhcp(adapter)));
+        }
+        // A static pre-state is an ad-hoc profile: with AllowUserProfiles=false only a DHCP pre-state can be restored.
+        svc.Require(Capability.UserProfiles);
+        var plan = svc.PlanProfile(pre.Before, adapter);
+        return Journaled(plan, caller, () => svc.ApplyAndVerify(plan, settleMs));
+    }
+
     ApplyReport Journaled(ApplyPlan plan, string caller, Func<ApplyOutcome?> apply)
     {
         if (plan.IsEmpty) return ApplyReport.From(plan, null);
         Directory.CreateDirectory(journalDirectory);
+        SavePreState(plan, caller);   // G13: written before the first command runs, so a revert is possible even after a half-done apply
         File.WriteAllText(JournalPath, JsonSerializer.Serialize(new Journal(plan.Title, plan.Adapter, caller, DateTimeOffset.Now,
             plan.Steps.Select(s => s.CommandLine).ToList()), ServiceProtocol.Json));
         ApplyOutcome? outcome;

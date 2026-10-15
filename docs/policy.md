@@ -20,6 +20,7 @@ UAC-filtered admin reads as StandardUser), never from the request.
 | Prefer | NetworkConfigOperators | prefer an adapter (interface metric) |
 | SetMtu | NetworkConfigOperators | set an adapter MTU |
 | VirtualUnlock | NetworkConfigOperators | target a virtual (non-host-facing) adapter via `appliesTo` |
+| RevertLastApply | StandardUser | put the adapter of the last apply back to the state the service snapshotted just before it (0.16). Restores DHCP on/off, IPv4 addresses, the first gateway and DNS only — not metrics, DNS suffix, VLAN, routes, IPv6 or a "DHCP address + static DNS" mix. A non-host-facing adapter needs the `VirtualUnlock` tier; a static pre-state needs `AllowUserProfiles` |
 
 `Status` is not tier-gated (it only reports that the service is present). Capability policies
 (`AllowUserProfiles`, `AllowDhcp`, `AllowReach`, …) are **orthogonal**: they turn a feature on or off for
