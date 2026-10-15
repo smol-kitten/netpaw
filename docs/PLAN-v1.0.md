@@ -125,8 +125,10 @@ operator verifies each rc before the final tag; the orchestrator gives the tag O
 ## Verification
 
 Per milestone: the measured exit lists above; CI green incl. verify-windows; unit suite green with each
-gap's tests; VM evidence in the PR body; orchestrator review on every security PR; finals only from a
-verified rc with the orchestrator's tag OK.
+gap's tests; orchestrator review on every security PR; finals only from a verified rc with the
+orchestrator's tag OK. How VM evidence is recorded: the VM script prints `RESULT|key|value` lines; the
+PR body carries those lines verbatim plus the CI run link, and the orchestrator reads them before the GO
+(the same artifact set #85 used).
 
 ## Risks
 
@@ -158,3 +160,6 @@ verified rc with the orchestrator's tag OK.
   uninstall cleanup (G16), TELEMETRY.md link, G14 closed, runners explicit, G11a spike; G7 scoped with
   MSI reproducibility a non-goal and G10 an operator decision; open operator questions; rollback lines;
   audit page path next to the G-ids.
+- Round 4 (nano): adopted one point — the Verification section now states how VM evidence is recorded
+  and reviewed. The rest repeats rounds 1–3 ("dirty files" = untracked tooling scratch, 0 tracked
+  changes; the tag identity and CI re-run are stated in Given state; #90/#91 do not alter a tag).
