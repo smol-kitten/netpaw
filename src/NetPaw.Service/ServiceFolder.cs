@@ -12,12 +12,15 @@ public static class ServiceFolder
 {
     static readonly SecurityIdentifier System = new(WellKnownSidType.LocalSystemSid, null);
     static readonly SecurityIdentifier Admins = new(WellKnownSidType.BuiltinAdministratorsSid, null);
+    // NT SERVICE\NetPaw: with sc sidtype restricted the service token is write-restricted, and the store must grant
+    // this SID too, or the journal/cache/log writes fail (audit G2).
+    static readonly SecurityIdentifier Service = new(NetPaw.Ipc.ServiceSid.For("NetPaw"));
 
     public static DirectorySecurity Acl()
     {
         var sec = new DirectorySecurity();
         sec.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
-        foreach (var sid in new[] { System, Admins })
+        foreach (var sid in new[] { System, Admins, Service })
             sec.AddAccessRule(new FileSystemAccessRule(sid, FileSystemRights.FullControl, InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit, PropagationFlags.None, AccessControlType.Allow));
         return sec;
     }

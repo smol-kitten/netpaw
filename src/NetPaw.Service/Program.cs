@@ -54,11 +54,30 @@ sealed class NetPawWindowsService : ServiceBase
     /// <summary>Restart twice after a crash or a failed stop (5 s), then stay stopped; the tray falls back to user mode.
     /// Set here, not in the MSI: Windows Installer's MsiServiceConfigFailureActions fails with access denied
     /// (error 1939) for restart actions. Idempotent; a failure is logged and does not stop the service.</summary>
+    /// <summary>Output of one sc.exe query, or "" on any failure (the caller treats "" as "not set").</summary>
+    static string Query(string args)
+    {
+        try
+        {
+            using var p = Process.Start(new ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "sc.exe"), args)
+                { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true })!;
+            var output = p.StandardOutput.ReadToEndAsync();
+            return p.WaitForExit(10_000) ? output.Result : "";
+        }
+        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException) { return ""; }
+    }
+
     static void SetRecoveryActions()
     {
         // failureflag 1: also act when the service stops itself with a non-zero exit code (a dead listener
         // below), not only on a crash; without it the SCM treats Stop() with ExitCode=1 as a clean stop.
-        foreach (var args in new[] { "failure NetPaw reset= 86400 actions= restart/5000/restart/5000//0", "failureflag NetPaw 1" })
+        // G2 hardening (audit t-db6795), idempotent. sidtype restricted = a write-restricted token: writes succeed only
+        // where the DACL also grants NT SERVICE\NetPaw (ServiceFolder.Acl, the MSI root ACL). privs = the least set the
+        // service needs: traverse, impersonate the pipe client to read its token (RunAsClient), create global objects
+        // for the pipe. Both take effect at the NEXT start. VM-measured before this ships (plan M1 exit).
+        var hardening = new List<string> { "privs NetPaw SeChangeNotifyPrivilege/SeImpersonatePrivilege/SeCreateGlobalPrivilege" };
+        if (!Query("qsidtype NetPaw").Contains("RESTRICTED", StringComparison.OrdinalIgnoreCase)) hardening.Insert(0, "sidtype NetPaw restricted");
+        foreach (var args in new[] { "failure NetPaw reset= 86400 actions= restart/5000/restart/5000//0", "failureflag NetPaw 1" }.Concat(hardening))
         {
             try
             {
