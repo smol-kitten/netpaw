@@ -11,7 +11,8 @@ public class PolicyTiersTests
     {
         public IReadOnlyDictionary<PolicyIntent, Tier> Overrides = overrides;
         public bool Valid = valid;
-        public (IReadOnlyDictionary<PolicyIntent, Tier>, bool) Read() => (Overrides, Valid);
+        public string? Reason = "test: invalid";
+        public (IReadOnlyDictionary<PolicyIntent, Tier>, bool, string?) Read() => (Overrides, Valid, Valid ? null : Reason);
     }
 
     static PolicyTiers Make(ITierPolicySource src, out List<string> audit)
@@ -115,6 +116,17 @@ public class PolicyTiersTests
     {
         Assert.Equal(ok, PolicyTiers.TryParseTier(input, out var t));
         if (ok) Assert.Equal(expected, t);
+    }
+
+    [Fact]
+    public void An_invalid_policy_reason_is_logged_once_per_change()
+    {
+        var src = new FakeSource(new Dictionary<PolicyIntent, Tier>(), valid: false) { Reason = "PolicySchemaVersion 2 unsupported, this build: 1" };
+        var t = Make(src, out var audit);
+        t.Resolve(); t.Resolve();
+        Assert.Single(audit, l => l.StartsWith("policy invalid: PolicySchemaVersion 2"));
+        src.Reason = "Tier.Dhcp = '5' is not a tier name"; t.Resolve();
+        Assert.Single(audit, l => l.StartsWith("policy invalid: Tier.Dhcp"));
     }
 
     [Fact]
