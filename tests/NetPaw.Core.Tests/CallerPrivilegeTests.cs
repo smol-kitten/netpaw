@@ -15,6 +15,14 @@ public class CallerPrivilegeTests
     const uint DenyOnly = CallerPrivilege.SE_GROUP_USE_FOR_DENY_ONLY;
 
     [Fact]
+    public void Network_sid_is_a_network_logon_even_when_deny_only()
+    {
+        Assert.True(CallerPrivilege.IsNetworkLogon([("S-1-5-2", CallerPrivilege.SE_GROUP_ENABLED)]));
+        Assert.True(CallerPrivilege.IsNetworkLogon([("S-1-5-2", CallerPrivilege.SE_GROUP_USE_FOR_DENY_ONLY)]));
+        Assert.False(CallerPrivilege.IsNetworkLogon([("S-1-5-4", CallerPrivilege.SE_GROUP_ENABLED), ("S-1-5-32-544", CallerPrivilege.SE_GROUP_ENABLED)]));
+    }
+
+    [Fact]
     public void Enabled_admin_is_privileged()
         => Assert.True(CallerPrivilege.IsPrivileged([(Users, Enabled), (Admins, Enabled)]));
 

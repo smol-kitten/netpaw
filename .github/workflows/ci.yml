@@ -445,6 +445,32 @@ jobs:
           $ra = & ([ScriptBlock]::Create($send))
           "`nDeleteRoute as elevated admin (gate must accept, #76 regression): ``$ra``" >> $env:GITHUB_STEP_SUMMARY
           if ($ra -match 'needs tier' -or $ra -notmatch '"apply"') { SvcLog; throw "an elevated admin was refused the privilege gate over the pipe (the #76 regression): $ra" }
+          # G3 (0.15): squatting BETWEEN instances must be impossible for a client: the DACL grants ReadWrite|Synchronize
+          # only, never CreateNewInstance. A standard user trying to add a server instance while the service runs must fail.
+          $squat2 = AsNptest "try { `$p = New-Object System.IO.Pipes.NamedPipeServerStream('NetPaw', [System.IO.Pipes.PipeDirection]::InOut, [System.IO.Pipes.NamedPipeServerStream]::MaxAllowedServerInstances); `$p.Dispose(); 'SQUAT_CREATED' } catch [System.UnauthorizedAccessException] { 'SQUAT_DENIED' } catch { 'SQUAT_OTHER:' + `$_.Exception.GetType().Name }"
+          "`nstandard user adds a pipe instance while the service runs: **$squat2**" >> $env:GITHUB_STEP_SUMMARY
+          if ($squat2 -ne 'SQUAT_DENIED') { SvcLog; throw "a standard user could add an instance of the service pipe: $squat2" }
+          # G3 (0.15): an SMB-loopback open (\\localhost\pipe\NetPaw) is a NETWORK logon and must be refused by the ACL.
+          # The open goes through the SMB redirector to \\localhost\pipe\NetPaw and sends a Status request. Two layers must
+          # refuse it: the service's GetNamedPipeClientComputerName check (a local client fails that call with
+          # ERROR_PIPE_LOCAL; anything else is closed before a byte is read, logged "remote client refused") and the
+          # pipe DACL's NETWORK deny. Measured 2026-10-15 (run 38803333177): the loopback open PASSED the deny ACE on
+          # this runner, so the assertion is on the service's refusal line, and the "network logon" marker on any Status
+          # line that got through records whether the token carried S-1-5-2 at all.
+          $loopback = "try { `$c = New-Object System.IO.Pipes.NamedPipeClientStream('localhost', 'NetPaw', [System.IO.Pipes.PipeDirection]::InOut); `$c.Connect(3000); `$b = [Text.Encoding]::UTF8.GetBytes('{""v"":1,""kind"":""Status""}' + [char]10); `$c.Write(`$b, 0, `$b.Length); `$c.Flush(); 'REMOTE_OPENED:' + (New-Object IO.StreamReader `$c).ReadLine(); `$c.Dispose() } catch [System.UnauthorizedAccessException] { 'REMOTE_DENIED' } catch { 'REMOTE_CLOSED:' + `$_.Exception.GetType().Name + ': ' + `$_.Exception.Message }"
+          function LoopbackCase([string]$who, [string]$result, [datetime]$since) {
+            $events = Get-WinEvent -FilterHashtable @{ LogName = 'Application'; ProviderName = 'NetPaw'; StartTime = $since } -ErrorAction SilentlyContinue | ForEach-Object Message
+            $refused = $events | Where-Object { $_ -match '^remote client refused' } | Select-Object -First 1
+            $status = $events | Where-Object { $_ -match '^Status from' } | Select-Object -First 1
+            "SMB-loopback open of the pipe as $who`: **$result**`n  service: ``$refused`` / ``$status``" | Tee-Object -Append -FilePath $env:GITHUB_STEP_SUMMARY | Write-Host
+            if ($result -eq 'REMOTE_DENIED') { "  -> refused by the pipe DACL (NETWORK deny) before the service saw it." >> $env:GITHUB_STEP_SUMMARY; return }
+            if ($status) { SvcLog; throw "an SMB-loopback request ($who) was served: $result / $status" }
+            if (-not $refused) { SvcLog; throw "SMB-loopback open ($who) was neither denied by the DACL nor refused by the computer-name check: $result" }
+          }
+          $t0 = Get-Date; Start-Sleep -Seconds 1
+          LoopbackCase 'a standard user' (AsNptest $loopback) $t0
+          $t0 = Get-Date; Start-Sleep -Seconds 1
+          LoopbackCase 'the runner admin' (& ([ScriptBlock]::Create($loopback))) $t0
           # A standard user MAY reach: send the adapter's OWN current IP, which resolves to "already reachable"
           # (an empty plan). This proves a standard user's typed request is processed by the service, and changes
           # nothing on the runner's only NIC.

@@ -41,25 +41,45 @@ public sealed class PipeServer(Action<string> log, IntentHandler? intents = null
         using var slots = new SemaphoreSlim(MaxConcurrent);
         // FirstPipeInstance on the first create: if any other process already owns \\.\pipe\NetPaw (a squatter
         // while the service was stopped), creating fails and the service stops loudly instead of joining a pipe
-        // whose DACL someone else chose.
-        var first = true;
+        // whose DACL someone else chose. Deliberately NOT on later instances: the flag means "fail if the pipe
+        // exists", so it would refuse our own second instance. Squatting BETWEEN instances is prevented by the
+        // DACL instead: clients get ReadWrite|Synchronize only, never CreateNewInstance (audit G3; verify-windows
+        // proves both: a client cannot add an instance, and an SMB-loopback open carries the NETWORK SID and is
+        // denied).
+        NamedPipeServerStream Create(bool firstInstance) => NamedPipeServerStreamAcl.Create(ServiceProtocol.PipeName, PipeDirection.InOut,
+            NamedPipeServerStream.MaxAllowedServerInstances, PipeTransmissionMode.Byte,
+            PipeOptions.Asynchronous | (firstInstance ? PipeOptions.FirstPipeInstance : 0), BufferSize, BufferSize, acl);
         log($"listening on \\\\.\\pipe\\{ServiceProtocol.PipeName}");
+        // One unconnected listener is open at all times: the next instance is created right after a client is
+        // accepted and BEFORE that client is served, so the name is never free for a squatter between instances
+        // (review of #96). Serving stays bounded by the semaphore; a client past the bound waits, connected.
+        var pipe = Create(firstInstance: true);
         while (!stop.IsCancellationRequested)
         {
-            await slots.WaitAsync(stop);
-            var options = PipeOptions.Asynchronous | (first ? PipeOptions.FirstPipeInstance : 0);
-            var pipe = NamedPipeServerStreamAcl.Create(ServiceProtocol.PipeName, PipeDirection.InOut,
-                NamedPipeServerStream.MaxAllowedServerInstances, PipeTransmissionMode.Byte, options, BufferSize, BufferSize, acl);
-            first = false;
             try { await pipe.WaitForConnectionAsync(stop); }
-            catch (OperationCanceledException) { await pipe.DisposeAsync(); slots.Release(); break; }
-            _ = Task.Run(async () => { try { await Serve(pipe, stop); } finally { slots.Release(); } }, CancellationToken.None);
+            catch (OperationCanceledException) { await pipe.DisposeAsync(); break; }
+            var next = Create(firstInstance: false);
+            try { await slots.WaitAsync(stop); }
+            catch (OperationCanceledException) { await pipe.DisposeAsync(); await next.DisposeAsync(); break; }
+            var accepted = pipe;
+            _ = Task.Run(async () => { try { await Serve(accepted, stop); } finally { slots.Release(); } }, CancellationToken.None);
+            pipe = next;
         }
     }
 
     async Task Serve(NamedPipeServerStream pipe, CancellationToken stop)
     {
         await using var _ = pipe;
+        // First layer, before a byte is read: a client that came over SMB (\\host\pipe\NetPaw, including loopback)
+        // is refused by where it came from, not by its token. For a local client GetNamedPipeClientComputerName
+        // fails with ERROR_PIPE_LOCAL; anything else (a computer name, or any other error) is treated as remote.
+        // Measured 2026-10-15: a loopback SMB open passed the NETWORK deny ACE on a hosted runner, so the ACE alone
+        // is not a verifiable guarantee from the same host; this check is (review of #96). The ACE stays as layer 2.
+        if (Caller.RemoteComputer(pipe) is { } remote)
+        {
+            log($"remote client refused: {remote}");
+            return;
+        }
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(stop);
         cts.CancelAfter(ReadTimeout);
         ServiceResponse reply;
@@ -71,7 +91,7 @@ public sealed class PipeServer(Action<string> log, IntentHandler? intents = null
             var caller = Caller.Of(pipe);
             var (req, err) = ServiceProtocol.ParseRequest(line);
             reply = req is null ? ServiceResponse.Fail(err!) : Handle(req, caller);
-            log($"{req?.Kind.ToString() ?? "invalid"} from {caller.User} (session {caller.Session}): {(reply.Ok ? "ok" : reply.Error)}");
+            log($"{req?.Kind.ToString() ?? "invalid"} from {caller.User} (session {caller.Session}{(caller.Network ? ", network logon" : "")}): {(reply.Ok ? "ok" : reply.Error)}");
         }
         catch (Exception ex)
         {
@@ -96,8 +116,25 @@ public sealed class PipeServer(Action<string> log, IntentHandler? intents = null
 }
 
 /// <summary>The identity behind a pipe connection, read from Windows, never from the request body.</summary>
-public sealed record Caller(string User, int Session, int ProcessId, NetPaw.Ipc.Tier Tier)
+/// <param name="Network">The token carries the NETWORK SID (an SMB open). Logged, never used for a decision: the pipe ACL denies NETWORK.</param>
+public sealed record Caller(string User, int Session, int ProcessId, NetPaw.Ipc.Tier Tier, bool Network = false)
 {
+    const int ERROR_PIPE_LOCAL = 229;   // 0xE5. Measured on run 38810136288: every local client reports 229 (2250 is ERROR_NOT_CONNECTED).
+
+    /// <summary>Null for a local client (the only accepted case: ERROR_PIPE_LOCAL, 229). Otherwise the client's computer
+    /// name as Windows reports it, or "unknown (error N)" when the query fails for any other reason: fail closed.</summary>
+    public static string? RemoteComputer(NamedPipeServerStream pipe)
+    {
+        var buf = new char[256];
+        if (GetNamedPipeClientComputerNameW(pipe.SafePipeHandle, buf, (uint)(buf.Length * sizeof(char))))
+        {
+            var name = new string(buf).TrimEnd('\0');
+            return name.Length == 0 ? "unnamed remote client" : name;
+        }
+        var err = Marshal.GetLastWin32Error();
+        return err == ERROR_PIPE_LOCAL ? null : $"unknown (error {err})";
+    }
+
     public static Caller Of(NamedPipeServerStream pipe)
     {
         // Session straight from the pipe, not PID -> session: the PID can be reused once the client exits.
@@ -105,14 +142,15 @@ public sealed record Caller(string User, int Session, int ProcessId, NetPaw.Ipc.
         GetNamedPipeClientProcessId(pipe.SafePipeHandle, out var pid);   // for the log only
         SecurityIdentifier? sid = null;
         var tier = NetPaw.Ipc.Tier.StandardUser;   // fail closed to least privilege if the token read fails
+        var network = false;
         // The client connects at Identification level: enough to read its token, not to act as it. WindowsIdentity
         // refuses such a token ("cannot be duplicated"), so the SID and group membership are read from the token.
-        pipe.RunAsClient(() => { sid = ThreadTokenUser(); tier = ClientTier(); });
+        pipe.RunAsClient(() => { sid = ThreadTokenUser(); (tier, network) = ClientTier(); });
         if (sid is null) throw new UnauthorizedAccessException("cannot read the caller's user");
         string user;
         try { user = sid.Translate(typeof(NTAccount)).Value; }
         catch (IdentityNotMappedException) { user = sid.Value; }
-        return new Caller(user, (int)session, (int)pid, tier);
+        return new Caller(user, (int)session, (int)pid, tier, network);
     }
 
     // Read the caller's token groups (SID + attributes) and let CallerPrivilege decide the tier. The groups come
@@ -121,17 +159,17 @@ public sealed record Caller(string User, int Session, int ProcessId, NetPaw.Ipc.
     // elevated admin as a non-member there, which wrongly refused every privileged intent). OpenThreadToken runs
     // inside RunAsClient (which impersonates the client and reverts in a finally), with OpenAsSelf so the
     // service's own privileges open the thread token, never the client's.
-    static NetPaw.Ipc.Tier ClientTier()
+    static (NetPaw.Ipc.Tier, bool Network) ClientTier()
     {
         const uint TokenQuery = 0x0008; const int TokenGroupsClass = 2;
-        if (!OpenThreadToken(GetCurrentThread(), TokenQuery, openAsSelf: true, out var token)) return NetPaw.Ipc.Tier.StandardUser;
+        if (!OpenThreadToken(GetCurrentThread(), TokenQuery, openAsSelf: true, out var token)) return (NetPaw.Ipc.Tier.StandardUser, false);
         try
         {
             GetTokenInformation(token, TokenGroupsClass, IntPtr.Zero, 0, out var size);
             var buf = Marshal.AllocHGlobal(size);
             try
             {
-                if (!GetTokenInformation(token, TokenGroupsClass, buf, size, out _)) return NetPaw.Ipc.Tier.StandardUser;
+                if (!GetTokenInformation(token, TokenGroupsClass, buf, size, out _)) return (NetPaw.Ipc.Tier.StandardUser, false);
                 var count = Marshal.ReadInt32(buf);
                 var entry = IntPtr.Add(buf, IntPtr.Size);   // TOKEN_GROUPS: DWORD GroupCount; then SID_AND_ATTRIBUTES[] (8-aligned)
                 var read = new List<(string, uint)>(count);
@@ -142,7 +180,7 @@ public sealed record Caller(string User, int Session, int ProcessId, NetPaw.Ipc.
                     read.Add((new SecurityIdentifier(sidPtr).Value, attr));
                     entry = IntPtr.Add(entry, 2 * IntPtr.Size);   // SID_AND_ATTRIBUTES = PSID (IntPtr) + DWORD padded to pointer size = 2*IntPtr.Size (16 on x64, 8 on x86)
                 }
-                return NetPaw.Ipc.CallerPrivilege.TierOf(read);
+                return (NetPaw.Ipc.CallerPrivilege.TierOf(read), NetPaw.Ipc.CallerPrivilege.IsNetworkLogon(read));
             }
             finally { Marshal.FreeHGlobal(buf); }
         }
@@ -178,6 +216,9 @@ public sealed record Caller(string User, int Session, int ProcessId, NetPaw.Ipc.
 
     [DllImport("kernel32.dll", SetLastError = true)]
     static extern bool CloseHandle(IntPtr handle);
+
+    [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    static extern bool GetNamedPipeClientComputerNameW(Microsoft.Win32.SafeHandles.SafePipeHandle pipe, [Out] char[] clientComputerName, uint clientComputerNameLength);
 
     [DllImport("kernel32.dll", SetLastError = true)]
     static extern bool GetNamedPipeClientProcessId(Microsoft.Win32.SafeHandles.SafePipeHandle pipe, out uint clientProcessId);
