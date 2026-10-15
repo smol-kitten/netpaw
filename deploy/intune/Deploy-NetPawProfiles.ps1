@@ -8,7 +8,15 @@
 #>
 param(
     [string]$FileName = '10-company-base.json',
-    [string]$SourceUrl = ''
+    [string]$SourceUrl = '',
+    # Fallback profile when $SourceUrl is empty. Defaults are RFC 5737 documentation addresses:
+    # pass your own, do not commit real addressing into a public copy of this script.
+    [string]$ProfileName = 'Company LAN',
+    [string]$Address = '192.0.2.50',
+    [int]$PrefixLength = 24,
+    [string]$Gateway = '192.0.2.1',
+    [string[]]$Dns = @('192.0.2.53', '192.0.2.54'),
+    [string]$DnsSuffix = 'corp.example'
 )
 $ErrorActionPreference = 'Stop'
 $dir = Join-Path $env:ProgramData 'NetPaw\profiles.d'
@@ -17,21 +25,14 @@ New-Item -ItemType Directory -Force -Path $dir | Out-Null
 if ($SourceUrl) {
     $content = (Invoke-WebRequest -Uri $SourceUrl -UseBasicParsing).Content
 } else {
-    $content = @'
-[
-  {
-    "name": "Company LAN",
-    "adapter": null,
-    "dhcp": false,
-    "addresses": [ { "address": "10.10.0.50", "prefixLength": 16 } ],
-    "gateway": "10.10.0.1",
-    "dns": [ "10.10.0.53", "10.10.0.54" ],
-    "dnsSuffix": "corp.example",
-    "note": "Managed by IT — deployed via Intune"
-  },
-  { "name": "Company DHCP", "dhcp": true }
-]
-'@
+    # Built from the parameters above, so the committed script carries no real addressing.
+    $content = @(
+        [ordered]@{ name = $ProfileName; adapter = $null; dhcp = $false
+                    addresses = @(@{ address = $Address; prefixLength = $PrefixLength })
+                    gateway = $Gateway; dns = $Dns; dnsSuffix = $DnsSuffix
+                    note = 'Managed by IT — deployed via Intune' },
+        [ordered]@{ name = 'Company DHCP'; dhcp = $true }
+    ) | ConvertTo-Json -Depth 5
 }
 
 $target = Join-Path $dir $FileName

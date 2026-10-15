@@ -173,7 +173,7 @@ public class HyperVTests
     [
         Nic("Ethernet", "Intel(R) 82599 10 Gigabit Network Connection", true, false, null, null),          // bound to the external vSwitch
         Nic("Ethernet 2", "Marvell AQtion 10GBASE-T Network Adapter", true, false, null, null) with { Up = false },
-        Nic("vEthernet (UwU)", "Hyper-V Virtual Ethernet Adapter #2", false, true, ["10.10.0.42/24"], "10.10.0.1"),
+        Nic("vEthernet (Lab)", "Hyper-V Virtual Ethernet Adapter #2", false, true, ["192.0.2.42/24"], "192.0.2.1"),
         Nic("WLAN", "Intel(R) Wi-Fi 6E AX211 160MHz", true, false, null, null) with { Up = false },
     ]);
 
@@ -183,7 +183,7 @@ public class HyperVTests
         var all = Host();
         Assert.True(all.First(a => a.Name == "Ethernet").VSwitchUplink);
         Assert.False(all.First(a => a.Name == "Ethernet 2").VSwitchUplink);               // down, not an uplink
-        Assert.Equal("vEthernet (UwU)", NetPaw.Adapters.AdapterSelector.Pick(all, null)!.Name);
+        Assert.Equal("vEthernet (Lab)", NetPaw.Adapters.AdapterSelector.Pick(all, null)!.Name);
         Assert.Equal("Ethernet", NetPaw.Adapters.AdapterSelector.Pick(all, "Ethernet")!.Name); // explicit choice still honoured
         Assert.Contains("switch uplink", all.First(a => a.Name == "Ethernet").Summary());
     }
@@ -326,11 +326,11 @@ public class MultiAdapterTests
             Fx.Nic("Ethernet 5", "Intel I226", dhcp: false, addrs: ["192.168.50.2/24"], gw: null),              // static lab port, no gateway: still watched
             Fx.Nic("WireGuard", "WireGuard Tunnel", physical: false, addrs: ["10.99.0.2/32"], gw: "10.99.0.1"),
             Fx.Nic("Ethernet", "Intel X550", addrs: null, gw: null),                                              // bound to the external switch
-            Fx.Nic("vEthernet (UwU)", "Hyper-V Virtual Ethernet Adapter #2", physical: false, dhcp: true, addrs: ["10.10.0.42/24"], gw: "10.10.0.1", hyperv: true),
+            Fx.Nic("vEthernet (Lab)", "Hyper-V Virtual Ethernet Adapter #2", physical: false, dhcp: true, addrs: ["192.0.2.42/24"], gw: "192.0.2.1", hyperv: true),
             Fx.Nic("Ethernet 9", up: false, addrs: ["10.3.3.3/24"], gw: "10.3.3.1"),
         ]);
         var sec = NetPaw.Adapters.AdapterSelector.Secondaries(all, work);
-        Assert.Equal(["Ethernet 3", "vEthernet (UwU)", "Ethernet 5"], sec.Select(a => a.Name));   // with gateway first, then by name
+        Assert.Equal(["Ethernet 3", "vEthernet (Lab)", "Ethernet 5"], sec.Select(a => a.Name));   // with gateway first, then by name
     }
 
     [Fact]

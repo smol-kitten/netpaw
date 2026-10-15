@@ -197,7 +197,7 @@ try
         }
         case "wake":
         {
-            if (argv.Count < 2 || !NetPaw.Net.WakeOnLan.TryParseMac(argv[1], out _)) return Fail("wake needs a MAC address, e.g. wake bc:24:11:2f:f7:33 [10.0.0.0/24]");
+            if (argv.Count < 2 || !NetPaw.Net.WakeOnLan.TryParseMac(argv[1], out _)) return Fail("wake needs a MAC address, e.g. wake 02:00:00:2f:f7:33 [10.0.0.0/24]");
             NetPaw.Model.IpAddr? subnet = argv.Count > 2 && NetPaw.Net.IpMath.TryParseCidr(argv[2], out var sn) ? sn : null;
             NetPaw.Net.WakeOnLan.Wake(new NetPaw.Net.UdpWol(), argv[1], subnet).GetAwaiter().GetResult();
             Console.WriteLine($"magic packet sent to {argv[1]} via {string.Join(", ", NetPaw.Net.WakeOnLan.Targets(subnet))} (same segment only)");

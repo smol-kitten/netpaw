@@ -4,7 +4,7 @@
 
 [![CI](https://github.com/smol-kitten/netpaw/actions/workflows/ci.yml/badge.svg)](https://github.com/smol-kitten/netpaw/actions/workflows/ci.yml) ![C#](https://img.shields.io/badge/C%23-239120?style=for-the-badge&logo=csharp&logoColor=white) ![License](https://img.shields.io/badge/license-MIT-blue?style=for-the-badge)
 
-You plug into a switch on `192.168.88.0/24`, then a customer LAN on `10.20.0.0/16`, then you need DHCP
+You plug into a switch on `192.168.88.0/24`, then a customer LAN on `192.0.2.0/24`, then you need DHCP
 again, then the Fortigate at `192.168.1.99`… NetPaw makes each of those one keystroke instead of a trip
 through *Control Panel → Network → Adapter → Properties → IPv4*. When the network still doesn't work, it
 tells you *what* is wrong and fixes it in one click.
@@ -130,10 +130,10 @@ Everything is JSON in `%APPDATA%\NetPaw\` (override with `NETPAW_HOME`):
   "name": "Lab core",
   "adapter": null,
   "dhcp": false,
-  "addresses": [ { "address": "10.20.0.5", "prefixLength": 16 }, { "address": "192.168.88.250", "prefixLength": 24 } ],
-  "gateway": "10.20.0.1",
-  "dns": [ "10.20.0.53" ],
-  "routes": [ { "destination": "172.16.0.0", "prefixLength": 12, "gateway": "10.20.0.254", "metric": 10 } ],
+  "addresses": [ { "address": "192.0.2.5", "prefixLength": 24 }, { "address": "192.168.88.250", "prefixLength": 24 } ],
+  "gateway": "192.0.2.1",
+  "dns": [ "192.0.2.53" ],
+  "routes": [ { "destination": "172.16.0.0", "prefixLength": 12, "gateway": "192.0.2.254", "metric": 10 } ],
   "vlanId": 20,
   "hotkey": "Ctrl+Alt+1"
 }
@@ -153,10 +153,10 @@ preview and in the log.
 <summary>The commands for the example profile</summary>
 
 ```
-netsh interface ipv4 set address name="Ethernet" source=static address=10.20.0.5 mask=255.255.0.0 gateway=10.20.0.1 gwmetric=1
+netsh interface ipv4 set address name="Ethernet" source=static address=192.0.2.5 mask=255.255.255.0 gateway=192.0.2.1 gwmetric=1
 netsh interface ipv4 add address name="Ethernet" address=192.168.88.250 mask=255.255.255.0
-netsh interface ipv4 set dnsservers name="Ethernet" source=static address=10.20.0.53 register=primary validate=no
-netsh interface ipv4 add route prefix=172.16.0.0/12 interface="Ethernet" nexthop=10.20.0.254 metric=10 store=persistent
+netsh interface ipv4 set dnsservers name="Ethernet" source=static address=192.0.2.53 register=primary validate=no
+netsh interface ipv4 add route prefix=172.16.0.0/12 interface="Ethernet" nexthop=192.0.2.254 metric=10 store=persistent
 powershell ... Set-NetAdapterAdvancedProperty -Name 'Ethernet' -RegistryKeyword 'VlanID' -RegistryValue 20
 ```
 

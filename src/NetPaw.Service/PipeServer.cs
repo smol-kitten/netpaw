@@ -25,7 +25,7 @@ public sealed class PipeServer(Action<string> log, IntentHandler? intents = null
         acl.AddAccessRule(new PipeAccessRule(new SecurityIdentifier(WellKnownSidType.NetworkSid, null), PipeAccessRights.FullControl, AccessControlType.Deny));
         acl.AddAccessRule(new PipeAccessRule(new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null), PipeAccessRights.FullControl, AccessControlType.Allow));
         // ReadWrite|Synchronize is enough for a client to open the pipe (verified from an interactive session on
-        // the pawsktop Win11 VM). No CreateNewInstance, so allowed users cannot add server instances. A caller
+        // a Windows 11 test VM). No CreateNewInstance, so allowed users cannot add server instances. A caller
         // whose token carries the NETWORK SID (a remote SMB open, or an SSH network logon) is denied above.
         foreach (var sid in new[] { WellKnownSidType.BuiltinAdministratorsSid, WellKnownSidType.BuiltinNetworkConfigurationOperatorsSid, WellKnownSidType.InteractiveSid })
             acl.AddAccessRule(new PipeAccessRule(new SecurityIdentifier(sid, null), PipeAccessRights.ReadWrite | PipeAccessRights.Synchronize, AccessControlType.Allow));
@@ -117,7 +117,7 @@ public sealed record Caller(string User, int Session, int ProcessId, NetPaw.Ipc.
 
     // Read the caller's token groups (SID + attributes) and let CallerPrivilege decide the tier. The groups come
     // from the token directly, not CheckTokenMembership: the client connects at Identification level and
-    // CheckTokenMembership needs an impersonation-level token (verified on the pawsktop VM: it reported a real
+    // CheckTokenMembership needs an impersonation-level token (verified on a Windows 11 test VM: it reported a real
     // elevated admin as a non-member there, which wrongly refused every privileged intent). OpenThreadToken runs
     // inside RunAsClient (which impersonates the client and reverts in a finally), with OpenAsSelf so the
     // service's own privileges open the thread token, never the client's.
