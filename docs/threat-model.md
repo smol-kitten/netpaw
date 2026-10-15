@@ -6,8 +6,9 @@ what it trusts, and the decisions behind it.
 
 ## Trust boundaries
 
-- **The service (`netpaw-svc`, LocalSystem)** is the only component that runs `netsh`, `ipconfig`, `route`
-  or `powershell`. It accepts typed intents over `\\.\pipe\NetPaw`, resolves the adapter against the live
+- **The service (`netpaw-svc`, LocalSystem)** is the only component that runs `netsh`, `ipconfig` or
+  `powershell` to change configuration (nothing runs `route`; the tray runs read-only tools as the user:
+  `arp`, a `pktmon` capture, and `schtasks` once to remove the pre-0.14 task). It accepts typed intents over `\\.\pipe\NetPaw`, resolves the adapter against the live
   list, validates every value (`ProfileGuard`), plans the commands itself, and audits each decision to the
   Windows Event Log. It never runs a command line a client sent.
 - **The tray and the CLI (`asInvoker`)** run as the logged-on user. They can read, diagnose and preview.
@@ -28,7 +29,8 @@ minimum tier (`docs/policy.md`); a policy may raise or lower it within a hard fl
 - A standard user cannot run anything as SYSTEM: there is no command-string path.
 - A planted or user-owned managed profile is ignored (owner check on the handle, folder gate).
 - A squatter cannot pose as the service: the client checks the server PID against the Service Control
-  Manager; the service refuses to start if the pipe name is taken; clients cannot add pipe instances.
+  Manager before it sends anything, so a foreign pipe is never talked to. The service also refuses to start
+  when the name is taken, keeps one listener open at all times, and clients cannot add pipe instances.
 - Remote callers are refused: the pipe ACL denies the NETWORK SID (SMB opens, SSH network logons).
 - A tampered update is refused: installers are verified against a pinned root before they run.
 - An unreadable policy does not loosen anything: the last valid policy stays in force; with none, the
