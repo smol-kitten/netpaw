@@ -93,6 +93,7 @@ if (argv.Count > 0 && argv[0] == "service")
     }
     Console.WriteLine($"service   running, version {resp.Status.Version} (protocol {resp.Status.ProtocolVersion})");
     Console.WriteLine($"caller    {resp.Status.Caller} (session {resp.Status.CallerSession})");
+    Console.WriteLine($"tier      {resp.Status.Tier ?? "unknown (service older than 0.16)"}");
     return 0;
 }
 
