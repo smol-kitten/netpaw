@@ -22,6 +22,8 @@ public sealed class RegistryPolicySource : ITierPolicySource
         {
             using var key = Registry.LocalMachine.OpenSubKey(KeyPath);
             if (key is null) return (empty, true);   // no policy configured -> defaults
+            // G9-lite: a policy written for a schema this build does not know is invalid as a whole (fail closed).
+            if (!PolicyTiers.SchemaSupported(key.GetValue("PolicySchemaVersion")?.ToString())) return (empty, false);
             var overrides = new Dictionary<PolicyIntent, Tier>();
             foreach (var intent in Enum.GetValues<PolicyIntent>())
             {

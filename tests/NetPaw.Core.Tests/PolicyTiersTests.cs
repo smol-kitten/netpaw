@@ -129,3 +129,16 @@ public class PolicyTiersTests
         Assert.Contains("DENY", audit[0]);
     }
 }
+
+public class PolicySchemaVersionTests
+{
+    [Theory]
+    [InlineData(null, true)]
+    [InlineData("", true)]
+    [InlineData("1", true)]
+    [InlineData(" 1 ", true)]
+    [InlineData("2", false)]
+    [InlineData("0", false)]
+    [InlineData("x", false)]
+    public void Only_the_known_schema_is_supported(string? value, bool ok) => Assert.Equal(ok, PolicyTiers.SchemaSupported(value));
+}

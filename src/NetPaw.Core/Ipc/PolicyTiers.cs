@@ -59,6 +59,19 @@ public sealed class PolicyTiers
         [PolicyIntent.VirtualUnlock] = Tier.NetworkConfigOperators,
     };
 
+    /// <summary>The policy schema this build understands. An optional <c>PolicySchemaVersion</c> value in the
+    /// policy key names the schema an admin wrote the policy for; a value this build does not know makes the
+    /// whole policy INVALID (so last-known-good or the defaults apply) instead of silently ignoring tiers it
+    /// cannot interpret (G9-lite, t-e38207). Absent = 1.</summary>
+    public const int SchemaVersion = 1;
+
+    /// <summary>True when the policy's schema marker is absent or names this build's schema.</summary>
+    public static bool SchemaSupported(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return true;
+        return int.TryParse(value.Trim(), out var v) && v == SchemaVersion;
+    }
+
     public static Tier DefaultFor(PolicyIntent i) => Defaults[i];
     public static Tier FloorFor(PolicyIntent i) => Floors.GetValueOrDefault(i, Tier.StandardUser);
 
