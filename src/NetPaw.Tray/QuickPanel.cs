@@ -13,7 +13,7 @@ namespace NetPaw.Tray;
 /// </summary>
 sealed class QuickPanel : Form
 {
-    sealed record Item(string Title, string Subtitle, Color Color, Action Run, string? Hint = null, Profile? Profile = null, bool OpensWindow = false, string? Badge = null, Color? BadgeColor = null);
+    sealed record Item(string Title, string Subtitle, Color Color, Action Run, string? Hint = null, Profile? Profile = null, bool OpensWindow = false, string? Badge = null, Color? BadgeColor = null, bool Mutates = false);
 
     readonly TrayApp _app;
     readonly Label _header = new() { Dock = DockStyle.Top, Height = 30, Padding = new Padding(14, 8, 14, 0), ForeColor = Theme.Muted, Font = Theme.Small };
@@ -123,9 +123,9 @@ sealed class QuickPanel : Form
                     ReachKind.TempAddress => ($"Reach {d.Target} — add temporary {d.Address}", Theme.Temp),
                     _ => (d.Explanation, Theme.Error),
                 };
-                _items.Add(new Item(title, d.Explanation, color, () => _app.Reach(q), "reach"));
+                _items.Add(new Item(title, d.Explanation, color, () => _app.Reach(q), "reach", Mutates: true));
                 if (d.Kind is ReachKind.TempAddress or ReachKind.UsePreset)
-                    _items.Add(new Item($"Reach {d.Target} — replace primary with {d.Address}", "Full switch: gateway/DNS of the current config are dropped (Ctrl+R).", Theme.Temp, () => _app.Reach(q, replace: true), "reach-replace"));
+                    _items.Add(new Item($"Reach {d.Target} — replace primary with {d.Address}", "Full switch: gateway/DNS of the current config are dropped (Ctrl+R).", Theme.Temp, () => _app.Reach(q, replace: true), "reach-replace", Mutates: true));
             }
             else _items.Add(new Item($"'{q}' is not a valid IPv4 address", "e.g. 192.168.88.1 or 10.0.0.1/16", Theme.Error, () => { }));
         }
@@ -137,23 +137,23 @@ sealed class QuickPanel : Form
                 var current = w is not null && ApplyPlanner.Matches(p, w);
                 var badge = current ? "current" : p.Managed ? "managed" : p.Source;
                 var badgeColor = current ? Theme.Static : p.Managed ? Theme.Temp : Theme.Accent;
-                _items.Add(new Item(p.Name, p.Summary() + (p.Hotkey is null ? "" : "   " + p.Hotkey), p.Dhcp ? Theme.Dhcp : Theme.Static, () => _app.ApplyProfile(p), null, p, Badge: badge, BadgeColor: badgeColor));
+                _items.Add(new Item(p.Name, p.Summary() + (p.Hotkey is null ? "" : "   " + p.Hotkey), p.Dhcp ? Theme.Dhcp : Theme.Static, () => _app.ApplyProfile(p), null, p, Badge: badge, BadgeColor: badgeColor, Mutates: true));
             }
             if ((q.Length == 0 || Word(q, "dhcp")) && svc.Allowed(Capability.Dhcp))
-                _items.Add(new Item("DHCP now", $"Let {w?.Name ?? "the adapter"} take a lease", Theme.Dhcp, _app.ApplyDhcp, Badge: w?.Dhcp == true ? "current" : null, BadgeColor: Theme.Static));
+                _items.Add(new Item("DHCP now", $"Let {w?.Name ?? "the adapter"} take a lease", Theme.Dhcp, _app.ApplyDhcp, Badge: w?.Dhcp == true ? "current" : null, BadgeColor: Theme.Static, Mutates: true));
             if (q.Length > 0)
                 foreach (var rp in svc.RepoProfiles.Where(p => Fuzzy(p.Name, q) || p.Summary().Contains(q, StringComparison.OrdinalIgnoreCase)).Take(6))
-                    _items.Add(new Item(rp.Name, rp.Summary() + (rp.Note is null ? "" : "   " + rp.Note), rp.Dhcp ? Theme.Dhcp : Theme.Static, () => _app.ApplyProfile(rp), null, rp, Badge: rp.Source, BadgeColor: Theme.Accent));
+                    _items.Add(new Item(rp.Name, rp.Summary() + (rp.Note is null ? "" : "   " + rp.Note), rp.Dhcp ? Theme.Dhcp : Theme.Static, () => _app.ApplyProfile(rp), null, rp, Badge: rp.Source, BadgeColor: Theme.Accent, Mutates: true));
             if (q.Length > 0 && svc.Allowed(Capability.Reach) && svc.Allowed(Capability.TempAddresses))
                 foreach (var pr in PresetLibrary.Search(svc.Presets, q).Take(8))
-                    _items.Add(new Item($"{pr.Vendor} {pr.Model}", $"{pr.Ip}/{pr.Prefix}{(pr.Note is null ? "" : "   " + pr.Note)}", Theme.Temp, () => _app.ApplyPreset(pr), Badge: pr.Source, BadgeColor: Theme.Accent));
+                    _items.Add(new Item($"{pr.Vendor} {pr.Model}", $"{pr.Ip}/{pr.Prefix}{(pr.Note is null ? "" : "   " + pr.Note)}", Theme.Temp, () => _app.ApplyPreset(pr), Badge: pr.Source, BadgeColor: Theme.Accent, Mutates: true));
             var temps = svc.TempAddresses;
             if (temps.Count > 0 && (q.Length == 0 || Word(q, "temporary", "clear", "remove")))
-                _items.Add(new Item($"Remove {temps.Count} temporary address{(temps.Count == 1 ? "" : "es")}", string.Join(", ", temps.Select(t => t.Address.ToString())), Theme.Temp, _app.ClearTemp));
+                _items.Add(new Item($"Remove {temps.Count} temporary address{(temps.Count == 1 ? "" : "es")}", string.Join(", ", temps.Select(t => t.Address.ToString())), Theme.Temp, _app.ClearTemp, Mutates: true));
             if (q.Length == 0 || Word(q, "manage profiles", "edit", "profiles"))
                 _items.Add(new Item("Manage profiles…", "Create, edit, hotkeys, routes, VLAN", Theme.Muted, () => _app.ShowEditor(), OpensWindow: true));
             if (w is { Dhcp: true } && (q.Length == 0 || Word(q, "renew", "lease")))
-                _items.Add(new Item("Renew DHCP lease", $"ipconfig /renew on {w.Name}" + (_app.Advisories.FirstOrDefault(a => a.CanRenew) is { } adv ? "   ·   " + adv.Title : ""), Theme.Dhcp, () => _app.Renew(manual: true)));
+                _items.Add(new Item("Renew DHCP lease", $"ipconfig /renew on {w.Name}" + (_app.Advisories.FirstOrDefault(a => a.CanRenew) is { } adv ? "   ·   " + adv.Title : ""), Theme.Dhcp, () => _app.Renew(manual: true), Mutates: true));
             if (Word(q, "arp", "map", "network map", "neighbours"))
                 _items.Add(new Item("Network map…", "ARP neighbours per network, active re-check/sweep, find routers on this cable", Theme.Accent, _app.ShowMap, OpensWindow: true));
             if (Word(q, "switch", "lldp", "cdp", "port"))
@@ -185,6 +185,12 @@ sealed class QuickPanel : Form
             if (q.Length == 0)
                 _items.Add(new Item("Tools…", "Switch port (LLDP), route table, trace, port check, wake, diagnostics — type any of them", Theme.Muted, () => _app.ShowMap(2), OpensWindow: true));
         }
+        // User mode (no service, not elevated): the change channel would refuse these anyway, so show them greyed
+        // with a read-only badge and let a click explain, instead of landing on a refusal. (0.15, completes #89.)
+        if (_app.ChangeMode == NetPaw.Ipc.ChannelMode.User)
+            for (var k = 0; k < _items.Count; k++)
+                if (_items[k].Mutates)
+                    _items[k] = _items[k] with { Run = () => ShowStatus("Read-only — changes need the NetPaw service (install the MSI) or an elevated run.", "warn"), Badge = "read-only", BadgeColor = Theme.Error };
         _list.BeginUpdate();
         _list.Items.Clear();
         foreach (var i in _items) _list.Items.Add(i);
