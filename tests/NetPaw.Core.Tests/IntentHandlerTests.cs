@@ -10,8 +10,9 @@ namespace NetPaw.Tests;
 /// that reaches a command line is checked, and the service builds the commands itself.</summary>
 public class IntentHandlerTests
 {
-    sealed record Rig(IntentHandler Handler, FakeRunner Runner, string Dir, List<string> Log);
+    internal sealed record Rig(IntentHandler Handler, FakeRunner Runner, string Dir, List<string> Log);
 
+    internal static Rig MakeRig() => Make();
     static Rig Make(Dictionary<string, object>? policy = null, string? managedJson = null)
     {
         var dir = Directory.CreateTempSubdirectory().FullName;
@@ -361,5 +362,48 @@ public class IntentHandlerTests
         Assert.True(h.Handle(Req(RequestKind.Dhcp), "a", Tier.Admin).Ok);
         // DeleteRoute keeps its NCO default: a StandardUser is denied through the tier overload.
         Assert.False(h.Handle(Req(RequestKind.DeleteRoute) with { RoutePrefix = "10.0.0.0/8" }, "u", Tier.StandardUser).Ok);
+    }
+}
+
+public class RevertLastApplyTests
+{
+    [Fact]
+    public void Nothing_recorded_is_refused_with_a_reason()
+    {
+        var r = IntentHandlerTests.MakeRig();
+        var resp = r.Handler.Handle(new ServiceRequest(ServiceProtocol.Version, RequestKind.RevertLastApply), "PC\\anna (session 2)", privileged: false);
+        Assert.False(resp.Ok); Assert.Contains("nothing to revert", resp.Error);
+        Assert.Null(r.Handler.LastApplySummary());
+    }
+
+    [Fact]
+    public void An_apply_records_the_pre_state_and_a_standard_user_can_revert_it()
+    {
+        var r = IntentHandlerTests.MakeRig();
+        var apply = r.Handler.Handle(new ServiceRequest(ServiceProtocol.Version, RequestKind.ApplyProfile) { Profile = Fx.Static("lab", "192.168.1.1", "192.168.1.50/24") }, "PC\\anna (session 2)", privileged: false);
+        Assert.True(apply.Ok, apply.Error);
+        var pre = r.Handler.LastApply();
+        Assert.NotNull(pre);
+        Assert.Equal("Ethernet", pre!.Adapter); Assert.Equal("PC\\anna (session 2)", pre.Caller);
+        Assert.Equal(pre.Mac, pre.Before.AdapterMac);
+        Assert.Contains("on Ethernet at", r.Handler.LastApplySummary());
+        var before = r.Runner.Ran.Count;
+        var revert = r.Handler.Handle(new ServiceRequest(ServiceProtocol.Version, RequestKind.RevertLastApply), "PC\\bob (session 3)", privileged: false);
+        Assert.True(revert.Ok, revert.Error);
+        Assert.Contains(r.Runner.Ran.Skip(before), s => s.Arguments.Contains("name=\"Ethernet\""));
+        // the revert is itself an apply: its own pre-state is recorded, so a revert can be reverted
+        Assert.Equal("PC\\bob (session 3)", r.Handler.LastApply()!.Caller);
+        Assert.Contains(r.Log, l => l.StartsWith("revert to the pre-apply state for PC\\bob"));
+    }
+
+    [Fact]
+    public void A_snapshot_of_another_adapter_identity_is_refused()
+    {
+        var r = IntentHandlerTests.MakeRig();
+        var stale = new IntentHandler.PreApply("Ethernet", "11:22:33:44:55:66", "lab", "PC\\anna (session 2)", DateTimeOffset.Now, new Profile { Name = "pre-apply", Dhcp = true });
+        Directory.CreateDirectory(Path.GetDirectoryName(r.Handler.PreApplyPath)!);
+        File.WriteAllText(r.Handler.PreApplyPath, System.Text.Json.JsonSerializer.Serialize(stale, ServiceProtocol.Json));
+        var resp = r.Handler.Handle(new ServiceRequest(ServiceProtocol.Version, RequestKind.RevertLastApply), "PC\\anna (session 2)", privileged: false);
+        Assert.False(resp.Ok); Assert.Contains("MAC differs", resp.Error);
     }
 }

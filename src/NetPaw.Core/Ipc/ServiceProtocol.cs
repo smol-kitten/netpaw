@@ -60,7 +60,7 @@ public static class ServiceProtocol
     }
 }
 
-public enum RequestKind { None, Status, ApplyProfile, Dhcp, Reach, ClearTemp, DeleteRoute, ResetAdapter, Renew, Release, Prefer, SetMtu }
+public enum RequestKind { None, Status, ApplyProfile, Dhcp, Reach, ClearTemp, DeleteRoute, ResetAdapter, Renew, Release, Prefer, SetMtu, RevertLastApply }
 
 /// <summary>One request: what the caller wants, never how. The service resolves the adapter against the live
 /// list, checks every value (<see cref="ProfileGuard"/>) and builds the commands itself.</summary>
@@ -107,7 +107,8 @@ public sealed record ApplyReport(string Title, string Adapter, bool Success, boo
 /// <summary>What <see cref="RequestKind.Status"/> answers: enough for a caller to tell the service is
 /// there, which build it is, who the service thinks is calling and at which tier (G12: the effective tier, as the
 /// policy gate will see it). <paramref name="Tier"/> is null from a service older than 0.16.</summary>
-public sealed record ServiceStatus(string Version, int ProtocolVersion, string Caller, int CallerSession, string? Tier = null);
+/// <param name="LastApply">G13: what a RevertLastApply would undo ("DHCP on Ethernet 2 at 00:58 by …"), null when nothing is recorded.</param>
+public sealed record ServiceStatus(string Version, int ProtocolVersion, string Caller, int CallerSession, string? Tier = null, string? LastApply = null);
 
 /// <summary>Client side of the pipe, used by the tray and the CLI.</summary>
 public static class ServiceClient
@@ -189,6 +190,8 @@ public static class ServiceChange
     public static ServiceRequest Release(string? adapter = null) => new(ServiceProtocol.Version, RequestKind.Release) { Adapter = adapter };
     public static ServiceRequest Prefer(string? adapter = null) => new(ServiceProtocol.Version, RequestKind.Prefer) { Adapter = adapter };
     public static ServiceRequest SetMtu(int mtu, string? adapter = null) => new(ServiceProtocol.Version, RequestKind.SetMtu) { Mtu = mtu, Adapter = adapter };
+    /// <summary>G13: put the adapter of the last apply back into the state the service snapshotted just before it.</summary>
+    public static ServiceRequest RevertLastApply() => new(ServiceProtocol.Version, RequestKind.RevertLastApply);
 }
 
 /// <summary>Is the process on the other end of the pipe the NetPaw service? (review of #75: pipe squatting)</summary>

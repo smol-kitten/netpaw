@@ -114,7 +114,7 @@ public sealed class PipeServer(Action<string> log, IntentHandler? intents = null
 
     ServiceResponse Handle(ServiceRequest req, Caller caller) => req.Kind switch
     {
-        RequestKind.Status => new(ServiceProtocol.Version, true, Status: new(BuildVersion, ServiceProtocol.Version, caller.User, caller.Session, caller.Tier.ToString())),
+        RequestKind.Status => new(ServiceProtocol.Version, true, Status: new(BuildVersion, ServiceProtocol.Version, caller.User, caller.Session, caller.Tier.ToString(), intents?.LastApplySummary())),
         _ when intents is null => ServiceResponse.Fail($"{req.Kind} is not available (service started without its store)"),
         _ => intents.Handle(req, $"{caller.User} (session {caller.Session})", caller.Tier),
     };

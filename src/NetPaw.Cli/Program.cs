@@ -41,6 +41,7 @@ const string Usage = """
       netpaw-cli capture <name> [-a X]            save the adapter's live config as a profile
       netpaw-cli temp                             list temporary addresses NetPaw added
       netpaw-cli clear-temp                       remove them again
+      netpaw-cli revert                           put the adapter of the last apply back to its pre-apply state (service only)
       netpaw-cli vlan <adapter> [id]              query / set the driver VLAN id (0 = untagged)
       netpaw-cli where                            print the config directory (profiles.json etc.)
       netpaw-cli update verify <msi> [SIGNATURES.md] [--root <crt>]
@@ -94,6 +95,7 @@ if (argv.Count > 0 && argv[0] == "service")
     Console.WriteLine($"service   running, version {resp.Status.Version} (protocol {resp.Status.ProtocolVersion})");
     Console.WriteLine($"caller    {resp.Status.Caller} (session {resp.Status.CallerSession})");
     Console.WriteLine($"tier      {resp.Status.Tier ?? "unknown (service older than 0.16)"}");
+    Console.WriteLine($"last apply {resp.Status.LastApply ?? "none recorded (nothing to revert)"}");
     return 0;
 }
 
@@ -140,6 +142,12 @@ try
             return Run(svc, request, plan, dryRun);
         }
         case "dhcp": { var a = svc.ResolveAdapter(adapterName); return Run(svc, ServiceChange.Dhcp(a.Name), ApplyPlanner.PlanDhcp(a), dryRun); }
+        case "revert":
+        {
+            // The pre-apply snapshot lives in the service's store; there is no in-process equivalent.
+            if (!(OperatingSystem.IsWindows() && ServiceChange.ServiceAnswers())) return Fail("revert needs the NetPaw service (install the MSI); the pre-apply snapshot is kept by the service");
+            return ReportChange(ServiceChange.Send(ServiceChange.RevertLastApply()));
+        }
         case "renew": { var a = svc.ResolveAdapter(adapterName); return Run(svc, ServiceChange.Renew(a.Name), NetPaw.Connectivity.Advisor.PlanRenew(a), dryRun); }
         case "release": { var a = svc.ResolveAdapter(adapterName); return Run(svc, ServiceChange.Release(a.Name), NetPaw.Connectivity.Advisor.PlanRelease(a), dryRun); }
         case "reset": { var a = svc.ResolveAdapter(adapterName); return Run(svc, ServiceChange.ResetAdapter(a.Name), ApplyPlanner.PlanResetAdapter(a), dryRun); }
