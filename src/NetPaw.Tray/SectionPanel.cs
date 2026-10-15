@@ -56,5 +56,14 @@ sealed class SectionPanel : Panel
         if (message is not null && Collapsed) Collapsed = false;
     }
 
-    public void ClearErrors() { foreach (var l in _errors.Values) { l.Visible = false; l.Text = ""; } }
+    /// <summary>A non-blocking note under a field (amber, not red): shown, but Save still succeeds.</summary>
+    public void SetWarning(string key, string? message)
+    {
+        if (!_errors.TryGetValue(key, out var l)) return;
+        l.ForeColor = message is not null ? Theme.Temp : Theme.Error;
+        l.Text = message ?? ""; l.Visible = message is not null;
+        if (message is not null && Collapsed) Collapsed = false;
+    }
+
+    public void ClearErrors() { foreach (var l in _errors.Values) { l.Visible = false; l.Text = ""; l.ForeColor = Theme.Error; } }
 }

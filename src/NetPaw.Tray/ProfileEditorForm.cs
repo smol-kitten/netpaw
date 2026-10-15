@@ -287,6 +287,8 @@ sealed class ProfileEditorForm : Form
         p.Fingerprint = _learnedFp; p.AutoSwitch = _autoSwitch.Checked && _learnedFp is not null;
         if (_autoSwitch.Checked && _learnedFp is null) Err(_advanced, "autoswitch", "Learn a fingerprint first (apply the profile on its network, then click Learn).");
         if (!ReferenceEquals(_learnedFp, _current?.Fingerprint)) p.AutoSwitchConfirmed = false;
+        // Warnings (0.16): shown under the addresses field, never block the save.
+        if (ok && ProfileLint.Warnings(p, _app.Service.Profiles, _adapters) is { Count: > 0 } warn) _ipv4.SetWarning("addresses", string.Join(" ", warn));
         return ok ? p : null;
     }
 
