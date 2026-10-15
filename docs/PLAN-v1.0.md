@@ -61,7 +61,19 @@ Cheap safety (from the audit, all small, all testable):
 - G3 t-45aec2: `PIPE_REJECT_REMOTE_CLIENTS` and FirstPipeInstance on every re-created instance.
 - G8 t-8af0a5: SECURITY.md + threat-model page (the four documented decisions from the audit).
 - G6 (docs part): state IPv4-only and the IPv6 DNS-leak caveat.
-Exit: rc → operator verification → v0.15.0.
+Exit — safety items (each one measured, not assumed):
+- G1: a VM trace shows netsh/ipconfig/powershell launched by full `System32` path; the unit tests that
+  assert FileName/CommandLine are updated and green.
+- G2: on the VM `sc qsidtype NetPaw` = RESTRICTED and `sc qprivs NetPaw` lists the trimmed set, and a
+  static apply through the service still succeeds.
+- G3: a remote open of `\\host\pipe\NetPaw` is refused; a squat before service start still fails loud.
+- G8: SECURITY.md and the threat-model page exist and name the four documented decisions.
+Exit — QoL items:
+- G12: a StandardUser DeleteRoute shows the required tier and the reason in the tray status and the CLI.
+- G13: after an apply, one click restores the pre-apply addresses/gateway/DNS (VM-verified).
+- t-dd3d27: `vEthernet (Default Switch)` is not HostFacing; an External vSwitch vEthernet is.
+Exit — release: CI green on the rc tag incl. verify-windows; unit suite green; the operator installs the
+rc MSI and confirms autostart, one apply and one revert; then the orchestrator's tag OK → v0.15.0.
 
 ### M2 — v0.16 "safe to apply from anywhere"
 - G4 t-cc99cb: commit-confirmed rollback. The service snapshots full pre-state, arms a timer and a
@@ -119,3 +131,13 @@ Exit: a 1.0 rc verified on the VM harness + CI + the operator; then 1.0.0.
   bus m-5066); the reviewer cannot see the bus, so the plan now points at it.
 - "dirty files in the plan branch risk the release" — rebutted: the tag is an existing main commit
   (2388025); the plan branch holds only this document.
+
+## Review reconciliation (round 2)
+
+- "M1 exit criteria are vague" — adopted: M1 now has a measured exit list, split into safety, QoL and
+  release.
+- "M1 mixes operator QoL with audit gaps" — adopted: the exit list separates them; the feature list already
+  groups them under "QoL" and "Cheap safety".
+- "dirty files in the plan branch" (repeated) — rebutted with evidence: `git status` on `docs/plan-v1.0`
+  shows no tracked changes beyond this document's commits; the v0.14.0 tag is the main commit 2388025 and
+  no branch state can affect it.
