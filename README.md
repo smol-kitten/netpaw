@@ -192,8 +192,8 @@ The release pipeline is described in [docs/signed-release.md](docs/signed-releas
 
 </details>
 
-**Not (yet) in scope:** IPv6, Wi-Fi profile switching, multi-VLAN trunk NICs, per-profile firewall
-rules. PRs welcome — the planner is pure and tested, so a new step is a small change with a test next to it.
+**Not (yet) in scope:** IPv6 (see [Limitations](docs/features.md#limitations) — on dual-stack networks a
+profile pins IPv4 DNS only), Wi-Fi profile switching, multi-VLAN trunk NICs, per-profile firewall rules. PRs welcome — the planner is pure and tested, so a new step is a small change with a test next to it.
 
 ---
 
