@@ -29,6 +29,7 @@ sealed class NetPawWindowsService : ServiceBase
         if (!EventLog.SourceExists(Source)) EventLog.CreateEventSource(Source, "Application");
         SetRecoveryActions();
         Action<string> log = msg => EventLog.WriteEntry(Source, msg, EventLogEntryType.Information);
+        log("service token: " + TokenInfo.Describe());   // the token in use, not the SCM config: privileges + service SID
         IntentHandler? intents = null;
         try { intents = Startup.Intents(log); }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
@@ -54,32 +55,23 @@ sealed class NetPawWindowsService : ServiceBase
     /// <summary>Restart twice after a crash or a failed stop (5 s), then stay stopped; the tray falls back to user mode.
     /// Set here, not in the MSI: Windows Installer's MsiServiceConfigFailureActions fails with access denied
     /// (error 1939) for restart actions. Idempotent; a failure is logged and does not stop the service.</summary>
-    /// <summary>Output of one sc.exe query, or "" on any failure (the caller treats "" as "not set").</summary>
-    static string Query(string args)
-    {
-        try
-        {
-            using var p = Process.Start(new ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "sc.exe"), args)
-                { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true })!;
-            var output = p.StandardOutput.ReadToEndAsync();
-            return p.WaitForExit(10_000) ? output.Result : "";
-        }
-        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException) { return ""; }
-    }
+    /// <summary>The privileges the service keeps (sc privs). SeChangeNotify = bypass traverse checking, which every
+    /// process needs to open paths. The pipe client is read at Identification level (no SeImpersonate needed) and no
+    /// Global\ object is created (no SeCreateGlobal) — VM pass 5, 2026-10-16, measured a working apply with this set.</summary>
+    public const string Privileges = "SeChangeNotifyPrivilege";
 
     static void SetRecoveryActions()
     {
         // failureflag 1: also act when the service stops itself with a non-zero exit code (a dead listener
         // below), not only on a crash; without it the SCM treats Stop() with ExitCode=1 as a clean stop.
-        // G2 hardening (audit t-db6795), idempotent, takes effect at the NEXT start. privs = the least set the service
-        // needs: traverse, impersonate the pipe client to read its token (RunAsClient), create global objects for the
-        // pipe. sidtype unrestricted only adds NT SERVICE\NetPaw to the token (so the store ACL can name the service).
-        // NOT "restricted": VM-measured 2026-10-16 (pass 3) a write-restricted token is refused by Windows for the one
-        // thing this service exists for — `netsh interface ipv4 set address ... source=static` -> "Zugriff verweigert"
-        // (access denied), while its own file, Event Log and pipe writes succeeded once their DACLs named the service
-        // SID. The trimmed privileges alone are measured in pass 4 of the same run.
+        // G2 hardening (audit t-db6795), idempotent (every start re-applies the same SCM config; the writes succeed
+        // because the token is not restricted), takes effect at the NEXT start. sidtype unrestricted only adds
+        // NT SERVICE\NetPaw to the token. NOT "restricted": VM-measured 2026-10-16 (pass 3) a write-restricted token is
+        // refused by Windows for the one thing this service exists for — `netsh interface ipv4 set address ...
+        // source=static` -> "Zugriff verweigert" — while its own file, Event Log and pipe writes succeeded once their
+        // DACLs named the service SID. The token actually in use is logged at start ("service token: ...").
         foreach (var args in new[] { "failure NetPaw reset= 86400 actions= restart/5000/restart/5000//0", "failureflag NetPaw 1",
-                                     "privs NetPaw SeChangeNotifyPrivilege/SeImpersonatePrivilege/SeCreateGlobalPrivilege", "sidtype NetPaw unrestricted" })
+                                     "privs NetPaw " + Privileges, "sidtype NetPaw unrestricted" })
         {
             try
             {

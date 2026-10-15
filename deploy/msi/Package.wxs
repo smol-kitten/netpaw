@@ -45,7 +45,7 @@
             <!-- Managed profiles are applied by the SYSTEM service: only admins may write here. Without an explicit,
                  protected ACL the folder inherits ProgramData's, which lets every user create files in it. -->
             <CreateFolder>
-              <PermissionEx Sddl="D:PAI(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;FA;;;S-1-5-80-1980658030-2288844445-358357802-3596226333-3204242621)(A;OICI;0x1200a9;;;BU)" />
+              <PermissionEx Sddl="D:PAI(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;0x1200a9;;;BU)" />
             </CreateFolder>
             <CreateFolder Directory="DataFolder">
               <PermissionEx Sddl="D:PAI(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;0x1200a9;;;BU)" />

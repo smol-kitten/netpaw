@@ -383,6 +383,17 @@ jobs:
           if ((Get-Service NetPaw).Status -ne 'Running') { SvcLog; throw "service did not come back after the impostor was gone" }
           & "$dir\netpaw-cli.exe" service status
           if ($LASTEXITCODE -ne 0) { SvcLog; throw "service status failed after the impostor was gone" }
+          # G2 (0.15): the hardening applied at the first start is in the SCM config AND, after this restart, in the
+          # token itself (the service logs "service token: ..." from its own process at every start; sc q* only show config).
+          $qs = (sc.exe qsidtype NetPaw | Select-String SERVICE_SID_TYPE).Line.Trim()
+          $qp = ((sc.exe qprivs NetPaw | Select-String -Pattern 'Se\w+Privilege' -AllMatches).Matches.Value | Sort-Object) -join ','
+          $tok = (Get-WinEvent -FilterHashtable @{ LogName = 'Application'; ProviderName = 'NetPaw' } -MaxEvents 40 -ErrorAction SilentlyContinue | Where-Object { $_.Message -like 'service token:*' } | Select-Object -First 1).Message
+          "`nG2 after restart: ``$qs`` / privs ``$qp```n  ``$tok``" >> $env:GITHUB_STEP_SUMMARY
+          if ($qs -notmatch 'UNRESTRICTED') { SvcLog; throw "sc qsidtype after restart: $qs (expected UNRESTRICTED)" }
+          if ($qp -ne 'SeChangeNotifyPrivilege') { SvcLog; throw "sc qprivs after restart: $qp (expected SeChangeNotifyPrivilege only)" }
+          if (-not $tok) { SvcLog; throw "the service did not log its token at start" }
+          if ($tok -notmatch 'privileges=SeChangeNotifyPrivilege\b' -or $tok -match 'SeImpersonatePrivilege|SeCreateGlobalPrivilege|SeDebugPrivilege|SeTcbPrivilege') { SvcLog; throw "service token still carries more than SeChangeNotify: $tok" }
+          if ($tok -notmatch 'serviceSid=present' -or $tok -notmatch 'restricted=False') { SvcLog; throw "service token is not the expected unrestricted token with NT SERVICE\NetPaw: $tok" }
           # Pipe DACL: exactly SYSTEM, Administrators, Network Configuration Operators and INTERACTIVE allowed;
           # network (SMB) callers denied; no Everyone / Users / Authenticated Users / Anonymous.
           $c = New-Object System.IO.Pipes.NamedPipeClientStream '.', 'NetPaw', ([System.IO.Pipes.PipeDirection]::InOut)
