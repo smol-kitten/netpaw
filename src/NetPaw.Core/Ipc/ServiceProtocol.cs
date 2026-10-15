@@ -105,8 +105,9 @@ public sealed record ApplyReport(string Title, string Adapter, bool Success, boo
 }
 
 /// <summary>What <see cref="RequestKind.Status"/> answers: enough for a caller to tell the service is
-/// there, which build it is, and who the service thinks is calling.</summary>
-public sealed record ServiceStatus(string Version, int ProtocolVersion, string Caller, int CallerSession);
+/// there, which build it is, who the service thinks is calling and at which tier (G12: the effective tier, as the
+/// policy gate will see it). <paramref name="Tier"/> is null from a service older than 0.16.</summary>
+public sealed record ServiceStatus(string Version, int ProtocolVersion, string Caller, int CallerSession, string? Tier = null);
 
 /// <summary>Client side of the pipe, used by the tray and the CLI.</summary>
 public static class ServiceClient
@@ -170,8 +171,12 @@ public static class ServiceChange
     public static bool ServiceAnswers(int timeoutMs = 800)
     {
         var (resp, _) = ServiceClient.Send(new ServiceRequest(ServiceProtocol.Version, RequestKind.Status), timeoutMs).GetAwaiter().GetResult();
+        LastStatus = resp is { Ok: true } ? resp.Status : null;
         return resp is { Ok: true };
     }
+
+    /// <summary>The last Status answer (caller + effective tier as the service sees this process); null when the service did not answer.</summary>
+    public static ServiceStatus? LastStatus { get; private set; }
 
     public static ServiceRequest Profile(Model.Profile p, string? adapter = null) => new(ServiceProtocol.Version, RequestKind.ApplyProfile) { Profile = p, Adapter = adapter };
     public static ServiceRequest Managed(string profileId, string? adapter = null) => new(ServiceProtocol.Version, RequestKind.ApplyProfile) { ProfileId = profileId, Adapter = adapter };

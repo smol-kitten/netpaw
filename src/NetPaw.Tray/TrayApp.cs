@@ -630,6 +630,7 @@ sealed class TrayApp : ApplicationContext
         var current = w is null ? null : _svc.Profiles.FirstOrDefault(p => ApplyPlanner.Matches(p, w));
         var text = w is null ? "NetPaw — no adapter" : $"NetPaw — {w.Name}: {(current?.Name is { } n ? n + " · " : "")}{w.Summary()}{(_snapshot is { ChecksEnabled: true } ? " · " + Snapshot.Describe(_snapshot.State) : "")}";
         if (ChangeMode == ChannelMode.User) text += " · read-only (no service)";
+        else if (ChangeMode == ChannelMode.Service && ServiceChange.LastStatus?.Tier is { } tier) text += $" · tier {tier}";   // G12: the tier the service will gate you at
         _tray.Text = text.Length > 127 ? text[..124] + "…" : text;
         _panel?.RefreshHeader();
     }

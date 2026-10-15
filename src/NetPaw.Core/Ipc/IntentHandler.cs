@@ -68,7 +68,7 @@ public sealed class IntentHandler(NetPawService svc, string journalDirectory, Ac
             {
                 var overrides = _policy.Resolve();
                 if (!_policy.Decide(IntentFor(r.Kind), callerTier, overrides, caller).Allowed)
-                    throw new Rejected($"{r.Kind} needs tier {PolicyTiers.Required(IntentFor(r.Kind), overrides)} or higher; you are {callerTier}");
+                    throw new Rejected($"{r.Kind} needs tier {PolicyTiers.Required(IntentFor(r.Kind), overrides)} or higher; you are {callerTier} (the audit line is in the Application event log, source NetPaw: 'tier decision')");
                 svc.Reload();
                 var report = r.Kind switch
                 {

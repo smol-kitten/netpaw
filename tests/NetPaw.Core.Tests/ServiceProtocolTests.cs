@@ -78,5 +78,15 @@ public class ServiceProtocolTests
         Assert.NotNull(back.Status);
         Assert.Equal(@"PC\anna", back.Status!.Caller);
         Assert.Equal(2, back.Status.CallerSession);
+        Assert.Null(back.Status.Tier);   // a 0.14/0.15 service answers without a tier
+    }
+
+    [Fact]
+    public void Status_carries_the_effective_tier()
+    {
+        var wire = ServiceProtocol.Encode(new ServiceResponse(ServiceProtocol.Version, true, Status: new("0.16.0", 1, @"PC\anna", 2, "NetworkConfigOperators")));
+        var back = System.Text.Json.JsonSerializer.Deserialize<ServiceResponse>(wire, ServiceProtocol.Json)!;
+        Assert.Equal("NetworkConfigOperators", back.Status!.Tier);
+        Assert.Contains("\"tier\":\"NetworkConfigOperators\"", System.Text.Encoding.UTF8.GetString(wire));
     }
 }
