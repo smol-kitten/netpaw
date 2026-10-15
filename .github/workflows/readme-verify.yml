@@ -2,6 +2,8 @@
 # (generated from .claude/readme-claims.json by `pawkit readmecheck extract --write`). Runs on PRs that
 # touch the README, docs or the build, and on release tags. Self-hosted runner: python3 + dotnet only.
 name: readme-verify
+permissions:
+  contents: read
 on:
   pull_request:
     paths: ["README.md", "docs/**", "scripts/readme-verify.py", ".claude/readme-claims.json", "src/**", "**/*.csproj"]
