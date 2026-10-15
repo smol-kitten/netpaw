@@ -122,11 +122,11 @@ public class SelectorTests
         var all = AdapterSelector.TagVSwitchUplinks(
         [
             Fx.Nic("Ethernet", "Intel X550", addrs: null, gw: null),                                              // bound to the external switch
-            Fx.Nic("vEthernet (UwU)", "Hyper-V Virtual Ethernet Adapter #2", physical: false, dhcp: true, addrs: ["10.10.0.42/24"], gw: "10.10.0.1", hyperv: true),
+            Fx.Nic("vEthernet (Lab)", "Hyper-V Virtual Ethernet Adapter #2", physical: false, dhcp: true, addrs: ["192.0.2.42/24"], gw: "192.0.2.1", hyperv: true),
             Fx.Nic("vEthernet (Default Switch)", "Hyper-V Virtual Ethernet Adapter", physical: false, addrs: ["172.30.0.1/28"], gw: null, hyperv: true),
         ]);
         Assert.True(all[0].VSwitchUplink);
-        Assert.Equal("vEthernet (UwU)", AdapterSelector.Pick(all, null)!.Name);
+        Assert.Equal("vEthernet (Lab)", AdapterSelector.Pick(all, null)!.Name);
     }
 
     [Fact]

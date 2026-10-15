@@ -14,7 +14,7 @@ public class IntentWatcherTests
     static readonly DateTimeOffset T0 = new(2026, 9, 16, 14, 0, 0, TimeSpan.Zero);
     static IntentWatcher W() => new(ownPid: 999, pid => pid == 4242 ? "msedge" : null);
     static int _lp = 50000;
-    static TcpEndpoint E(string remote, int port = 80, int pid = 4242, int localPort = 0) => new(remote, port, pid, "10.10.20.50", localPort == 0 ? ++_lp : localPort);
+    static TcpEndpoint E(string remote, int port = 80, int pid = 4242, int localPort = 0) => new(remote, port, pid, "198.51.100.50", localPort == 0 ? ++_lp : localPort);
 
     [Fact]
     public void HandshakeNoiseIsNotStuckButTwoSamplesAre()
@@ -67,10 +67,10 @@ public class IntentWatcherTests
     [Fact]
     public void ClassifiesOnLinkSilentViaArpAndOffLinkNoReply()
     {
-        var nic = Fx.Nic(dhcp: true, addrs: ["10.10.20.50/24"], gw: "10.10.20.1");
-        Assert.Equal(StuckKind.OnLinkSilent, IntentWatcher.Classify("10.10.20.77", nic, []));
-        Assert.Equal(StuckKind.OnLinkSilent, IntentWatcher.Classify("10.10.20.77", nic, [new ArpEntry("10.10.20.77", "00-00-00-00-00-00", "invalid", null)]));
-        Assert.Equal(StuckKind.OffLinkNoReply, IntentWatcher.Classify("10.10.20.77", nic, [new ArpEntry("10.10.20.77", "bc-24-11-00-00-77", "dynamic", null)]));   // ARP answered: the host is there, the port is silent
+        var nic = Fx.Nic(dhcp: true, addrs: ["198.51.100.50/24"], gw: "198.51.100.1");
+        Assert.Equal(StuckKind.OnLinkSilent, IntentWatcher.Classify("198.51.100.77", nic, []));
+        Assert.Equal(StuckKind.OnLinkSilent, IntentWatcher.Classify("198.51.100.77", nic, [new ArpEntry("198.51.100.77", "00-00-00-00-00-00", "invalid", null)]));
+        Assert.Equal(StuckKind.OffLinkNoReply, IntentWatcher.Classify("198.51.100.77", nic, [new ArpEntry("198.51.100.77", "02-00-00-00-00-77", "dynamic", null)]));   // ARP answered: the host is there, the port is silent
         Assert.Equal(StuckKind.OffLinkNoReply, IntentWatcher.Classify("192.168.88.1", nic, []));
         Assert.Equal(StuckKind.OffLinkNoReply, IntentWatcher.Classify("192.168.88.1", null, []));
     }
@@ -78,7 +78,7 @@ public class IntentWatcherTests
     [Fact]
     public void RecommendsProfilePresetOrTempAndAdvisoryNamesThem()
     {
-        var nic = Fx.Nic(dhcp: true, addrs: ["10.10.20.50/24"], gw: "10.10.20.1");
+        var nic = Fx.Nic(dhcp: true, addrs: ["198.51.100.50/24"], gw: "198.51.100.1");
         var lab = Fx.Static("MikroTik lab", "192.168.88.1", "192.168.88.5/24");
         var presets = new[] { new Preset { Vendor = "Ubiquiti", Model = "EdgeRouter", Ip = "192.168.1.1", Prefix = 24 } };
         var w = W();
@@ -98,7 +98,7 @@ public class IntentWatcherTests
         var uAdv = Advisor.FromStuck(u, T0);
         Assert.Equal(AdvisorySeverity.Info, uAdv.Severity); Assert.Contains("'reach 172.31.9.9' adds a temporary address", uAdv.Text); Assert.Equal(RepairKind.Reach, uAdv.Repair);
 
-        var here = w.Describe(E("10.10.20.77"), T0, nic, [], [], []);
+        var here = w.Describe(E("198.51.100.77"), T0, nic, [], [], []);
         Assert.Equal(StuckKind.OnLinkSilent, here.Kind); Assert.Equal(ReachKind.AlreadyReachable, here.Decision.Kind);
         var hAdv = Advisor.FromStuck(here, T0);
         Assert.Contains("down, or on another VLAN", hAdv.Text); Assert.Equal(RepairKind.None, hAdv.Repair);

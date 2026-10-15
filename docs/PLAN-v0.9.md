@@ -105,7 +105,7 @@ the admin already looks: reach mode, info card rows, advisor findings, network m
 
 ## Verification
 - `dotnet test tests/NetPaw.Core.Tests` ≥ 171 tests, 0 failed.
-- CLI on the VM: `netpaw-cli check 10.10.10.1:22` → "open 1 ms", rc 0. `check 10.10.10.1:23`
+- CLI on the VM: `netpaw-cli check 203.0.113.1:22` → "open 1 ms", rc 0. `check 203.0.113.1:23`
   → "refused" rc 1. `trace 1.1.1.1` prints ≥ 3 hops. `diag C:\t.zip` → zip lists 8 entries.
 - Info card with checks on: DNS row names each server with ✓/✗ after pointing DNS 2 at a dead
   address (`netpaw-cli apply` a profile with `dns: [10.0.0.53, 10.0.0.99]`).

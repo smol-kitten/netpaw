@@ -4,7 +4,7 @@ using Xunit;
 namespace NetPaw.Tests;
 
 /// <summary>The privileged-caller decision (docs/PLAN-v0.14.md). The token reading is Windows-only and is
-/// exercised on the pawsktop VM; this covers the rule: a group counts only when enabled, not deny-only, and
+/// exercised on a Windows 11 test VM; this covers the rule: a group counts only when enabled, not deny-only, and
 /// one of the privileged SIDs.</summary>
 public class CallerPrivilegeTests
 {

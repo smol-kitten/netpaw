@@ -16,28 +16,28 @@ sealed class FakeWol : IWol
 public class WolRoutesTests
 {
     [Theory]
-    [InlineData("bc:24:11:2f:f7:33", true)]
-    [InlineData("BC-24-11-2F-F7-33", true)]
-    [InlineData("bc24.112f.f733", true)]
-    [InlineData("bc2411 2ff733", false)]
-    [InlineData("bc:24:11:2f:f7", false)]
+    [InlineData("02:00:00:2f:f7:33", true)]
+    [InlineData("02-00-00-2F-F7-33", true)]
+    [InlineData("0200.002f.f733", true)]
+    [InlineData("020000 2ff733", false)]
+    [InlineData("02:00:00:2f:f7", false)]
     [InlineData("zz:24:11:2f:f7:33", false)]
     public void WolParsesMacForms(string text, bool ok)
     {
         Assert.Equal(ok, WakeOnLan.TryParseMac(text, out var mac));
-        if (ok) Assert.Equal(new byte[] { 0xBC, 0x24, 0x11, 0x2F, 0xF7, 0x33 }, mac);
+        if (ok) Assert.Equal(new byte[] { 0x02, 0x00, 0x00, 0x2F, 0xF7, 0x33 }, mac);
     }
 
     [Fact]
     public async Task MagicPacketLayoutAndTargets()
     {
         var wol = new FakeWol();
-        await WakeOnLan.Wake(wol, "bc:24:11:2f:f7:33", IpAddr.Parse("10.10.20.50/24"));
+        await WakeOnLan.Wake(wol, "02:00:00:2f:f7:33", IpAddr.Parse("198.51.100.50/24"));
         var (packet, targets) = Assert.Single(wol.Sent);
         Assert.Equal(102, packet.Length);
         Assert.All(packet.Take(6), b => Assert.Equal(0xFF, b));
-        for (var i = 0; i < 16; i++) Assert.Equal(new byte[] { 0xBC, 0x24, 0x11, 0x2F, 0xF7, 0x33 }, packet.Skip(6 + i * 6).Take(6));
-        Assert.Equal(["255.255.255.255:9", "10.10.20.255:9"], targets.Select(t => t.ToString()));
+        for (var i = 0; i < 16; i++) Assert.Equal(new byte[] { 0x02, 0x00, 0x00, 0x2F, 0xF7, 0x33 }, packet.Skip(6 + i * 6).Take(6));
+        Assert.Equal(["255.255.255.255:9", "198.51.100.255:9"], targets.Select(t => t.ToString()));
         Assert.Single(WakeOnLan.Targets(null));                                                     // no subnet known: global only
         Assert.Single(WakeOnLan.Targets(IpAddr.Parse("10.0.0.1/32")));                              // /32 has no broadcast
         await Assert.ThrowsAsync<FormatException>(() => WakeOnLan.Wake(wol, "nope", null));
