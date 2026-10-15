@@ -41,7 +41,11 @@ public sealed class PipeServer(Action<string> log, IntentHandler? intents = null
         using var slots = new SemaphoreSlim(MaxConcurrent);
         // FirstPipeInstance on the first create: if any other process already owns \\.\pipe\NetPaw (a squatter
         // while the service was stopped), creating fails and the service stops loudly instead of joining a pipe
-        // whose DACL someone else chose.
+        // whose DACL someone else chose. Deliberately NOT on later instances: the flag means "fail if the pipe
+        // exists", so it would refuse our own second instance. Squatting BETWEEN instances is prevented by the
+        // DACL instead: clients get ReadWrite|Synchronize only, never CreateNewInstance (audit G3; verify-windows
+        // proves both: a client cannot add an instance, and an SMB-loopback open carries the NETWORK SID and is
+        // denied).
         var first = true;
         log($"listening on \\\\.\\pipe\\{ServiceProtocol.PipeName}");
         while (!stop.IsCancellationRequested)
