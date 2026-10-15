@@ -20,6 +20,12 @@ public static class CallerPrivilege
     public const string AdministratorsSid = "S-1-5-32-544";
     public const string NetworkConfigurationOperatorsSid = "S-1-5-32-556";
     public static readonly string[] PrivilegedSids = [AdministratorsSid, NetworkConfigurationOperatorsSid];
+    /// <summary>NETWORK (S-1-5-2): present in the token of a network logon, which is what an SMB open of the pipe
+    /// (remote or loopback) is supposed to produce. Logged per request so the pipe's NETWORK deny can be measured.</summary>
+    public const string NetworkSid = "S-1-5-2";
+
+    /// <summary>True when the token carries the NETWORK SID at all (enabled or deny-only: a deny ACE matches both).</summary>
+    public static bool IsNetworkLogon(IEnumerable<(string Sid, uint Attributes)> groups) => groups.Any(g => g.Sid == NetworkSid);
 
     public static bool IsPrivileged(IEnumerable<(string Sid, uint Attributes)> groups, IReadOnlyCollection<string>? privilegedSids = null)
     {

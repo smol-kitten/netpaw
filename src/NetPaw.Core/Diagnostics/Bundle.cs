@@ -27,12 +27,12 @@ public static class Bundle
         void FileIfExists(string path, string name) { if (File.Exists(path)) Text(name, File.ReadAllText(path)); }
 
         Text("README.txt", $"NetPaw diagnostics\r\nmachine: {machine}\r\nnetpaw: {version}\r\nwindows: {Environment.OSVersion}\r\ntaken: {now:O}\r\n\r\nContains addresses and adapter names by design. Credentials are redacted.\r\n");
-        Command("ipconfig-all.txt", "ipconfig", "/all");
-        Command("routes.txt", "netsh", "interface ipv4 show route");
-        Command("interfaces.txt", "netsh", "interface ipv4 show interfaces");
-        Command("netsh-config.txt", "netsh", "interface ipv4 show config");
-        Command("arp.txt", "arp", "-a");
-        Command("dns-cache.txt", "ipconfig", "/displaydns");
+        Command("ipconfig-all.txt", NetPaw.Planning.SystemTool.Resolve("ipconfig"), "/all");
+        Command("routes.txt", NetPaw.Planning.SystemTool.Resolve("netsh"), "interface ipv4 show route");
+        Command("interfaces.txt", NetPaw.Planning.SystemTool.Resolve("netsh"), "interface ipv4 show interfaces");
+        Command("netsh-config.txt", NetPaw.Planning.SystemTool.Resolve("netsh"), "interface ipv4 show config");
+        Command("arp.txt", NetPaw.Planning.SystemTool.Resolve("arp"), "-a");
+        Command("dns-cache.txt", NetPaw.Planning.SystemTool.Resolve("ipconfig"), "/displaydns");
         Text("adapters.json", JsonSerializer.Serialize(adapters, JsonStore.Json));
         Text("settings.json", Redact(File.Exists(store.SettingsFile) ? File.ReadAllText(store.SettingsFile) : JsonSerializer.Serialize(settings, JsonStore.Json)));
         FileIfExists(store.ProfilesFile, "profiles.json");

@@ -16,14 +16,15 @@ public sealed record PolicyDecision(PolicyIntent Intent, Tier Required, Tier Cal
 /// </summary>
 public interface ITierPolicySource
 {
-    (IReadOnlyDictionary<PolicyIntent, Tier> Overrides, bool Valid) Read();
+    /// <summary>Reason: why the policy is invalid, for the log (e.g. "PolicySchemaVersion 2 unsupported, this build: 1"); null when valid.</summary>
+    (IReadOnlyDictionary<PolicyIntent, Tier> Overrides, bool Valid, string? Reason) Read();
 }
 
 /// <summary>No machine policy configured: valid, no overrides, so the default table (= today) applies. The
 /// default when the service wires no real source, and in tests.</summary>
 public sealed class EmptyPolicySource : ITierPolicySource
 {
-    public (IReadOnlyDictionary<PolicyIntent, Tier>, bool) Read() => (new Dictionary<PolicyIntent, Tier>(), true);
+    public (IReadOnlyDictionary<PolicyIntent, Tier>, bool, string?) Read() => (new Dictionary<PolicyIntent, Tier>(), true, null);
 }
 
 /// <summary>
@@ -59,6 +60,19 @@ public sealed class PolicyTiers
         [PolicyIntent.VirtualUnlock] = Tier.NetworkConfigOperators,
     };
 
+    /// <summary>The policy schema this build understands. An optional <c>PolicySchemaVersion</c> value in the
+    /// policy key names the schema an admin wrote the policy for; a value this build does not know makes the
+    /// whole policy INVALID (so last-known-good or the defaults apply) instead of silently ignoring tiers it
+    /// cannot interpret (G9-lite, t-e38207). Absent = 1.</summary>
+    public const int SchemaVersion = 1;
+
+    /// <summary>True when the policy's schema marker is absent or names this build's schema.</summary>
+    public static bool SchemaSupported(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return true;
+        return int.TryParse(value.Trim(), out var v) && v == SchemaVersion;
+    }
+
     public static Tier DefaultFor(PolicyIntent i) => Defaults[i];
     public static Tier FloorFor(PolicyIntent i) => Floors.GetValueOrDefault(i, Tier.StandardUser);
 
@@ -77,12 +91,15 @@ public sealed class PolicyTiers
     /// last-known-good cache, else none (= defaults). Read once per request by the handler.</summary>
     public IReadOnlyDictionary<PolicyIntent, Tier> Resolve()
     {
-        var (overrides, valid) = _source.Read();
+        var (overrides, valid, reason) = _source.Read();
         if (valid)
         {
             WriteCache(overrides);
+            _lastReason = null;
             return overrides;
         }
+        // The reason is logged once per change, not once per request (review of #98).
+        if (reason != _lastReason) { _audit("policy invalid: " + (reason ?? "unreadable")); _lastReason = reason; }
         var cached = ReadCache();
         if (cached is not null)
         {
@@ -131,6 +148,7 @@ public sealed class PolicyTiers
 
     static readonly IReadOnlyDictionary<PolicyIntent, Tier> EmptyOverrides = new Dictionary<PolicyIntent, Tier>();
     string? _lastWritten;   // the JSON last persisted, so the cache is rewritten only when the policy changes
+    string? _lastReason;    // the last invalid-policy reason logged, so it is logged once per change
 
     void WriteCache(IReadOnlyDictionary<PolicyIntent, Tier> overrides)
     {

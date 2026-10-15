@@ -104,6 +104,10 @@ static class Startup
     /// <summary>The change-request handler over the machine's service store; reports an apply that a crash interrupted.</summary>
     public static IntentHandler Intents(Action<string> log)
     {
+        // G1: the service never searches PATH and never runs a binary from outside System32.
+        NetPaw.Planning.SystemTool.Strict = true;
+        // Environment.SystemDirectory redirects to SysWOW64 in a 32-bit process; the service is x64-only.
+        if (!Environment.Is64BitProcess) throw new InvalidOperationException("the NetPaw service must run as a 64-bit process");
         var root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "NetPaw");
         var dir = ServiceFolder.Ensure(root, log);
         // PR 4 tiers: read HKLM policy, cache the last-known-good in the (SYSTEM/Admins-owned) service folder, audit to the log.

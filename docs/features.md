@@ -115,3 +115,21 @@ feature is in [usage.md](usage.md).
 - **Telemetry only if you pick it** — the normal build contains no telemetry code. The `-telemetry` MSI
   adds crash reports, anonymous usage counts, and OTLP/HTTP logs and RFC 5424 syslog to your own
   collector. See [TELEMETRY.md](TELEMETRY.md).
+
+## Limitations
+
+**IPv4 only.** Every change NetPaw makes goes through `netsh interface ipv4` (addresses, gateway, DNS,
+routes) and `ipconfig /release` / `/renew`, which are IPv4 commands. NetPaw never runs `netsh interface
+ipv6` and never touches an adapter's IPv6 configuration. The status, reach, scan and routes views show
+IPv4 as well; a network that hands out addresses only by router advertisement reads as "no address".
+
+**The IPv6 DNS caveat.** On a dual-stack network the adapter keeps the IPv6 DNS servers it learned from
+router advertisements (RDNSS) or DHCPv6. A profile with static DNS replaces only the IPv4 resolver list,
+and Windows can send queries to the interface's IPv6 resolvers as well. So "this profile pins my DNS"
+holds for IPv4 only: on dual-stack, queries can still reach the network's own resolver over IPv6. If that
+matters (a lab resolver, a filtering resolver, a split-horizon name), either the network's IPv6 resolvers
+must be acceptable too, or IPv6 must be unbound from that adapter by hand (adapter properties, or
+`Disable-NetAdapterBinding -ComponentID ms_tcpip6`). NetPaw does not do this for you and does not warn.
+
+Whether 1.0 adds IPv6 (address, DNS, routes, reach) or stays IPv4-only with this caveat documented is an
+open decision in [PLAN-v1.0.md](PLAN-v1.0.md) (G6).
