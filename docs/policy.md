@@ -35,6 +35,13 @@ Set per-intent overrides under `HKLM\Software\Policies\NetPaw`, one string value
   (A managed, admin-defined profile may always target a virtual adapter it lists, independent of this.)
 - Every other intent has an implicit floor of StandardUser.
 
+## Schema version
+
+An optional string value `PolicySchemaVersion` under the same key names the schema the policy was written
+for. This build understands `1`. A missing value is treated as `1` — a deliberate compatibility exception, so
+policies written before the marker existed stay valid. Any other value makes the whole policy invalid, so the
+last-known-good policy (or, with none, the defaults) applies — a newer policy is never half-applied.
+
 ## Fail-closed behaviour
 
 The last policy that read cleanly is cached to a SYSTEM/Administrators-only file in the service store. If the

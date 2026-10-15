@@ -14,28 +14,31 @@ public sealed class RegistryPolicySource : ITierPolicySource
 {
     const string KeyPath = @"Software\Policies\NetPaw";
 
-    public (IReadOnlyDictionary<PolicyIntent, Tier>, bool) Read()
+    public (IReadOnlyDictionary<PolicyIntent, Tier>, bool, string?) Read()
     {
         var empty = (IReadOnlyDictionary<PolicyIntent, Tier>)new Dictionary<PolicyIntent, Tier>();
-        if (!OperatingSystem.IsWindows()) return (empty, true);
+        if (!OperatingSystem.IsWindows()) return (empty, true, null);
         try
         {
             using var key = Registry.LocalMachine.OpenSubKey(KeyPath);
-            if (key is null) return (empty, true);   // no policy configured -> defaults
+            if (key is null) return (empty, true, null);   // no policy configured -> defaults
+            // G9-lite: a policy written for a schema this build does not know is invalid as a whole (fail closed).
+            var schema = key.GetValue("PolicySchemaVersion")?.ToString();
+            if (!PolicyTiers.SchemaSupported(schema)) return (empty, false, $"PolicySchemaVersion {schema} unsupported, this build: {PolicyTiers.SchemaVersion}");
             var overrides = new Dictionary<PolicyIntent, Tier>();
             foreach (var intent in Enum.GetValues<PolicyIntent>())
             {
                 var raw = key.GetValue("Tier." + intent);
                 if (raw is null) continue;
                 if (raw is not string s || !PolicyTiers.TryParseTier(s, out var tier))
-                    return (empty, false);           // present but malformed (number, comma, unknown) -> invalid -> last-known-good
+                    return (empty, false, $"Tier.{intent} = '{raw}' is not a tier name");   // malformed -> invalid -> last-known-good
                 overrides[intent] = tier;
             }
-            return (overrides, true);
+            return (overrides, true, null);
         }
         catch (Exception ex) when (ex is System.Security.SecurityException or UnauthorizedAccessException or IOException)
         {
-            return (empty, false);                   // unreadable -> invalid -> last-known-good
+            return (empty, false, "policy key unreadable: " + ex.Message);   // unreadable -> invalid -> last-known-good
         }
     }
 }

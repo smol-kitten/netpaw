@@ -329,7 +329,7 @@ public class IntentHandlerTests
 
     sealed class InlineSource(IReadOnlyDictionary<PolicyIntent, Tier> o) : ITierPolicySource
     {
-        public (IReadOnlyDictionary<PolicyIntent, Tier>, bool) Read() => (o, true);
+        public (IReadOnlyDictionary<PolicyIntent, Tier>, bool, string?) Read() => (o, true, null);
     }
 
     [Fact]
