@@ -393,7 +393,9 @@ jobs:
           $allow = @($rules | Where-Object AccessControlType -eq 'Allow' | ForEach-Object { $_.IdentityReference.Value }) | Sort-Object -Unique
           $deny  = @($rules | Where-Object AccessControlType -eq 'Deny'  | ForEach-Object { $_.IdentityReference.Value }) | Sort-Object -Unique
           "`npipe DACL: ``$($acl.GetSecurityDescriptorSddlForm('Access'))``" >> $env:GITHUB_STEP_SUMMARY
-          $want = @('S-1-5-18', 'S-1-5-32-544', 'S-1-5-32-556', 'S-1-5-4') | Sort-Object
+          # S-1-5-80-…: NT SERVICE\NetPaw (G2). The service's own SID must be on the pipe DACL: creating a further instance
+          # is an access check against the first instance's DACL in the service's own token (VM-measured, #99).
+          $want = @('S-1-5-18', 'S-1-5-32-544', 'S-1-5-32-556', 'S-1-5-4', 'S-1-5-80-1980658030-2288844445-358357802-3596226333-3204242621') | Sort-Object
           if (Compare-Object $allow $want) { throw "pipe allows $($allow -join ','), expected $($want -join ',')" }
           if (Compare-Object $deny @('S-1-5-2')) { throw "pipe denies $($deny -join ','), expected NETWORK (S-1-5-2) only" }
           # A fresh standard user (Users only) reaches the service through INTERACTIVE and is named correctly.
