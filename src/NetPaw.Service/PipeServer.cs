@@ -81,7 +81,7 @@ public sealed class PipeServer(Action<string> log, IntentHandler? intents = null
             var caller = Caller.Of(pipe);
             var (req, err) = ServiceProtocol.ParseRequest(line);
             reply = req is null ? ServiceResponse.Fail(err!) : Handle(req, caller);
-            log($"{req?.Kind.ToString() ?? "invalid"} from {caller.User} (session {caller.Session}): {(reply.Ok ? "ok" : reply.Error)}");
+            log($"{req?.Kind.ToString() ?? "invalid"} from {caller.User} (session {caller.Session}{(caller.Network ? ", network logon" : "")}): {(reply.Ok ? "ok" : reply.Error)}");
         }
         catch (Exception ex)
         {
@@ -106,7 +106,8 @@ public sealed class PipeServer(Action<string> log, IntentHandler? intents = null
 }
 
 /// <summary>The identity behind a pipe connection, read from Windows, never from the request body.</summary>
-public sealed record Caller(string User, int Session, int ProcessId, NetPaw.Ipc.Tier Tier)
+/// <param name="Network">The token carries the NETWORK SID (an SMB open). Logged, never used for a decision: the pipe ACL denies NETWORK.</param>
+public sealed record Caller(string User, int Session, int ProcessId, NetPaw.Ipc.Tier Tier, bool Network = false)
 {
     public static Caller Of(NamedPipeServerStream pipe)
     {
@@ -115,14 +116,15 @@ public sealed record Caller(string User, int Session, int ProcessId, NetPaw.Ipc.
         GetNamedPipeClientProcessId(pipe.SafePipeHandle, out var pid);   // for the log only
         SecurityIdentifier? sid = null;
         var tier = NetPaw.Ipc.Tier.StandardUser;   // fail closed to least privilege if the token read fails
+        var network = false;
         // The client connects at Identification level: enough to read its token, not to act as it. WindowsIdentity
         // refuses such a token ("cannot be duplicated"), so the SID and group membership are read from the token.
-        pipe.RunAsClient(() => { sid = ThreadTokenUser(); tier = ClientTier(); });
+        pipe.RunAsClient(() => { sid = ThreadTokenUser(); (tier, network) = ClientTier(); });
         if (sid is null) throw new UnauthorizedAccessException("cannot read the caller's user");
         string user;
         try { user = sid.Translate(typeof(NTAccount)).Value; }
         catch (IdentityNotMappedException) { user = sid.Value; }
-        return new Caller(user, (int)session, (int)pid, tier);
+        return new Caller(user, (int)session, (int)pid, tier, network);
     }
 
     // Read the caller's token groups (SID + attributes) and let CallerPrivilege decide the tier. The groups come
@@ -131,17 +133,17 @@ public sealed record Caller(string User, int Session, int ProcessId, NetPaw.Ipc.
     // elevated admin as a non-member there, which wrongly refused every privileged intent). OpenThreadToken runs
     // inside RunAsClient (which impersonates the client and reverts in a finally), with OpenAsSelf so the
     // service's own privileges open the thread token, never the client's.
-    static NetPaw.Ipc.Tier ClientTier()
+    static (NetPaw.Ipc.Tier, bool Network) ClientTier()
     {
         const uint TokenQuery = 0x0008; const int TokenGroupsClass = 2;
-        if (!OpenThreadToken(GetCurrentThread(), TokenQuery, openAsSelf: true, out var token)) return NetPaw.Ipc.Tier.StandardUser;
+        if (!OpenThreadToken(GetCurrentThread(), TokenQuery, openAsSelf: true, out var token)) return (NetPaw.Ipc.Tier.StandardUser, false);
         try
         {
             GetTokenInformation(token, TokenGroupsClass, IntPtr.Zero, 0, out var size);
             var buf = Marshal.AllocHGlobal(size);
             try
             {
-                if (!GetTokenInformation(token, TokenGroupsClass, buf, size, out _)) return NetPaw.Ipc.Tier.StandardUser;
+                if (!GetTokenInformation(token, TokenGroupsClass, buf, size, out _)) return (NetPaw.Ipc.Tier.StandardUser, false);
                 var count = Marshal.ReadInt32(buf);
                 var entry = IntPtr.Add(buf, IntPtr.Size);   // TOKEN_GROUPS: DWORD GroupCount; then SID_AND_ATTRIBUTES[] (8-aligned)
                 var read = new List<(string, uint)>(count);
@@ -152,7 +154,7 @@ public sealed record Caller(string User, int Session, int ProcessId, NetPaw.Ipc.
                     read.Add((new SecurityIdentifier(sidPtr).Value, attr));
                     entry = IntPtr.Add(entry, 2 * IntPtr.Size);   // SID_AND_ATTRIBUTES = PSID (IntPtr) + DWORD padded to pointer size = 2*IntPtr.Size (16 on x64, 8 on x86)
                 }
-                return NetPaw.Ipc.CallerPrivilege.TierOf(read);
+                return (NetPaw.Ipc.CallerPrivilege.TierOf(read), NetPaw.Ipc.CallerPrivilege.IsNetworkLogon(read));
             }
             finally { Marshal.FreeHGlobal(buf); }
         }
