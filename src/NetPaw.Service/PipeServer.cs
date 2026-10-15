@@ -119,9 +119,9 @@ public sealed class PipeServer(Action<string> log, IntentHandler? intents = null
 /// <param name="Network">The token carries the NETWORK SID (an SMB open). Logged, never used for a decision: the pipe ACL denies NETWORK.</param>
 public sealed record Caller(string User, int Session, int ProcessId, NetPaw.Ipc.Tier Tier, bool Network = false)
 {
-    const int ERROR_PIPE_LOCAL = 2250;
+    const int ERROR_PIPE_LOCAL = 229;   // 0xE5. Measured on run 38810136288: every local client reports 229 (2250 is ERROR_NOT_CONNECTED).
 
-    /// <summary>Null for a local client (the only accepted case: ERROR_PIPE_LOCAL). Otherwise the client's computer
+    /// <summary>Null for a local client (the only accepted case: ERROR_PIPE_LOCAL, 229). Otherwise the client's computer
     /// name as Windows reports it, or "unknown (error N)" when the query fails for any other reason: fail closed.</summary>
     public static string? RemoteComputer(NamedPipeServerStream pipe)
     {
