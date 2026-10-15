@@ -1,143 +1,160 @@
 # Plan: NetPaw 0.15 → 1.0
 
-For orchestrator review before any 0.15 code. Short sentences on purpose. Source: the operator's
-2026-10-15 directive and the audit page `netpaw-audit-2026-10` (14 gaps G1–G14 as tasks).
+For the orchestrator's review (revision 2 after GO-WITH-CHANGES, m-5784). Short sentences on purpose.
+Sources: the operator's 2026-10-15 directive; the audit page .claude/wiki/netpaw-audit-2026-10.md (`wiki.py get netpaw-audit-2026-10 --scope netpaw`), which holds the gap list G1–G16.
 
 ## Goal
 
-Ship v0.14.0 now, then a 0.15 QoL + cheap-safety release, then close the audit gaps on the way to a
-1.0 that an enterprise can deploy, verify and roll back with confidence.
+Ship v0.14.0 now. Then small themed releases that close the audit gaps, up to a 1.0 that an enterprise
+can deploy, verify, update and roll back with confidence.
 
 ## Given state (measured 2026-10-15)
 
-- v0.13.3 is the public stable. v0.14.0-rc.2 (main @2388025) is verified: CI incl. verify-windows on the
-  tag run, the VM pass of 2026-10-12, the orchestrator's check (m-5066), and the operator's go. Evidence is
-  listed in the audit page `netpaw-audit-2026-10`, section "Validation evidence".
-  All v0.14 code gates are merged (#85 service + asInvoker tray, #86 artifacts, #87 appliesTo, #88 policy
-  tiers, #89 user-mode UI). #89 is not in rc.2.
+- v0.13.3 is the public stable. v0.14.0-rc.2 is commit 2388025 on main. It is verified: CI incl.
+  verify-windows on the rc.2 tag run, the VM pass of 2026-10-12, the orchestrator's check (m-5066), the
+  operator's go. Evidence: audit page, "Validation evidence". Commits after 2388025 on main (#89 user-mode
+  UI, #90 doc ranges, #91 hardening nits) are NOT in rc.2 and ride 0.15; a tag at 2388025 is the rc.2
+  tree exactly, and the tag's own CI run re-verifies it. Later merges to main do not change a tag.
+- CI runners: build/sign/release on self-hosted n4; MSI build and verify-windows on GitHub-hosted
+  windows-latest. n4 has quiet hours 16–24 Berlin.
 - Audit: the core is strong (typed intents, pipe DACL + Identification + SCM-PID, TOKEN_GROUPS tiers,
-  floor + last-known-good, handle-based profiles.d gate, Event Log audit, signed releases). Gaps: G1–G14.
-- secscan: 0 secrets. #90 (public-repo addressing) and #91 (two hardening nits) are open.
+  floor + last-known-good, handle-based profiles.d gate, Event Log audit, UpdateTrust-verified updates,
+  signed releases). Gaps G1–G16 are tasks in scope netpaw. G14 is closed by fleet policy (first-party
+  reusable-workflow tags are immutable by ruleset; exact-tag pinning accepted; SHA only for third-party).
+- secscan: 0 secrets; #91 fixes the two real items.
+- Stale docs on main: README.md:149 "No drivers, no service"; docs/ENTERPRISE.md:28 "No service, no
+  scheduled task"; docs/signed-release.md rollback names v0.12.2 and omits "uninstall first"
+  (MajorUpgrade refuses downgrades).
 
 ## Requirements (from the operator)
 
-R1. Release 0.14 now. R2. Release a 0.15 with a QoL set. R3. A 1.0 release plan and feature set.
-R4. Validate functionality and ensure safety at each step. R5. Keep the fleet rules: branch → PR → merge,
-security PRs get the orchestrator's review, no `v*` tag without the orchestrator's OK, final = a verified rc.
+R1 Release 0.14 now. R2 Release a 0.15 with a QoL set. R3 A 1.0 plan and feature set. R4 Validate
+functionality and ensure safety at each step. R5 Fleet rules: branch → PR → merge; security PRs get
+the orchestrator's review; no `v*` tag without the orchestrator's OK; a final equals a verified rc.
 
 ## Options considered
 
-- 0.14.0 from main head (includes #89): needs an rc.3 cycle. Rejected: delays R1 for a UI nicety.
-- Fold the cheap safety items (G1–G3) into 0.14.0: changes the verified build. Rejected: final must equal
-  the verified rc. They go to 0.15.
-- One big 1.0 PR chain: rejected. Each gap is its own reviewable PR; 0.15/0.16/0.17 are cut as they land.
+- 0.14.0 from main head (includes #89–#91): needs an rc.3. Rejected: delays R1 for non-security items.
+- Fold G1–G3 into 0.14.0: changes the verified build. Rejected.
+- One big 1.0 PR chain. Rejected: each gap is its own reviewed PR; releases are cut as themes land.
 
 ## Chosen approach
 
-v0.14.0 = rc.2 re-tagged. Then small releases, each cut only from a verified rc, each with one theme.
+v0.14.0 = the verified rc.2 commit. Then one theme per release, each cut only from a verified rc, each
+item sized S/M/L, each milestone with a rollback line. Who verifies: netpaw (me) measures on CI and the
+VM and records the evidence in the PR body; the orchestrator reviews every security PR before merge; the
+operator verifies each rc before the final tag; the orchestrator gives the tag OK.
 
-## Steps (milestones and their feature sets)
+## Steps
 
 ### M0 — v0.14.0 (now)
-- Tag v0.14.0 at 2388025. The orchestrator's GO is on record (bus m-5760/m-5774, 2026-10-15). Timing rule:
-  the release workflow runs on self-hosted n4 runners, so the tag goes after 00:00 Berlin (quiet hours
-  16–24). Release = latest, signed assets, notes = rc.1+rc.2 changes and known limits. The site promotes
-  0.14.0 as the default install (intended). #90 (documentation ranges in docs/tests) and #91 (two
-  hardening nits) are hygiene PRs, not security-model changes; the orchestrator cleared both to merge on
-  green. The tag is a main commit; no branch state affects it.
+- Tag v0.14.0 at 2388025 after 00:00 Berlin (n4 quiet hours); orchestrator GO on record (m-5760/m-5774).
+  Release = latest, signed assets, notes = rc.1+rc.2 changes and known limits. The site promotes 0.14.0
+  as the default install (intended). (S)
+- Docs-only PR on main, not touching the build: fix the three stale docs above; add "uninstall first,
+  then install the previous MSI" to the rollback recipe. (S)
+- #90 merged; #91 merges on green (hygiene, orchestrator-cleared). (S)
+- Rollback: uninstall 0.14.0, install the 0.13.3 MSI; profiles.d and settings are kept (schema unchanged).
 
-### M1 — v0.15 "QoL + cheap safety" (target: the week after 0.14.0)
-QoL (operator's ask):
-- #89 user-mode UI (already merged) + QuickPanel greying in user mode.
-- G12 t-e69af6: show the effective policy tier and WHY an intent was refused (tray status + CLI), with a
-  link to the Event Log audit line.
-- G13 t-73ace8: one-click "revert to previous state" from the last apply (journal-based), and a
-  current-vs-profile diff before apply.
-- t-dd3d27: classify only External vSwitch vEthernet as HostFacing (Default Switch / WSL are internal NAT).
-- Profile validation on save: gateway inside the prefix, duplicate-IP warning (extends ProfileGuard).
-Cheap safety (from the audit, all small, all testable):
-- G1 t-414e12: netsh/ipconfig/powershell by full `%SystemRoot%\System32` path (SYSTEM PATH-hijack surface).
-- G2 t-db6795: `sc sidtype restricted` + trimmed `sc privs` next to the existing `sc failure`.
-- G3 t-45aec2: `PIPE_REJECT_REMOTE_CLIENTS` and FirstPipeInstance on every re-created instance.
-- G8 t-8af0a5: SECURITY.md + threat-model page (the four documented decisions from the audit).
-- G6 (docs part): state IPv4-only and the IPv6 DNS-leak caveat.
-Exit — safety items (each one measured, not assumed):
-- G1: a VM trace shows netsh/ipconfig/powershell launched by full `System32` path; the unit tests that
-  assert FileName/CommandLine are updated and green.
-- G2: on the VM `sc qsidtype NetPaw` = RESTRICTED and `sc qprivs NetPaw` lists the trimmed set, and a
-  static apply through the service still succeeds.
-- G3: a remote open of `\\host\pipe\NetPaw` is refused; a squat before service start still fails loud.
-- G8: SECURITY.md and the threat-model page exist and name the four documented decisions.
-Exit — QoL items:
-- G12: a StandardUser DeleteRoute shows the required tier and the reason in the tray status and the CLI.
-- G13: after an apply, one click restores the pre-apply addresses/gateway/DNS (VM-verified).
-- t-dd3d27: `vEthernet (Default Switch)` is not HostFacing; an External vSwitch vEthernet is.
-Exit — release: CI green on the rc tag incl. verify-windows; unit suite green; the operator installs the
-rc MSI and confirms autostart, one apply and one revert; then the orchestrator's tag OK → v0.15.0.
+### M1 — v0.15.0 "cheap safety + docs"
+- G1 netsh/ipconfig/powershell by full `%SystemRoot%\System32` path; update FileName/CommandLine tests. (M)
+- G2 `sc sidtype restricted` + trimmed `sc privs` next to `sc failure`; VM-measured that netsh still applies. (S)
+- G3 `PIPE_REJECT_REMOTE_CLIENTS` + FirstPipeInstance on every re-created instance. (S)
+- G8 SECURITY.md + threat-model page with the four documented decisions. (M)
+- G6-docs: state IPv4-only and the IPv6 DNS-leak caveat. (S)
+- G9-lite: fail closed on an unknown policy schema version (the cheap half of G9). (S)
+- QuickPanel greying in user mode (completes #89). (S)
+- Exit, safety (measured by netpaw, reviewed by the orchestrator): VM trace shows full-path launches;
+  `sc qsidtype` = RESTRICTED and `sc qprivs` = the trimmed set with a working apply; a remote pipe open
+  is refused and a pre-start squat still fails loud; SECURITY.md and the threat model exist.
+- Exit, release: CI green on the rc tag incl. verify-windows; unit suite green; operator installs the rc
+  and confirms autostart + one apply; orchestrator tag OK.
+- Rollback: uninstall, install 0.14.0 MSI; data unchanged.
 
-### M2 — v0.16 "safe to apply from anywhere"
-- G4 t-cc99cb: commit-confirmed rollback. The service snapshots full pre-state, arms a timer and a
-  liveness check (gateway/DNS); if the caller does not confirm, or liveness fails, the service reverts on
-  its own. Needed because the UI may sit on the NIC being changed (RDP).
-- G5 t-8ff0bb: target adapters by GUID/LUID + MAC in intents and profiles; alias becomes display-only.
-- G9 t-e38207: policy schema version (fail closed on unknown) + RegNotifyChangeKeyValue + policy source in
-  the audit line.
+### M2 — v0.16.0 "QoL"
+- G12 show the effective tier and why an intent was refused (tray status + CLI) with the audit line. (M)
+- G13 reworded: snapshot the adapter pre-state before every apply (the existing NetPawService
+  snapshot-to-profile) and offer a manual "revert to pre-apply" from that snapshot. (M)
+- t-dd3d27 only External vSwitch vEthernet is HostFacing. (S)
+- Profile validation on save: gateway inside the prefix, duplicate-IP warning. (S)
+- Exit (measured): a StandardUser DeleteRoute shows tier + reason; one click restores the pre-apply
+  addresses/gateway/DNS (VM); Default Switch is not HostFacing. Release exit as M1. Rollback as M1.
 
-### M3 — v0.17 "supply chain + IPv6 decision"
-- G7 t-1cb463: global.json, NuGet lock + locked restore, Deterministic/ContinuousIntegrationBuild, bin
-  attestations (today attest:false), SBOM attestation, `gh attestation verify` in the release recipe.
-- G14 t-3e2f95: closed. Fleet policy (m-5774): first-party reusable-workflow release tags are immutable
-  by ruleset, so exact-tag pinning is accepted; SHA pinning is required only for third-party actions.
-- G6 t-62e6d4: IPv6 support (addresses, DNS, routes) or a firm, documented v4-only scope for 1.0.
-- G10 t-a9b04c: SmartScreen/private-PKI reality in docs + a public OV / Azure Trusted Signing path.
+### M3 — v0.17.0 "safe to apply from anywhere"
+- G4 commit-confirmed rollback: on the M2 pre-state snapshot, add a service-side timer and a liveness
+  check (gateway/DNS); the service reverts on its own if the caller does not confirm or liveness fails.
+  Default-on vs behind a setting is an operator question (below). (L)
+- G5 target adapters by GUID/LUID + MAC in intents and profiles; alias display-only; protocol v2, v1 kept
+  readable. (L)
+- G9 full: RegNotifyChangeKeyValue + policy source in the audit line. (M)
+- G15 standard-user update path: decide service-side verified install vs "updates need an admin"; plan
+  page first. (M/L)
+- G16 uninstall cleanup: document what stays (profiles.d, service state) and clean the update cache. (S)
+- Exit (measured): a simulated connectivity loss reverts within the timer on the VM; a renamed alias no
+  longer redirects an apply; an update as a standard user either succeeds via the service or fails with
+  the documented message. Rollback: uninstall, previous MSI; v1 profiles still readable.
 
-### M4 — v1.0 "deployable, verifiable, recoverable"
-Feature set (what 1.0 promises):
-- Everything above, plus: G11 t-d31af0 disposable-VM e2e harness (second management NIC) and security
-  tests as code (pipe DACL assert, squat, filtered-token admin, remote pipe, oversized JSON fuzz, junction
-  in profiles.d) in CI.
+### M4 — v0.18.0 "supply chain"
+- G7 scoped: deterministic bin publish (Deterministic + ContinuousIntegrationBuild), global.json SDK pin,
+  NuGet lock + locked restore, attest the bin artifact (attest:false today), SBOM attestation,
+  `gh attestation verify` in the release recipe. MSI and Authenticode timestamps are not
+  byte-reproducible: a stated non-goal. (M)
+- G10 private-PKI reality in docs now (S); a public OV / Azure Trusted Signing cert is an operator spend
+  decision (below).
+- G6 decision: IPv6 support (L) or a documented v4-only 1.0 (S) — operator question.
+- Exit: `gh attestation verify` passes on the release assets; two builds of one commit give identical
+  bin hashes. Rollback as M1.
+
+### M5 — v1.0.0: the bar
+1.0 ships only when ALL of these hold:
+- Zero open safety/high tasks in scope netpaw.
+- verify-windows and the G11 harness are green on the 1.0 rc.
+- Upgrades 0.13.3 → rc and 0.14.0 → rc are tested on the harness.
+- Rollback (uninstall + previous MSI) is tested with settings and profiles preserved.
+- Supported builds are named: Windows 11 23H2+ and Server 2022+ (Windows 10 is EOL).
+- Security tests as code, each asserted in CI: pipe DACL, squat, filtered-token admin, remote pipe,
+  oversized JSON, junction in profiles.d.
 - Docs bar: install/uninstall (MSI + winget), admin guide (ADMX, Intune OMA-URI, policy table, audit log
-  format), threat model, rollback/recovery runbook, README screenshots.
-- Support policy: supported Windows builds, .NET 10 LTS dependency (to Nov 2028), pipe-protocol and
-  policy-schema versioning with a deprecation window; the service rejects a mismatched client with a clear
-  message.
-- Explicit non-goals vs NetSetMan-class tools: no scripts/hostname/printer/drive mapping (privilege-sensitive);
-  listed in the README.
-Exit: a 1.0 rc verified on the VM harness + CI + the operator; then 1.0.0.
+  format), threat model, rollback/recovery runbook, docs/TELEMETRY.md linked, README screenshots.
+- Support policy: supported builds, .NET 10 LTS dependency (to Nov 2028), pipe-protocol and
+  policy-schema versioning with a deprecation window; a mismatched client is rejected with a clear message.
+- G11a research spike (own plan page) → G11 harness: n4 drives Proxmox (clone from template, second
+  management NIC, run the verify script, destroy). (L)
+- Rollback: uninstall, install the last 0.x MSI; data schema unchanged.
 
-## Verification (per milestone)
+## Verification
 
-- CI green incl. verify-windows (MSI install, service, pipe ACL/squat, standard-user via service, gates).
-- Unit suite green; each gap PR adds its tests (G1 updates the FileName assertions; G2/G3 are VM-measured).
-- A VM pass on each rc (M2+ on the e2e harness once G11 lands); the operator verifies each rc.
-- Each security PR: the orchestrator's independent review before merge. Final tags only from a verified rc.
+Per milestone: the measured exit lists above; CI green incl. verify-windows; unit suite green with each
+gap's tests; VM evidence in the PR body; orchestrator review on every security PR; finals only from a
+verified rc with the orchestrator's tag OK.
 
 ## Risks
 
-- G4 rollback is the hardest piece (timers + liveness on a host that may lose its own path). Mitigation:
-  design-first (plan page), VM-measured, behind a setting until 1.0.
-- G5 GUID targeting changes the intent/profile wire shape: version the protocol (`"v": 2`), keep v1 readable.
-- G2 `sc privs` can break netsh if trimmed too far: measure on the VM before shipping; keep SeChangeNotify.
-- IPv6 (G6) may not fit 1.0: the plan allows a documented v4-only 1.0.
-- Operator time: every rc needs the operator's verification; keep rcs small and few.
+- G4 is the hardest piece (timers + liveness on a host that may lose its own path): design page first,
+  VM-measured, operator decides default-on.
+- G5 changes the wire shape: protocol v2 with v1 readable.
+- G2 `sc privs` trimmed too far breaks netsh: measure on the VM; keep SeChangeNotify.
+- G15 service-side install widens the service's job: plan page and orchestrator review first.
+- Operator time: each rc needs the operator; keep rcs small and few.
 
-## Review reconciliation (round 1)
+## Open questions (operator)
 
-- "M0 tags without the orchestrator's OK" — adopted: the GO and its timing rule are now stated in M0.
-- "#90/#91 are security PRs that skip review" — rebutted: #90 changes documentation ranges in docs and
-  tests; #91 is two hardening nits (GetFileName on a feed name, a workflow token scope). Neither changes
-  the security model. The orchestrator cleared both to merge on green.
-- "rc.2 verification is an unverified assumption" — rebutted: the evidence is on record (audit page,
-  bus m-5066); the reviewer cannot see the bus, so the plan now points at it.
-- "dirty files in the plan branch risk the release" — rebutted: the tag is an existing main commit
-  (2388025); the plan branch holds only this document.
+1. IPv6 in 1.0, or a documented IPv4-only 1.0?
+2. Pay for a public OV / Azure Trusted Signing certificate, or stay on the private PKI with the GPO/Intune
+   root recipe?
+3. G4 commit-confirmed rollback: default-on, or behind a setting at first?
+4. 1.0 target date?
 
-## Review reconciliation (round 2)
+## Review reconciliation
 
-- "M1 exit criteria are vague" — adopted: M1 now has a measured exit list, split into safety, QoL and
-  release.
-- "M1 mixes operator QoL with audit gaps" — adopted: the exit list separates them; the feature list already
-  groups them under "QoL" and "Cheap safety".
-- "dirty files in the plan branch" (repeated) — rebutted with evidence: `git status` on `docs/plan-v1.0`
-  shows no tracked changes beyond this document's commits; the v0.14.0 tag is the main commit 2388025 and
-  no branch state can affect it.
+- Round 1 (nano): the GO + timing now stated; #90/#91 are hygiene, not security-model; rc.2 evidence
+  pointed to; the tag is a main commit, branch state cannot affect it.
+- Round 2 (nano): measured exit criteria; QoL and safety split.
+- Round 3 (nano): "tag not at main head" is by design (final = verified rc; stated in Given state with
+  the tree/CI re-run argument); verifier roles now named; "dirty files" rebutted with `git status` =
+  0 tracked changes on this branch.
+- Orchestrator (m-5784, GO-WITH-CHANGES): all seven points folded in: G13 reworded + G4 narrowed; a
+  1.0 bar; M1 split into 0.15/0.16 with S/M/L; M0 docs-only PR; standard-user update path (G15),
+  uninstall cleanup (G16), TELEMETRY.md link, G14 closed, runners explicit, G11a spike; G7 scoped with
+  MSI reproducibility a non-goal and G10 an operator decision; open operator questions; rollback lines;
+  audit page path next to the G-ids.
