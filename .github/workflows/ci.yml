@@ -447,13 +447,18 @@ jobs:
           if ($ra -match 'needs tier' -or $ra -notmatch '"apply"') { SvcLog; throw "an elevated admin was refused the privilege gate over the pipe (the #76 regression): $ra" }
           # G3 (0.15): squatting BETWEEN instances must be impossible for a client: the DACL grants ReadWrite|Synchronize
           # only, never CreateNewInstance. A standard user trying to add a server instance while the service runs must fail.
-          $squat2 = AsNptest "try { `$p = New-Object System.IO.Pipes.NamedPipeServerStream('NetPaw', [System.IO.Pipes.PipeDirection]::InOut, 2); `$p.Dispose(); 'SQUAT_CREATED' } catch { 'SQUAT_DENIED' }"
+          $squat2 = AsNptest "try { `$p = New-Object System.IO.Pipes.NamedPipeServerStream('NetPaw', [System.IO.Pipes.PipeDirection]::InOut, [System.IO.Pipes.NamedPipeServerStream]::MaxAllowedServerInstances); `$p.Dispose(); 'SQUAT_CREATED' } catch [System.UnauthorizedAccessException] { 'SQUAT_DENIED' } catch { 'SQUAT_OTHER:' + `$_.Exception.GetType().Name }"
           "`nstandard user adds a pipe instance while the service runs: **$squat2**" >> $env:GITHUB_STEP_SUMMARY
           if ($squat2 -ne 'SQUAT_DENIED') { SvcLog; throw "a standard user could add an instance of the service pipe: $squat2" }
           # G3 (0.15): an SMB-loopback open (\\localhost\pipe\NetPaw) is a NETWORK logon and must be refused by the ACL.
-          $remote = AsNptest "try { `$c = New-Object System.IO.Pipes.NamedPipeClientStream('localhost', 'NetPaw', [System.IO.Pipes.PipeDirection]::InOut); `$c.Connect(3000); `$c.Dispose(); 'REMOTE_OPENED' } catch { 'REMOTE_DENIED' }"
+          $loopback = "try { `$c = New-Object System.IO.Pipes.NamedPipeClientStream('localhost', 'NetPaw', [System.IO.Pipes.PipeDirection]::InOut); `$c.Connect(3000); `$c.Dispose(); 'REMOTE_OPENED' } catch [System.UnauthorizedAccessException] { 'REMOTE_DENIED' } catch { 'REMOTE_OTHER:' + `$_.Exception.GetType().Name }"
+          $remote = AsNptest $loopback
           "SMB-loopback open of the pipe as a standard user: **$remote**" >> $env:GITHUB_STEP_SUMMARY
-          if ($remote -ne 'REMOTE_DENIED') { SvcLog; throw "the service pipe accepted an SMB-loopback (NETWORK) open: $remote" }
+          if ($remote -ne 'REMOTE_DENIED') { SvcLog; throw "SMB-loopback open as a standard user was not an access-denied refusal: $remote" }
+          # The admin case is the one that exercises the NETWORK deny ACE: Administrators has an allow, so only the deny can refuse it.
+          $remoteAdmin = & ([ScriptBlock]::Create($loopback))
+          "SMB-loopback open of the pipe as the runner admin (the NETWORK deny must win over the Administrators allow): **$remoteAdmin**" >> $env:GITHUB_STEP_SUMMARY
+          if ($remoteAdmin -ne 'REMOTE_DENIED') { SvcLog; throw "the NETWORK deny did not refuse an SMB-loopback open by an administrator: $remoteAdmin" }
           # A standard user MAY reach: send the adapter's OWN current IP, which resolves to "already reachable"
           # (an empty plan). This proves a standard user's typed request is processed by the service, and changes
           # nothing on the runner's only NIC.

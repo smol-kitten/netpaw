@@ -46,18 +46,24 @@ public sealed class PipeServer(Action<string> log, IntentHandler? intents = null
         // DACL instead: clients get ReadWrite|Synchronize only, never CreateNewInstance (audit G3; verify-windows
         // proves both: a client cannot add an instance, and an SMB-loopback open carries the NETWORK SID and is
         // denied).
-        var first = true;
+        NamedPipeServerStream Create(bool firstInstance) => NamedPipeServerStreamAcl.Create(ServiceProtocol.PipeName, PipeDirection.InOut,
+            NamedPipeServerStream.MaxAllowedServerInstances, PipeTransmissionMode.Byte,
+            PipeOptions.Asynchronous | (firstInstance ? PipeOptions.FirstPipeInstance : 0), BufferSize, BufferSize, acl);
         log($"listening on \\\\.\\pipe\\{ServiceProtocol.PipeName}");
+        // One unconnected listener is open at all times: the next instance is created right after a client is
+        // accepted and BEFORE that client is served, so the name is never free for a squatter between instances
+        // (review of #96). Serving stays bounded by the semaphore; a client past the bound waits, connected.
+        var pipe = Create(firstInstance: true);
         while (!stop.IsCancellationRequested)
         {
-            await slots.WaitAsync(stop);
-            var options = PipeOptions.Asynchronous | (first ? PipeOptions.FirstPipeInstance : 0);
-            var pipe = NamedPipeServerStreamAcl.Create(ServiceProtocol.PipeName, PipeDirection.InOut,
-                NamedPipeServerStream.MaxAllowedServerInstances, PipeTransmissionMode.Byte, options, BufferSize, BufferSize, acl);
-            first = false;
             try { await pipe.WaitForConnectionAsync(stop); }
-            catch (OperationCanceledException) { await pipe.DisposeAsync(); slots.Release(); break; }
-            _ = Task.Run(async () => { try { await Serve(pipe, stop); } finally { slots.Release(); } }, CancellationToken.None);
+            catch (OperationCanceledException) { await pipe.DisposeAsync(); break; }
+            var next = Create(firstInstance: false);
+            try { await slots.WaitAsync(stop); }
+            catch (OperationCanceledException) { await pipe.DisposeAsync(); await next.DisposeAsync(); break; }
+            var accepted = pipe;
+            _ = Task.Run(async () => { try { await Serve(accepted, stop); } finally { slots.Release(); } }, CancellationToken.None);
+            pipe = next;
         }
     }
 
