@@ -15,7 +15,7 @@ public sealed class ProcessStepRunner : IStepRunner
 
     public StepResult Run(Step step)
     {
-        var psi = new ProcessStartInfo(step.FileName, step.Arguments)
+        var psi = new ProcessStartInfo(SystemTool.Resolve(step.FileName), step.Arguments)
         {
             UseShellExecute = false, CreateNoWindow = true,
             RedirectStandardOutput = true, RedirectStandardError = true,
