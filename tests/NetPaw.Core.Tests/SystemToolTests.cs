@@ -40,3 +40,36 @@ public class SystemToolTests
         Assert.Equal(rooted, SystemTool.Resolve(rooted, isWindows: true, Sys));
     }
 }
+
+public class SystemToolStrictTests
+{
+    const string Sys = @"C:\Windows\System32";
+
+    [Fact]
+    public void Strict_refuses_an_unknown_bare_name()
+    {
+        var ex = Assert.Throws<InvalidOperationException>(() => SystemTool.Resolve("some-other-tool", isWindows: true, Sys, strict: true));
+        Assert.Contains("never searches PATH", ex.Message);
+    }
+
+    [Fact]
+    public void Strict_refuses_a_rooted_path_outside_system32()
+    {
+        var outside = Path.Combine(Path.GetTempPath(), "netsh.exe");
+        Assert.Throws<InvalidOperationException>(() => SystemTool.Resolve(outside, isWindows: true, Sys, strict: true));
+    }
+
+    [Fact]
+    public void Strict_allows_known_tools_and_rooted_paths_inside_system32()
+    {
+        Assert.Equal(Path.Combine(Sys, "netsh.exe"), SystemTool.Resolve("netsh", isWindows: true, Sys, strict: true));
+        var inside = Path.Combine(Sys, "netsh.exe");
+        Assert.Equal(inside, SystemTool.Resolve(inside, isWindows: true, Sys, strict: true));
+    }
+
+    [Fact]
+    public void Non_strict_keeps_the_pass_through_for_user_context_tools()
+    {
+        Assert.Equal("some-other-tool", SystemTool.Resolve("some-other-tool", isWindows: true, Sys, strict: false));
+    }
+}
