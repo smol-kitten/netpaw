@@ -90,7 +90,7 @@ public sealed class WindowsArpProvider : IArpProvider
         if (!OperatingSystem.IsWindows()) return [];
         try
         {
-            using var p = Process.Start(new ProcessStartInfo("arp", "-a") { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true })!;
+            using var p = Process.Start(new ProcessStartInfo(NetPaw.Planning.SystemTool.Resolve("arp"), "-a") { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true })!;
             var text = p.StandardOutput.ReadToEnd(); p.WaitForExit(5000);
             return ArpTable.ParseArpA(text);
         }
