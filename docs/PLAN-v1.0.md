@@ -103,7 +103,7 @@ operator verifies each rc before the final tag; the orchestrator gives the tag O
   decision (below).
 - G6 decision: IPv6 support (L) or a documented v4-only 1.0 (S) — operator question.
 - Exit: `gh attestation verify` passes on the release assets; two builds of one commit give identical
-  bin hashes. Rollback as M1.
+  PRE-SIGNING bin hashes (signed bins carry RFC 3161 timestamps and never match). Rollback as M1.
 
 ### M5 — v1.0.0: the bar
 1.0 ships only when ALL of these hold:
@@ -155,7 +155,7 @@ PR body carries those lines verbatim plus the CI run link, and the orchestrator 
 - Round 3 (nano): "tag not at main head" is by design (final = verified rc; stated in Given state with
   the tree/CI re-run argument); verifier roles now named; "dirty files" rebutted with `git status` =
   0 tracked changes on this branch.
-- Orchestrator (m-5784, GO-WITH-CHANGES): all seven points folded in: G13 reworded + G4 narrowed; a
+- Orchestrator (m-5784, GO-WITH-CHANGES): all eight points folded in: G13 reworded + G4 narrowed; a
   1.0 bar; M1 split into 0.15/0.16 with S/M/L; M0 docs-only PR; standard-user update path (G15),
   uninstall cleanup (G16), TELEMETRY.md link, G14 closed, runners explicit, G11a spike; G7 scoped with
   MSI reproducibility a non-goal and G10 an operator decision; open operator questions; rollback lines;
