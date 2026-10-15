@@ -25,7 +25,7 @@ Managed profiles show a *managed* badge and cannot be edited or deleted; *Copy* 
 *Computer Configuration → Policies → Software Settings → Software installation → New → Package*, pick the MSI from a share. Assigned, per machine.
 
 ### What the MSI does
-Installs `NetPaw.exe` and `netpaw-cli.exe` to `%ProgramFiles%\NetPaw`, adds the folder to the system `PATH`, creates `%ProgramData%\NetPaw\profiles.d\`, and a Start-menu shortcut. No service, no scheduled task, no custom actions. Upgrades in place (major-upgrade table). Users start NetPaw themselves or via *Settings → start with Windows* (an elevated per-user scheduled task; the app creates it).
+Installs `NetPaw.exe`, `netpaw-cli.exe` and `netpaw-svc.exe` to `%ProgramFiles%\NetPaw`, adds the folder to the system `PATH`, creates `%ProgramData%\NetPaw\profiles.d\` (SYSTEM/Administrators write, Users read), registers and starts the **NetPaw service** (LocalSystem, automatic; standard MSI ServiceInstall/ServiceControl tables, no custom actions), and adds a Start-menu shortcut. Upgrades in place (major-upgrade table; downgrades are refused — uninstall first). Users start NetPaw themselves or via *Settings → start with Windows*, which is a per-user `HKCU\…\Run` entry: no scheduled task and no elevation (the tray is `asInvoker`; every change goes through the service).
 
 ### Portable
 The zip needs no install. Managed profiles and policy work exactly the same.

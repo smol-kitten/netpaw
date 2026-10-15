@@ -6,7 +6,7 @@ import fnmatch, glob as _glob, json, os, re, shlex, subprocess, sys
 
 CLAIMS = [
  {
-  "line": 212,
+  "line": 217,
   "text": "MIT \u2014 see [LICENSE](LICENSE).",
   "kind": "file",
   "check": {
@@ -36,7 +36,7 @@ CLAIMS = [
   "id": "c3"
  },
  {
-  "line": 74,
+  "line": 78,
   "text": "| `NetPaw-<version>.msi` | most people; Intune/GPO | [.NET 10 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/10.0) | ~1 MB, per-machine |",
   "kind": "file",
   "check": {
@@ -45,7 +45,7 @@ CLAIMS = [
   "id": "c4"
  },
  {
-  "line": 75,
+  "line": 79,
   "text": "| `netpaw-win-x64.zip` | portable | .NET 10 Desktop Runtime | ~1.5 MB |",
   "kind": "size",
   "check": {
@@ -55,7 +55,7 @@ CLAIMS = [
   "id": "c5"
  },
  {
-  "line": 76,
+  "line": 80,
   "text": "| `netpaw-win-x64-standalone.zip` | portable, no .NET installed | nothing | ~85 MB |",
   "kind": "size",
   "check": {
@@ -65,7 +65,7 @@ CLAIMS = [
   "id": "c6"
  },
  {
-  "line": 77,
+  "line": 81,
   "text": "| `NetPaw-<version>-telemetry.msi` | opt-in crash reports and usage counts ([TELEMETRY.md](docs/TELEMETRY.md)) | .NET 10 Desktop Runtime | ~1 MB |",
   "kind": "file",
   "check": {
@@ -74,7 +74,7 @@ CLAIMS = [
   "id": "c7"
  },
  {
-  "line": 84,
+  "line": 88,
   "text": "> **Signed from v0.13.1.** Each release has `SIGNATURES.md` and `r0.crt`.",
   "kind": "version",
   "check": {
@@ -86,7 +86,7 @@ CLAIMS = [
   "id": "c8"
  },
  {
-  "line": 86,
+  "line": 90,
   "text": "> [docs/signed-release.md](docs/signed-release.md).",
   "kind": "file",
   "check": {
@@ -95,7 +95,7 @@ CLAIMS = [
   "id": "c9"
  },
  {
-  "line": 107,
+  "line": 111,
   "text": "**[docs/usage.md](docs/usage.md)**.",
   "kind": "file",
   "check": {
@@ -104,7 +104,7 @@ CLAIMS = [
   "id": "c10"
  },
  {
-  "line": 115,
+  "line": 119,
   "text": "- `profiles.json` \u2014 your profiles. Hand-editable, git-able, copy to the next laptop.",
   "kind": "file",
   "check": {
@@ -113,7 +113,7 @@ CLAIMS = [
   "id": "c11"
  },
  {
-  "line": 116,
+  "line": 120,
   "text": "- `presets.json` \u2014 your own device presets (same schema as the bundled list).",
   "kind": "file",
   "check": {
@@ -122,7 +122,7 @@ CLAIMS = [
   "id": "c12"
  },
  {
-  "line": 117,
+  "line": 121,
   "text": "- `settings.json`, `state.json` (temporary addresses), `netpaw.log`, `cache\\` (synced packs).",
   "kind": "file",
   "check": {
@@ -131,7 +131,7 @@ CLAIMS = [
   "id": "c13"
  },
  {
-  "line": 118,
+  "line": 122,
   "text": "- `%ProgramData%\\NetPaw\\profiles.d\\*.json` \u2014 managed profiles from your organisation (read-only).",
   "kind": "glob",
   "check": {
@@ -142,7 +142,7 @@ CLAIMS = [
   "id": "c14"
  },
  {
-  "line": 119,
+  "line": 123,
   "text": "- `HKLM\\SOFTWARE\\Policies\\NetPaw` \u2014 machine policy ([docs/ENTERPRISE.md](docs/ENTERPRISE.md)).",
   "kind": "file",
   "check": {
@@ -151,7 +151,7 @@ CLAIMS = [
   "id": "c15"
  },
  {
-  "line": 178,
+  "line": 183,
   "text": "- `src/NetPaw.Core` \u2014 models, IP math, planner, reach resolver, presets, policy, repos, update check.",
   "kind": "file",
   "check": {
@@ -160,7 +160,7 @@ CLAIMS = [
   "id": "c16"
  },
  {
-  "line": 180,
+  "line": 185,
   "text": "- `src/NetPaw.Tray` \u2014 WinForms, dark, no designer files.",
   "kind": "file",
   "check": {
@@ -169,7 +169,7 @@ CLAIMS = [
   "id": "c17"
  },
  {
-  "line": 182,
+  "line": 187,
   "text": "- `deploy/` \u2014 MSI, ADMX, Intune scripts, public signing certificates.",
   "kind": "glob",
   "check": {
@@ -180,7 +180,7 @@ CLAIMS = [
   "id": "c18"
  },
  {
-  "line": 199,
+  "line": 204,
   "text": "| [features.md](docs/features.md) | every feature in detail |",
   "kind": "file",
   "check": {
@@ -189,7 +189,7 @@ CLAIMS = [
   "id": "c19"
  },
  {
-  "line": 202,
+  "line": 207,
   "text": "| [PACK-FORMAT.md](docs/PACK-FORMAT.md) | online profile packs |",
   "kind": "file",
   "check": {
@@ -198,7 +198,7 @@ CLAIMS = [
   "id": "c20"
  },
  {
-  "line": 203,
+  "line": 208,
   "text": "| [TELEMETRY.md](docs/TELEMETRY.md) | what the `-telemetry` build sends |",
   "kind": "file",
   "check": {
@@ -207,7 +207,7 @@ CLAIMS = [
   "id": "c21"
  },
  {
-  "line": 74,
+  "line": 78,
   "text": "| `NetPaw-<version>.msi` | most people; Intune/GPO | [.NET 10 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/10.0) | ~1 MB, per-machine |",
   "kind": "url",
   "check": {
@@ -216,7 +216,7 @@ CLAIMS = [
   "id": "c22"
  },
  {
-  "line": 70,
+  "line": 74,
   "text": "Download from [Releases](../../releases):",
   "kind": "url",
   "check": {
@@ -283,7 +283,7 @@ CLAIMS = [
   "id": "c28"
  },
  {
-  "line": 180,
+  "line": 185,
   "text": "- `src/NetPaw.Tray` \u2014 WinForms, dark, no designer files.",
   "kind": "grep",
   "check": {
@@ -328,7 +328,7 @@ CLAIMS = [
   "id": "c32"
  },
  {
-  "line": 79,
+  "line": 83,
   "text": "Only the `-telemetry` MSI contains telemetry code.",
   "kind": "grep",
   "check": {
@@ -339,7 +339,7 @@ CLAIMS = [
   "id": "c33"
  },
  {
-  "line": 84,
+  "line": 88,
   "text": "> **Signed from v0.13.1.** Each release has `SIGNATURES.md` and `r0.crt`. Windows still shows \"unknown",
   "kind": "file",
   "check": {
@@ -348,7 +348,7 @@ CLAIMS = [
   "id": "c34"
  },
  {
-  "line": 84,
+  "line": 88,
   "text": "> **Signed from v0.13.1.** Each release has `SIGNATURES.md` and `r0.crt`. Windows still shows \"unknown",
   "kind": "grep",
   "check": {
@@ -370,7 +370,7 @@ CLAIMS = [
   "id": "c36"
  },
  {
-  "line": 82,
+  "line": 86,
   "text": "*Settings \u2192 start with Windows* adds an elevated scheduled task, so there is no UAC prompt at logon.",
   "kind": "grep",
   "check": {
@@ -381,7 +381,7 @@ CLAIMS = [
   "id": "c37"
  },
  {
-  "line": 182,
+  "line": 187,
   "text": "- `deploy/` \u2014 MSI, ADMX, Intune scripts, public signing certificates.",
   "kind": "file",
   "check": {
@@ -390,7 +390,7 @@ CLAIMS = [
   "id": "c38"
  },
  {
-  "line": 182,
+  "line": 187,
   "text": "- `deploy/` \u2014 MSI, ADMX, Intune scripts, public signing certificates.",
   "kind": "file",
   "check": {
@@ -399,7 +399,7 @@ CLAIMS = [
   "id": "c39"
  },
  {
-  "line": 183,
+  "line": 188,
   "text": "- `packs/` \u2014 online profile packs (not built in).",
   "kind": "file",
   "check": {
@@ -408,7 +408,7 @@ CLAIMS = [
   "id": "c40"
  },
  {
-  "line": 185,
+  "line": 190,
   "text": "CI builds, signs and verifies on Linux. The MSI is built and install-tested on a hosted Windows runner.",
   "kind": "grep",
   "check": {
@@ -419,7 +419,7 @@ CLAIMS = [
   "id": "c41"
  },
  {
-  "line": 185,
+  "line": 190,
   "text": "CI builds, signs and verifies on Linux. The MSI is built and install-tested on a hosted Windows runner.",
   "kind": "grep",
   "check": {
@@ -428,6 +428,39 @@ CLAIMS = [
    "min": 1
   },
   "id": "c42"
+ },
+ {
+  "line": 70,
+  "text": "> \u26a0\ufe0f **Update to 0.13.3 or later.** Versions before 0.13.3 are insecure: a local user could gain",
+  "kind": "grep",
+  "check": {
+   "path": "README.md",
+   "regex": "0\\.13\\.3",
+   "min": 1
+  },
+  "id": "c43"
+ },
+ {
+  "line": 150,
+  "text": "Since v0.14 those commands run in the NetPaw service (`netpaw-svc`, LocalSystem), which re-plans",
+  "kind": "grep",
+  "check": {
+   "path": "src/NetPaw.Service/Program.cs",
+   "regex": "netpaw-svc",
+   "min": 1
+  },
+  "id": "c44"
+ },
+ {
+  "line": 151,
+  "text": "each change from validated values; the tray itself runs as you, with no UAC prompt.",
+  "kind": "grep",
+  "check": {
+   "path": "src/NetPaw.Tray/Program.cs",
+   "regex": "UAC|requireAdministrator",
+   "min": 1
+  },
+  "id": "c45"
  }
 ]
 

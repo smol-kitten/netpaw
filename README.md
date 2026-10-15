@@ -146,8 +146,9 @@ in the tray menu).
 
 ### What it runs
 
-No drivers, no service, no hidden WMI writes: a profile becomes plain `netsh` commands, shown in the
-preview and in the log.
+No drivers, no hidden WMI writes: a profile becomes plain `netsh` commands, shown in the preview and in
+the log. Since v0.14 those commands run in the NetPaw service (`netpaw-svc`, LocalSystem), which re-plans
+each change from validated values; the tray itself runs as you, with no UAC prompt.
 
 <details>
 <summary>The commands for the example profile</summary>

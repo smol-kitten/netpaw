@@ -112,7 +112,8 @@ VirusTotal is not part of this check: it is a one-time report per release (below
 
 ## Rollback
 
-The previous unsigned release (v0.12.2) stays on the releases page. To go back, uninstall NetPaw and
+The previous releases stay on the releases page (v0.13.3 is the last 0.13; releases before v0.13.3 were
+removed as insecure). The MSI refuses a downgrade (major-upgrade table), so **uninstall first**: uninstall NetPaw and
 install the older MSI, or unzip the older zip. The settings in `%APPDATA%\NetPaw` stay in place. The
 older version does not install updates; it only links to the release page.
 
