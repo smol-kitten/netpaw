@@ -70,6 +70,16 @@ public sealed class PipeServer(Action<string> log, IntentHandler? intents = null
     async Task Serve(NamedPipeServerStream pipe, CancellationToken stop)
     {
         await using var _ = pipe;
+        // First layer, before a byte is read: a client that came over SMB (\\host\pipe\NetPaw, including loopback)
+        // is refused by where it came from, not by its token. For a local client GetNamedPipeClientComputerName
+        // fails with ERROR_PIPE_LOCAL; anything else (a computer name, or any other error) is treated as remote.
+        // Measured 2026-10-15: a loopback SMB open passed the NETWORK deny ACE on a hosted runner, so the ACE alone
+        // is not a verifiable guarantee from the same host; this check is (review of #96). The ACE stays as layer 2.
+        if (Caller.RemoteComputer(pipe) is { } remote)
+        {
+            log($"remote client refused: {remote}");
+            return;
+        }
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(stop);
         cts.CancelAfter(ReadTimeout);
         ServiceResponse reply;
@@ -109,6 +119,22 @@ public sealed class PipeServer(Action<string> log, IntentHandler? intents = null
 /// <param name="Network">The token carries the NETWORK SID (an SMB open). Logged, never used for a decision: the pipe ACL denies NETWORK.</param>
 public sealed record Caller(string User, int Session, int ProcessId, NetPaw.Ipc.Tier Tier, bool Network = false)
 {
+    const int ERROR_PIPE_LOCAL = 2250;
+
+    /// <summary>Null for a local client (the only accepted case: ERROR_PIPE_LOCAL). Otherwise the client's computer
+    /// name as Windows reports it, or "unknown (error N)" when the query fails for any other reason: fail closed.</summary>
+    public static string? RemoteComputer(NamedPipeServerStream pipe)
+    {
+        var buf = new char[256];
+        if (GetNamedPipeClientComputerNameW(pipe.SafePipeHandle, buf, (uint)(buf.Length * sizeof(char))))
+        {
+            var name = new string(buf).TrimEnd('\0');
+            return name.Length == 0 ? "unnamed remote client" : name;
+        }
+        var err = Marshal.GetLastWin32Error();
+        return err == ERROR_PIPE_LOCAL ? null : $"unknown (error {err})";
+    }
+
     public static Caller Of(NamedPipeServerStream pipe)
     {
         // Session straight from the pipe, not PID -> session: the PID can be reused once the client exits.
@@ -190,6 +216,9 @@ public sealed record Caller(string User, int Session, int ProcessId, NetPaw.Ipc.
 
     [DllImport("kernel32.dll", SetLastError = true)]
     static extern bool CloseHandle(IntPtr handle);
+
+    [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    static extern bool GetNamedPipeClientComputerNameW(Microsoft.Win32.SafeHandles.SafePipeHandle pipe, [Out] char[] clientComputerName, uint clientComputerNameLength);
 
     [DllImport("kernel32.dll", SetLastError = true)]
     static extern bool GetNamedPipeClientProcessId(Microsoft.Win32.SafeHandles.SafePipeHandle pipe, out uint clientProcessId);

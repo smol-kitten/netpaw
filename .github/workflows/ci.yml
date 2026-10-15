@@ -451,19 +451,21 @@ jobs:
           "`nstandard user adds a pipe instance while the service runs: **$squat2**" >> $env:GITHUB_STEP_SUMMARY
           if ($squat2 -ne 'SQUAT_DENIED') { SvcLog; throw "a standard user could add an instance of the service pipe: $squat2" }
           # G3 (0.15): an SMB-loopback open (\\localhost\pipe\NetPaw) is a NETWORK logon and must be refused by the ACL.
-          # The open goes through the SMB redirector to \\localhost\pipe\NetPaw; it sends a Status request so the
-          # service logs the caller, and the service marks a token that carries the NETWORK SID ("network logon").
-          # Measured 2026-10-15 (run 38803333177): the open SUCCEEDED for a standard user, so the question is whether
-          # Windows gave the loopback open a NETWORK token (then the deny ACE failed: FAIL) or a local one (then
-          # loopback cannot exercise the deny and the remote case rests on the NETWORK SID: reported, not a failure).
-          $loopback = "try { `$c = New-Object System.IO.Pipes.NamedPipeClientStream('localhost', 'NetPaw', [System.IO.Pipes.PipeDirection]::InOut); `$c.Connect(3000); `$b = [Text.Encoding]::UTF8.GetBytes('{""v"":1,""kind"":""Status""}' + [char]10); `$c.Write(`$b, 0, `$b.Length); `$c.Flush(); 'REMOTE_OPENED:' + (New-Object IO.StreamReader `$c).ReadLine(); `$c.Dispose() } catch [System.UnauthorizedAccessException] { 'REMOTE_DENIED' } catch { 'REMOTE_OTHER:' + `$_.Exception.GetType().Name + ': ' + `$_.Exception.Message }"
+          # The open goes through the SMB redirector to \\localhost\pipe\NetPaw and sends a Status request. Two layers must
+          # refuse it: the service's GetNamedPipeClientComputerName check (a local client fails that call with
+          # ERROR_PIPE_LOCAL; anything else is closed before a byte is read, logged "remote client refused") and the
+          # pipe DACL's NETWORK deny. Measured 2026-10-15 (run 38803333177): the loopback open PASSED the deny ACE on
+          # this runner, so the assertion is on the service's refusal line, and the "network logon" marker on any Status
+          # line that got through records whether the token carried S-1-5-2 at all.
+          $loopback = "try { `$c = New-Object System.IO.Pipes.NamedPipeClientStream('localhost', 'NetPaw', [System.IO.Pipes.PipeDirection]::InOut); `$c.Connect(3000); `$b = [Text.Encoding]::UTF8.GetBytes('{""v"":1,""kind"":""Status""}' + [char]10); `$c.Write(`$b, 0, `$b.Length); `$c.Flush(); 'REMOTE_OPENED:' + (New-Object IO.StreamReader `$c).ReadLine(); `$c.Dispose() } catch [System.UnauthorizedAccessException] { 'REMOTE_DENIED' } catch { 'REMOTE_CLOSED:' + `$_.Exception.GetType().Name + ': ' + `$_.Exception.Message }"
           function LoopbackCase([string]$who, [string]$result, [datetime]$since) {
-            $seen = Get-WinEvent -FilterHashtable @{ LogName = 'Application'; ProviderName = 'NetPaw'; StartTime = $since } -ErrorAction SilentlyContinue | Where-Object { $_.Message -match '^Status from' } | Select-Object -First 1 -ExpandProperty Message
-            "SMB-loopback open of the pipe as $who`: **$result**`n  service saw: ``$seen``" >> $env:GITHUB_STEP_SUMMARY
-            if ($result -eq 'REMOTE_DENIED') { return }
-            if ($result -notlike 'REMOTE_OPENED:*') { SvcLog; throw "SMB-loopback open as $who failed for a reason other than access denied: $result" }
-            if ($seen -match 'network logon') { SvcLog; throw "the pipe's NETWORK deny did not refuse a NETWORK-logon open ($who): $result / $seen" }
-            "  -> Windows served the loopback open with a LOCAL token (no NETWORK SID), so loopback cannot exercise the NETWORK deny on this build; a remote SMB client always carries NETWORK and is denied by the ACE." >> $env:GITHUB_STEP_SUMMARY
+            $events = Get-WinEvent -FilterHashtable @{ LogName = 'Application'; ProviderName = 'NetPaw'; StartTime = $since } -ErrorAction SilentlyContinue | ForEach-Object Message
+            $refused = $events | Where-Object { $_ -match '^remote client refused' } | Select-Object -First 1
+            $status = $events | Where-Object { $_ -match '^Status from' } | Select-Object -First 1
+            "SMB-loopback open of the pipe as $who`: **$result**`n  service: ``$refused`` / ``$status``" >> $env:GITHUB_STEP_SUMMARY
+            if ($result -eq 'REMOTE_DENIED') { "  -> refused by the pipe DACL (NETWORK deny) before the service saw it." >> $env:GITHUB_STEP_SUMMARY; return }
+            if ($status) { SvcLog; throw "an SMB-loopback request ($who) was served: $result / $status" }
+            if (-not $refused) { SvcLog; throw "SMB-loopback open ($who) was neither denied by the DACL nor refused by the computer-name check: $result" }
           }
           $t0 = Get-Date; Start-Sleep -Seconds 1
           LoopbackCase 'a standard user' (AsNptest $loopback) $t0

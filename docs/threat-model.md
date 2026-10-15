@@ -31,7 +31,10 @@ minimum tier (`docs/policy.md`); a policy may raise or lower it within a hard fl
 - A squatter cannot pose as the service: the client checks the server PID against the Service Control
   Manager before it sends anything, so a foreign pipe is never talked to. The service also refuses to start
   when the name is taken, keeps one listener open at all times, and clients cannot add pipe instances.
-- Remote callers are refused: the pipe ACL denies the NETWORK SID (SMB opens, SSH network logons).
+- Remote (SMB) callers are refused twice: the service closes any connection whose client has a computer name
+  (`GetNamedPipeClientComputerName` succeeds only for an SMB client, loopback included) before it reads a byte,
+  and the pipe ACL denies the NETWORK SID (SMB opens, SSH network logons). Measured on a hosted runner: a loopback
+  SMB open passed the ACE, so the computer-name check is the layer CI asserts.
 - A tampered update is refused: installers are verified against a pinned root before they run.
 - An unreadable policy does not loosen anything: the last valid policy stays in force; with none, the
   defaults.
