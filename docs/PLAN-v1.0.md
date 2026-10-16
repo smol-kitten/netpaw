@@ -84,7 +84,7 @@ operator verifies each rc before the final tag; the orchestrator gives the tag O
 ### M3 — v0.17.0 "safe to apply from anywhere"
 - G4 commit-confirmed rollback: on the M2 pre-state snapshot, add a service-side timer and a liveness
   check (gateway/DNS); the service reverts on its own if the caller does not confirm or liveness fails.
-  Default-on vs behind a setting is an operator question (below). (L)
+  Ships behind a setting, OFF by default; a policy may enable it (operator decision 2026-10-16). (L)
 - G5 target adapters by GUID/LUID + MAC in intents and profiles; alias display-only; protocol v2, v1 kept
   readable. (L)
 - G9 full: RegNotifyChangeKeyValue + policy source in the audit line. (M)
@@ -100,9 +100,11 @@ operator verifies each rc before the final tag; the orchestrator gives the tag O
   NuGet lock + locked restore, attest the bin artifact (attest:false today), SBOM attestation,
   `gh attestation verify` in the release recipe. MSI and Authenticode timestamps are not
   byte-reproducible: a stated non-goal. (M)
-- G10 private-PKI reality in docs now (S); a public OV / Azure Trusted Signing cert is an operator spend
-  decision (below).
-- G6 decision: IPv6 support (L) or a documented v4-only 1.0 (S) — operator question.
+- G10 private-PKI reality in docs now (S). Decided 2026-10-16: 1.0 stays on the self-signed pinned root
+  with the GPO/Intune root recipe; no paid OV / Azure Trusted Signing certificate; the SmartScreen
+  "unknown publisher" note stays in the docs.
+- G6 decided 2026-10-16: 1.0 is documented IPv4-only (the dual-stack DNS caveat is in docs/features.md,
+  #101); IPv6 address/DNS/route/reach support is a 1.x milestone, not a 1.0 item.
 - Exit: `gh attestation verify` passes on the release assets; two builds of one commit give identical
   PRE-SIGNING bin hashes (signed bins carry RFC 3161 timestamps and never match). Rollback as M1.
 
@@ -134,19 +136,24 @@ PR body carries those lines verbatim plus the CI run link, and the orchestrator 
 ## Risks
 
 - G4 is the hardest piece (timers + liveness on a host that may lose its own path): design page first,
-  VM-measured, operator decides default-on.
+  VM-measured; it ships OFF by default behind a setting (decided), so a defect cannot bite an unaware host.
 - G5 changes the wire shape: protocol v2 with v1 readable.
-- G2 `sc privs` trimmed too far breaks netsh: measure on the VM; keep SeChangeNotify.
+- G2 `sc privs` trimmed too far breaks netsh: measured 2026-10-16 (#99, five VM passes) — SeChangeNotify
+  alone works; `sc sidtype restricted` does not (netsh gets access denied) and was dropped.
 - G15 service-side install widens the service's job: plan page and orchestrator review first.
 - Operator time: each rc needs the operator; keep rcs small and few.
 
-## Open questions (operator)
+## Open questions (operator) — answered 2026-10-16
 
-1. IPv6 in 1.0, or a documented IPv4-only 1.0?
-2. Pay for a public OV / Azure Trusted Signing certificate, or stay on the private PKI with the GPO/Intune
-   root recipe?
-3. G4 commit-confirmed rollback: default-on, or behind a setting at first?
-4. 1.0 target date?
+Decided by the operator (direct, 07:15 Berlin, relayed by the orchestrator in m-5838):
+
+1. IPv6: **not in 1.0**. 1.0 is documented IPv4-only with the dual-stack DNS caveat; IPv6 is a 1.x milestone.
+2. Signing: **keep the self-signed pinned root**; no paid certificate; the SmartScreen note stays in the docs.
+3. G4 commit-confirmed rollback: **behind a setting, OFF by default**; a policy may enable it.
+4. 1.0 date: **none** — it ships when the M5 bar is met.
+
+With these settled, v0.15.0 final = rc.1 unless the rc shows a defect, after a 48 h soak (earliest
+2026-10-18, outside the n4 quiet hours).
 
 ## Review reconciliation
 
