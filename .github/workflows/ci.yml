@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, 'release/**' ]   # release/*: build + tests only (no artifact hand-off: Actions storage billing)
     tags: [ 'v*' ]
   pull_request:
     branches: [ main ]
@@ -88,13 +88,15 @@ jobs:
           echo "built=true" >> "$GITHUB_OUTPUT"
       - name: Drop symbols
         run: find bin -name '*.pdb' -delete && find bin -type f | sort
-      - uses: actions/upload-artifact@v7
+      - if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/') || github.event_name == 'pull_request'   # release/* pushes: nothing is handed off
+        uses: actions/upload-artifact@v7
         with:
           name: netpaw-bin
           path: bin
           retention-days: 1
 
   sign-bin:
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/') || github.event_name == 'pull_request'
     needs: build
     permissions:
       contents: read
@@ -111,6 +113,7 @@ jobs:
       retention-days: 1   # ~80 MB signed copies; keep the handoff short (operator billing)
 
   msi:
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/') || github.event_name == 'pull_request'
     # The only Windows build step: WiX 5 cannot build on Linux (measured: WIX0389/WIX0027 on
     # every Directory/@Name and backslash Source). It packs the SIGNED binaries from sign-bin.
     needs: [build, sign-bin]
@@ -186,6 +189,7 @@ jobs:
           retention-days: 1
 
   sign-pkg:
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/') || github.event_name == 'pull_request'
     needs: msi
     permissions:
       contents: read
@@ -202,6 +206,7 @@ jobs:
       retention-days: 1   # ~80 MB signed copies; keep the handoff short (operator billing)
 
   verify-signed:
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/') || github.event_name == 'pull_request'
     # The chain proof, on the same runner class that signed: tools/verify-release.sh is the recipe
     # docs/signed-release.md gives people for a download. Any file that does not verify fails the job.
     needs: [sign-bin, sign-pkg]
@@ -273,6 +278,7 @@ jobs:
           { echo; echo '### UpdateTrust (what the tray checks)'; echo; echo '```'; cat gate.log; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
 
   verify-windows:
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/') || github.event_name == 'pull_request'
     # What a Windows user gets: signature status as Windows sees it, then install / run / uninstall
     # of the SIGNED msi. R0 is a staging root, so Windows reports NotTrusted until it is imported
     # into this throwaway runner's LocalMachine Root store; after that the status must be Valid.
