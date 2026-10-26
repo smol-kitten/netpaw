@@ -117,7 +117,10 @@ Chosen: **B**. A is the fallback for the spike's own measurements only, inside t
 - A template drifts behind Windows updates. Rebuild it monthly; record the build date as a `RESULT`.
 - The peer LXC is a second thing to keep alive. It is started and stopped by the driver, not left up.
 - A wrong bridge choice could put the test NIC on vmbr0. The verify script asserts net1's subnet is
-  the peer's subnet before any apply, else `RESULT|guard|wrong-bridge` and stop.
+  the peer's subnet and net0's subnet is the management subnet before any apply, else
+  `RESULT|guard|wrong-bridge` and stop.
+- Linked clones share VM 150's thin pool (local-lvm). The gate refuses when local-lvm data is above
+  85 %; Step 0 records free space before and after one clone cycle.
 
 ## Operator questions
 
@@ -125,3 +128,25 @@ Chosen: **B**. A is the fallback for the spike's own measurements only, inside t
    licence/KMS needed for the template?
 2. pve changes: OK to add bridge `vmbr-nptest`, pool `netpaw-harness`, VMIDs 9160–9169, an API token
    for n4, and a small peer LXC?
+
+## Review reconciliation
+
+- Orchestrator (m-7805): VMIDs moved to 9160–9169; PawCheck owns the nightly 00:30–02:30 window. Adopted.
+- Second model, round 1 (four points):
+  1. *net0 on vmbr0 shares L2 with management.* Adopted in part: NetPaw never runs on net0 (the service
+     binds its changes to the adapter named in the request, and the verify script names net1 by its
+     MAC), so the blast radius is net1 only. The `wrong-bridge` guard now also asserts net0's subnet is
+     the management subnet, so a swapped NIC order is refused before any apply. A separate management
+     bridge is noted as the stricter option for the operator question 2.
+  2. *The API token role cannot create the peer LXC or the bridge.* Adopted: those are one-time pve
+     changes made by the operator (question 2), not by the driver. The driver only starts and stops
+     the peer (`VM.PowerMgmt` on the LXC) and clones/destroys VMs. A disposable peer VM instead of an
+     LXC is listed as the alternative if the operator prefers a VM-only token.
+  3. *The window was narrowed to 02:30–07:00 without saying why.* The narrowing is the orchestrator's
+     rule (m-7805): 00:30–02:30 is PawCheck's. "PawCheck slot not running" means: no VM 9150 exists
+     and no `pawcheck-*` process holds the pve lock file the PawCheck driver writes. Defined above.
+  4. *Linked-clone churn on local-lvm can affect VM 150's thin pool and vzdump.* Partly adopted: the
+     clone pool is excluded from vzdump, and Step 0 measures local-lvm free space before and after a
+     clone cycle (`RESULT|lvm|free-before/after`). The gate refuses when local-lvm data is above 85 %.
+     A full clone on another datastore is not available (local-lvm is the only VM store on pve).
+- STE lint (23 findings, mostly semicolons): left for the final edit after the operator answers.
