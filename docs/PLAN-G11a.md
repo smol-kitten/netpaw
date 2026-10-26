@@ -28,6 +28,9 @@ cannot leave state behind for the next run.
   n4's active hours, so the harness can run from n4 on a nightly schedule.
 - verify-windows (ci.yml) runs on GitHub-hosted windows-latest. It cannot test a second host, NIC loss,
   a reboot, or an upgrade from an installed older MSI.
+- PawCheck owns the nightly **00:30–02:30 Berlin pve window**: it creates and destroys its baseline VM 9150 at
+  00:30 every night. G11 runs must not overlap that window, and VMIDs 9160–9169 are used so the two never clash
+  (orchestrator review, m-7805).
 - The orchestrator's PawCheck VM 150 slot tests (pawcheck PR #20) also use VM 150. The next one is
   2026-10-24 00:45 Berlin (m-7423).
 
@@ -54,12 +57,12 @@ Chosen: **B**. A is the fallback for the spike's own measurements only, inside t
 
 ## Chosen approach
 
-- **Template** VMID 9150 `netpaw-win11-tpl`: a clean Win11 install (not a copy of VM 150), OpenSSH
+- **Template** VMID 9160 `netpaw-win11-tpl`: a clean Win11 install (not a copy of VM 150), OpenSSH
   server with a harness key, local user `harness`, no NetPaw, no .NET (the verify run uses the
   self-contained build). Generalised with sysprep `/generalize /oobe` + an unattend file, so each clone
-  gets its own SID and hostname. Converted with `qm template 9150`.
-- **Clone** per run: `qm clone 9150 <id> --name netpaw-h-<run> --pool netpaw-harness` (linked clone on
-  local-lvm), VMID range 9151–9159. The pool is excluded from vzdump.
+  gets its own SID and hostname. Converted with `qm template 9160`.
+- **Clone** per run: `qm clone 9160 <id> --name netpaw-h-<run> --pool netpaw-harness` (linked clone on
+  local-lvm), VMID range 9161–9169. The pool is excluded from vzdump.
 - **NICs** per clone: net0 on `vmbr0` with VLAN tag of the management net (n4 reaches it by ssh);
   net1 on a new bridge `vmbr-nptest` with no uplink.
 - **Test bridge peer**: an LXC `netpaw-peer` (Debian, ~256 MiB) on `vmbr-nptest` only. It runs dnsmasq
@@ -73,8 +76,8 @@ Chosen: **B**. A is the fallback for the spike's own measurements only, inside t
 - **Access**: a pve API token `harness@pve!n4` with a role limited to pool `netpaw-harness` + the
   template (VM.Clone, VM.Allocate, VM.Config.Network, VM.PowerMgmt, VM.Audit, Datastore.AllocateSpace
   on local-lvm). The token lives in the vault on n4; the driver talks to the API, not root ssh.
-- **Gate in code**: refuse unless the Berlin time is 00:30–07:00, pve load1 < 20, and VM 150 and the
-  PawCheck slot are not running. Each refusal prints `RESULT|gate|refused:<reason>` and exits 3.
+- **Gate in code**: refuse unless the Berlin time is 02:30–07:00 (00:30–02:30 belongs to PawCheck's nightly
+  baseline run), pve load1 < 20, and VM 150, VM 9150 and the PawCheck slot are not running. Each refusal prints `RESULT|gate|refused:<reason>` and exits 3.
 
 ## Spike questions (Step 0, measured before G11 code)
 
@@ -93,7 +96,7 @@ Chosen: **B**. A is the fallback for the spike's own measurements only, inside t
 
 1. Operator answers the two questions below.
 2. Create `vmbr-nptest`, the pool, the API token + role, and the peer LXC (pve change, operator OK).
-3. Build template 9150 in the window. Record its build steps in this page.
+3. Build template 9160 in the window. Record its build steps in this page.
 4. Write `tools/vm-harness.sh` + `tools/vm-verify.ps1` with only the smoke checks (install, service
    running, pipe answers, one apply + revert on net1). PR.
 5. Measure the Step 0 table. Put the numbers here.
@@ -103,7 +106,7 @@ Chosen: **B**. A is the fallback for the spike's own measurements only, inside t
 ## Verification
 
 - Two runs back to back each print the full `RESULT|` set and leave zero VMs in the pool and no new LVs.
-- A run started outside the window prints `RESULT|gate|refused:window` and touches nothing.
+- A run started outside the window prints `RESULT|gate|refused:window` and touches nothing; a start inside PawCheck's 00:30–02:30 window is refused the same way (`refused:pawcheck-window`).
 - A run killed mid-way (`kill -9` the driver) is cleaned by the next run's stale sweep.
 - VM 150's config and backups are unchanged (`qm config 150` diff, last vzdump OK).
 
@@ -120,5 +123,5 @@ Chosen: **B**. A is the fallback for the spike's own measurements only, inside t
 
 1. Licensing: may short-lived Win11 clones run unactivated (evaluation or grace period), or is a
    licence/KMS needed for the template?
-2. pve changes: OK to add bridge `vmbr-nptest`, pool `netpaw-harness`, VMIDs 9150–9159, an API token
+2. pve changes: OK to add bridge `vmbr-nptest`, pool `netpaw-harness`, VMIDs 9160–9169, an API token
    for n4, and a small peer LXC?
