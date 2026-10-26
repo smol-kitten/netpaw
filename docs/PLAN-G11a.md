@@ -110,7 +110,10 @@ Chosen: **B**. A is the fallback for the spike's own measurements only, inside t
 
 - Two runs back to back each print the full `RESULT|` set and leave zero VMs in the pool and no new LVs.
 - A run started outside the window prints `RESULT|gate|refused:window` and touches nothing; a start inside PawCheck's 00:30–02:30 window is refused the same way (`refused:pawcheck-window`).
-- A run killed mid-way (`kill -9` the driver) is cleaned by the next run's stale sweep.
+- A run killed mid-way (`kill -9` the driver) is cleaned by the next run's stale sweep. A driver that dies
+  between `qm clone` and its trap cannot orphan a clone: the driver writes the run id to
+  `/run/netpaw-harness/<run>.vmid` and arms the trap BEFORE `qm clone`, and every VM in the pool is named
+  `netpaw-h-<run>`, so the sweep destroys any pool VM whose run file is gone or older than 2 h.
 - VM 150's config and backups are unchanged (`qm config 150` diff, last vzdump OK).
 
 ## Risks
@@ -127,7 +130,8 @@ Chosen: **B**. A is the fallback for the spike's own measurements only, inside t
 
 ## Operator questions
 
-1. Licensing: may short-lived Win11 clones run unactivated (evaluation or grace period), or is a
+1. Licensing — **answered 2026-10-26 (operator, q-ef7c)**: the clones may run unactivated (grace period /
+   evaluation); no licence or KMS for template 9160. Original question: may short-lived Win11 clones run unactivated (evaluation or grace period), or is a
    licence/KMS needed for the template?
 2. pve changes: OK to add bridge `vmbr-nptest` (and, stricter, a dedicated management bridge for
    net0 reached through a jump host), pool `netpaw-harness`, VMIDs 9160–9169, an API token
@@ -163,3 +167,13 @@ Chosen: **B**. A is the fallback for the spike's own measurements only, inside t
   the dedicated management bridge). 2: `VM.Config.Network` dropped from the role. 3: the gate section
   now lists every check with its refusal reason, including the PawCheck lock file. 4: `thinpool` and
   `vzdump` are gate checks, not post-hoc.
+- Second model, round 3: 1 (net0 L2) stays undecided — operator question 2 (q-6364) decides between a
+  dedicated management bridge and VLAN-isolated vmbr0; the runtime guard is the interim. 2: adopted —
+  the peer LXC is created inside pool `netpaw-harness`, so the pool-scoped role (`VM.PowerMgmt`) covers
+  it; Step 0 records `pvesh get /pools/netpaw-harness` and `pveum acl list` as `RESULT|acl|…`. 3:
+  adopted as a measurement — Step 0 creates and destroys one clone while sampling `lvs pve/data
+  data_percent` during a running vzdump of VM 150 (`RESULT|thinpool|during-vzdump`); the 85 % gate is
+  the operating rule, the measurement is the proof; until the 10-28 cleanup the gate refuses, which is
+  the intended behaviour, not an untested requirement. 4: adopted — run file + trap armed before the
+  clone, pool VMs named by run id, sweep keyed on the run file (Risks).
+- Operator q-ef7c answered: unactivated clones are fine (Operator questions, 1).
