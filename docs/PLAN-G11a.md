@@ -133,7 +133,12 @@ Chosen: **B**. A is the fallback for the spike's own measurements only, inside t
 1. Licensing — **answered 2026-10-26 (operator, q-ef7c)**: the clones may run unactivated (grace period /
    evaluation); no licence or KMS for template 9160. Original question: may short-lived Win11 clones run unactivated (evaluation or grace period), or is a
    licence/KMS needed for the template?
-2. pve changes: OK to add bridge `vmbr-nptest` (and, stricter, a dedicated management bridge for
+2. pve changes — **answered 2026-10-26 (operator, q-6364): OK AFTER CLEANUP**. Bridge `vmbr-nptest`,
+   pool `netpaw-harness`, VMIDs 9160–9169, the pool-scoped n4 token and the peer LXC are approved, but
+   only once the thin-pool cleanup (fstrim + the 10-21 snapshots, on/after 10-28) brings local-lvm
+   under 85 %. The orchestrator signals when that is done; step 2 does not start before that message.
+   The dedicated management bridge was not part of the approval: net0 stays on vmbr0 with the
+   wrong-bridge guard. Original question: OK to add bridge `vmbr-nptest` (and, stricter, a dedicated management bridge for
    net0 reached through a jump host), pool `netpaw-harness`, VMIDs 9160–9169, an API token
    for n4, and a small peer LXC?
 
@@ -177,3 +182,14 @@ Chosen: **B**. A is the fallback for the spike's own measurements only, inside t
   the intended behaviour, not an untested requirement. 4: adopted — run file + trap armed before the
   clone, pool VMs named by run id, sweep keyed on the run file (Risks).
 - Operator q-ef7c answered: unactivated clones are fine (Operator questions, 1).
+- Second model, round 4: 1 is now decided by q-6364 — the approved change set has no separate
+  management bridge, so net0 stays on vmbr0 with the runtime guard; requirement 2 is read as "NetPaw
+  never touches net0", which the guard and the MAC-named verify enforce. 2: the ACL binding is a Step 0
+  measurement (`RESULT|acl|…`); if the pool-scoped role does not cover the LXC, the peer becomes a
+  disposable VM in the pool (the alternative the review named) — recorded as the fallback. 3: unchanged
+  — the measurement is Step 0, the threshold is the rule; refusing every run until the cleanup is the
+  requirement working. 4: rebutted — the run file is written and the trap armed BEFORE `qm clone`, and
+  the clone takes its name from that file; a crash at any point leaves either no VM or a VM whose name
+  the sweep matches by prefix `netpaw-h-`, so nothing is orphaned. Step 0 includes the kill -9 test the
+  review asked for (`RESULT|sweep|orphan-destroyed`).
+- Operator q-6364 answered: approved after the thin-pool cleanup (Operator questions, 2).
