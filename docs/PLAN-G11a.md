@@ -74,10 +74,13 @@ Chosen: **B**. A is the fallback for the spike's own measurements only, inside t
   older than 2 h is destroyed). Clones are disposable, so `qm stop` is fine for them; the clean-shutdown
   rule stays for VM 150.
 - **Access**: a pve API token `harness@pve!n4` with a role limited to pool `netpaw-harness` + the
-  template (VM.Clone, VM.Allocate, VM.Config.Network, VM.PowerMgmt, VM.Audit, Datastore.AllocateSpace
+  template (VM.Clone, VM.Allocate, VM.PowerMgmt, VM.Audit, Datastore.AllocateSpace
   on local-lvm). The token lives in the vault on n4; the driver talks to the API, not root ssh.
-- **Gate in code**: refuse unless the Berlin time is 02:30–07:00 (00:30–02:30 belongs to PawCheck's nightly
-  baseline run), pve load1 < 20, and VM 150, VM 9150 and the PawCheck slot are not running. Each refusal prints `RESULT|gate|refused:<reason>` and exits 3.
+- **Gate in code**, each check its own `RESULT|gate|refused:<reason>` and exit 3:
+  `window` — Berlin time outside 02:30–07:00 (00:30–02:30 belongs to PawCheck's nightly baseline run);
+  `load` — pve load1 ≥ 20; `vm150` — VM 150 running; `pawcheck` — VM 9150 exists or PawCheck's lock
+  file `/run/lock/pawcheck-vm150.lock` is held; `thinpool` — local-lvm data above 85 % (`lvs pve/data
+  -o data_percent`); `vzdump` — a vzdump task is running on pve. No clone is created before all pass. Each refusal prints `RESULT|gate|refused:<reason>` and exits 3.
 
 ## Spike questions (Step 0, measured before G11 code)
 
@@ -126,27 +129,37 @@ Chosen: **B**. A is the fallback for the spike's own measurements only, inside t
 
 1. Licensing: may short-lived Win11 clones run unactivated (evaluation or grace period), or is a
    licence/KMS needed for the template?
-2. pve changes: OK to add bridge `vmbr-nptest`, pool `netpaw-harness`, VMIDs 9160–9169, an API token
+2. pve changes: OK to add bridge `vmbr-nptest` (and, stricter, a dedicated management bridge for
+   net0 reached through a jump host), pool `netpaw-harness`, VMIDs 9160–9169, an API token
    for n4, and a small peer LXC?
 
 ## Review reconciliation
 
 - Orchestrator (m-7805): VMIDs moved to 9160–9169; PawCheck owns the nightly 00:30–02:30 window. Adopted.
 - Second model, round 1 (four points):
-  1. *net0 on vmbr0 shares L2 with management.* Adopted in part: NetPaw never runs on net0 (the service
+  1. *net0 on vmbr0 shares L2 with management.* Undecided until operator question 2 is answered; a
+     dedicated management bridge is now part of that question. Meanwhile: NetPaw never runs on net0 (the service
      binds its changes to the adapter named in the request, and the verify script names net1 by its
      MAC), so the blast radius is net1 only. The `wrong-bridge` guard now also asserts net0's subnet is
      the management subnet, so a swapped NIC order is refused before any apply. A separate management
      bridge is noted as the stricter option for the operator question 2.
   2. *The API token role cannot create the peer LXC or the bridge.* Adopted: those are one-time pve
      changes made by the operator (question 2), not by the driver. The driver only starts and stops
-     the peer (`VM.PowerMgmt` on the LXC) and clones/destroys VMs. A disposable peer VM instead of an
+     the peer (`VM.PowerMgmt` on the LXC) and clones/destroys VMs. `VM.Config.Network` is dropped from
+     the role: the NIC layout lives in the template, so clones inherit it and the driver changes no
+     VM config. A disposable peer VM instead of an
      LXC is listed as the alternative if the operator prefers a VM-only token.
   3. *The window was narrowed to 02:30–07:00 without saying why.* The narrowing is the orchestrator's
      rule (m-7805): 00:30–02:30 is PawCheck's. "PawCheck slot not running" means: no VM 9150 exists
      and no `pawcheck-*` process holds the pve lock file the PawCheck driver writes. Defined above.
-  4. *Linked-clone churn on local-lvm can affect VM 150's thin pool and vzdump.* Partly adopted: the
-     clone pool is excluded from vzdump, and Step 0 measures local-lvm free space before and after a
-     clone cycle (`RESULT|lvm|free-before/after`). The gate refuses when local-lvm data is above 85 %.
+  4. *Linked-clone churn on local-lvm can affect VM 150's thin pool and vzdump.* Adopted as gates:
+     `thinpool` (local-lvm data above 85 %, measured 87 % on 2026-10-26, so no clone before the
+     fstrim and snapshot cleanup on/after 10-28, orchestrator m-8087) and `vzdump` (a backup task is
+     running). The clone pool is excluded from vzdump, and Step 0 measures local-lvm free space before
+     and after a clone cycle (`RESULT|lvm|free-before/after`).
      A full clone on another datastore is not available (local-lvm is the only VM store on pve).
 - STE lint (23 findings, mostly semicolons): left for the final edit after the operator answers.
+- Second model, round 2: points 1–4 restated. 1 is marked undecided (operator question 2 now carries
+  the dedicated management bridge). 2: `VM.Config.Network` dropped from the role. 3: the gate section
+  now lists every check with its refusal reason, including the PawCheck lock file. 4: `thinpool` and
+  `vzdump` are gate checks, not post-hoc.
