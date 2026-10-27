@@ -50,7 +50,8 @@ sealed class SettingsForm : Form
         updatesRow.Controls.Add(updates); updatesRow.Controls.Add(updateNow);
         // 0.17: the service installs a verified update from the CatWinget source; the channel is an opt-in setting.
         var prerelease = new CheckBox { Text = "follow the prerelease channel for \"Update from CatWinget\"", Checked = s.UpdatePrerelease, AutoSize = true };
-        var catwinget = new Button { Text = "Update from CatWinget", Width = 160, Height = 24, Margin = new Padding(8, 0, 0, 0) };
+        var catwinget = new Button { Text = app.CatWingetLabel(), AutoSize = true, Height = 24, Margin = new Padding(8, 0, 0, 0) };
+        prerelease.CheckedChanged += (_, _) => catwinget.Text = (prerelease.Checked ? "Update from CatWinget (prerelease channel, verified signature)…" : app.CatWingetLabel());
         catwinget.Click += async (_, _) => { catwinget.Enabled = false; try { await app.UpdateFromCatWinget(); } finally { catwinget.Enabled = true; } };
         var catwingetRow = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = Padding.Empty };
         catwingetRow.Controls.Add(prerelease); catwingetRow.Controls.Add(catwinget);
