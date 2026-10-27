@@ -99,7 +99,12 @@ Chosen: **B**. A is the fallback for the spike's own measurements only, inside t
 
 1. Operator answers the two questions below.
 2. Create `vmbr-nptest`, the pool, the API token + role, and the peer LXC (pve change, operator OK).
-3. Build template 9160 in the window. Record its build steps in this page.
+3. Build template 9160 in the window. Record its build steps in this page. The unattend specialize
+   pass sets `HKLM\SYSTEM\CurrentControlSet\Control\BitLocker` `PreventDeviceEncryption=1`
+   (REG_DWORD): a clean Win11 24H2 install with vTPM + Secure Boot turns on automatic device
+   encryption, data disks included, and pve could not read the clone's disks from outside (fleet
+   note from pawcheck, smol-kitten/pawcheck#32). The verify run logs `Get-BitLockerVolume` as
+   `RESULT|bitlocker|<ProtectionStatus per volume>` and fails on anything but `Off`.
 4. Write `tools/vm-harness.sh` + `tools/vm-verify.ps1` with only the smoke checks (install, service
    running, pipe answers, one apply + revert on net1). PR.
 5. Measure the Step 0 table. Put the numbers here.
