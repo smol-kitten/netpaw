@@ -93,6 +93,7 @@ public sealed class NetworkProbe : IProbe
         catch (Exception ex) when (ex is PingException or System.Net.Sockets.SocketException or InvalidOperationException) { return new ProbeResult(host, false, (int)sw.ElapsedMilliseconds, ex.GetBaseException().Message); }
     }
 
+    /// <summary>ICMP echo with a fixed TTL, for traceroute hops: Ok when any reply came back; Detail names the answering hop.</summary>
     public async Task<ProbeResult> PingTtl(string host, int ttl, int timeoutMs, CancellationToken ct)
     {
         var sw = System.Diagnostics.Stopwatch.StartNew();
@@ -113,6 +114,7 @@ public sealed class NetworkProbe : IProbe
         catch (Exception ex) when (ex is PingException or System.Net.Sockets.SocketException or InvalidOperationException) { return new ProbeResult(host, false, (int)sw.ElapsedMilliseconds, "*"); }
     }
 
+    /// <inheritdoc/>
     public async Task<ProbeResult> Ping(string host, int timeoutMs, CancellationToken ct)
     {
         var sw = System.Diagnostics.Stopwatch.StartNew();
@@ -128,6 +130,7 @@ public sealed class NetworkProbe : IProbe
         }
     }
 
+    /// <inheritdoc/>
     public async Task<ProbeResult> Resolve(string host, int timeoutMs, CancellationToken ct)
     {
         var sw = System.Diagnostics.Stopwatch.StartNew();
@@ -197,6 +200,7 @@ public sealed record Snapshot(
         }
     }
 
+    /// <summary>Human text for a NetState, for the card and the incident log.</summary>
     public static string Describe(NetState s) => s switch
     {
         NetState.LinkDown => "Cable unplugged / link down",
@@ -246,7 +250,9 @@ public sealed class ConnectivityChecker(IProbe probe)
     /// <summary>netsh lan on Windows; null elsewhere or when the Wired AutoConfig service is off.</summary>
     public Func<string, Adapters.Dot1xInfo?>? Dot1xReader { get; set; }
 
+    /// <summary>Reads the Wi-Fi details of an up wireless adapter via the injected reader; null on any failure.</summary>
     Adapters.WlanInfo? Wlan(AdapterInfo a) { try { return a.Wireless && a.Up ? WlanReader?.Invoke(a.Name) : null; } catch (Exception) { return null; } }
+    /// <summary>Reads the 802.1X state of an up, address-less wired adapter via the injected reader; null on any failure.</summary>
     Adapters.Dot1xInfo? Dot1x(AdapterInfo a, bool hasAddr) { try { return !a.Wireless && a.IsPhysical && a.Up && !hasAddr ? Dot1xReader?.Invoke(a.Name) : null; } catch (Exception) { return null; } }
 
     /// <param name="readers">false = skip the netsh readers (Wi-Fi, 802.1X) this round; the caller copies the previous values.</param>
@@ -294,6 +300,7 @@ public static class Transitions
 {
     public sealed record Change(NetState From, NetState To, string Title, string Text, bool IsProblem);
 
+    /// <summary>The change between two snapshots (state, gateway, address), or null when nothing the user should hear about changed.</summary>
     public static Change? Detect(Snapshot? previous, Snapshot current)
     {
         var from = previous?.State ?? NetState.Unknown;

@@ -24,6 +24,7 @@ public interface ITierPolicySource
 /// default when the service wires no real source, and in tests.</summary>
 public sealed class EmptyPolicySource : ITierPolicySource
 {
+    /// <summary>No overrides, always valid: the defaults apply.</summary>
     public (IReadOnlyDictionary<PolicyIntent, Tier>, bool, string?) Read() => (new Dictionary<PolicyIntent, Tier>(), true, null);
 }
 
@@ -76,13 +77,16 @@ public sealed class PolicyTiers
         return int.TryParse(value.Trim(), out var v) && v == SchemaVersion;
     }
 
+    /// <summary>The built-in minimum tier of an intent (equal to pre-0.14 behaviour).</summary>
     public static Tier DefaultFor(PolicyIntent i) => Defaults[i];
+    /// <summary>The tier a policy may never go below for an intent (StandardUser unless a floor is set).</summary>
     public static Tier FloorFor(PolicyIntent i) => Floors.GetValueOrDefault(i, Tier.StandardUser);
 
     readonly ITierPolicySource _source;
     readonly string _cachePath;
     readonly Action<string> _audit;
 
+    /// <summary>Creates the resolver with its policy source, the last-known-good cache path and the audit sink.</summary>
     public PolicyTiers(ITierPolicySource source, string cachePath, Action<string>? audit = null)
     {
         _source = source;
@@ -142,6 +146,7 @@ public sealed class PolicyTiers
         return Enum.TryParse(s, ignoreCase: true, out tier) && Enum.IsDefined(tier);
     }
 
+    /// <summary>Parses a PolicyIntent by exact name; false for numbers or unknown names.</summary>
     static bool TryParseIntent(string? s, out PolicyIntent intent)
     {
         intent = default;
@@ -169,6 +174,7 @@ public sealed class PolicyTiers
         }
     }
 
+    /// <summary>The last-known-good overrides from the cache file; null when absent or unreadable.</summary>
     IReadOnlyDictionary<PolicyIntent, Tier>? ReadCache()
     {
         try
