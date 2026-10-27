@@ -18,6 +18,7 @@ public static partial class ProfileGuard
     [GeneratedRegex(@"^(?=.{1,253}$)[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$")]
     private static partial Regex DnsName();
 
+    /// <summary>Every reason a profile sent over the pipe is refused (lengths, characters, address math); empty when it is acceptable.</summary>
     public static IReadOnlyList<string> Check(Profile p)
     {
         var errors = new List<string>();
@@ -58,6 +59,7 @@ public static partial class ProfileGuard
     public static bool IsSafeAdapterName(string name) =>
         name.Length is > 0 and <= 256 && !name.Any(c => char.IsControl(c) || c is '"' or '\'' or '`' or '\\' or '\u2018' or '\u2019' or '\u201a' or '\u201b');
 
+        /// <summary>Adds an error when a text field is too long or carries control characters.</summary>
         static void Text(string what, string? s, int max, List<string> errors)
     {
         if (s is null) return;
@@ -65,6 +67,7 @@ public static partial class ProfileGuard
         if (s.Any(char.IsControl)) errors.Add($"{what} contains control characters.");
     }
 
+    /// <summary>Adds an error when a metric is outside 1..9999.</summary>
     static void Metric(string what, int? m, List<string> errors)
     {
         if (m is < 1 or > 9999) errors.Add($"{what} must be 1..9999.");

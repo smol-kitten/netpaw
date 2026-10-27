@@ -23,6 +23,7 @@ public static class ServiceProtocol
         Converters = { new JsonStringEnumConverter<RequestKind>(allowIntegerValues: false) },
     };
 
+    /// <summary>One message as UTF-8 JSON plus a newline, the wire unit of the pipe.</summary>
     public static byte[] Encode<T>(T message)
     {
         var bytes = JsonSerializer.SerializeToUtf8Bytes(message, Json);
@@ -86,6 +87,7 @@ public sealed record ServiceResponse(int V, bool Ok, string? Error = null, Servi
 {
     /// <summary>What a change request did: every step with its result, warnings and the verify diff.</summary>
     public ApplyReport? Apply { get; init; }
+    /// <summary>A failed response with the reason and no report.</summary>
     public static ServiceResponse Fail(string error) => new(ServiceProtocol.Version, false, error);
 }
 
@@ -97,6 +99,7 @@ public sealed record ApplyReport(string Title, string Adapter, bool Success, boo
     /// <summary>Keeps answers well under <see cref="ServiceProtocol.MaxLine"/>: command output is cut per step.</summary>
     public const int MaxOutput = 1024;
 
+    /// <summary>Flattens a plan and its outcome into the report the client sees (steps, exit codes, verify diffs).</summary>
     public static ApplyReport From(Planning.ApplyPlan plan, Planning.ApplyOutcome? outcome) => new(
         plan.Title, plan.Adapter, outcome?.Success ?? true, outcome?.Aborted ?? false, [.. plan.Warnings],
         outcome is null ? [] : outcome.Results.Select(r => new StepReport(r.Step.Description, r.Step.CommandLine, r.ExitCode, r.Ok,
@@ -129,6 +132,7 @@ public static class ServiceClient
 
     const int AnswerMs = 15_000;
 
+    /// <summary>One round trip: connect, verify the server is the NetPaw service, send, read one line; errors come back as text.</summary>
     static async Task<(ServiceResponse? Response, string? Error)> Exchange(ServiceRequest request, int timeoutMs, CancellationToken ct)
     {
         using var pipe = new NamedPipeClientStream(".", ServiceProtocol.PipeName, PipeDirection.InOut, PipeOptions.Asynchronous,
@@ -152,6 +156,7 @@ public static class ServiceClient
 /// apply report when there is one.</summary>
 public sealed record ChangeResult(bool Ok, string? Error, ApplyReport? Report)
 {
+    /// <summary>The result when no path can run the change (no service, not elevated).</summary>
     public static ChangeResult Unreachable(string why) => new(false, why, null);
 }
 
@@ -179,16 +184,27 @@ public static class ServiceChange
     /// <summary>The last Status answer (caller + effective tier as the service sees this process); null when the service did not answer.</summary>
     public static ServiceStatus? LastStatus { get; private set; }
 
+    /// <summary>ApplyProfile request with an inline user profile.</summary>
     public static ServiceRequest Profile(Model.Profile p, string? adapter = null) => new(ServiceProtocol.Version, RequestKind.ApplyProfile) { Profile = p, Adapter = adapter };
+    /// <summary>ApplyProfile request by managed profile id.</summary>
     public static ServiceRequest Managed(string profileId, string? adapter = null) => new(ServiceProtocol.Version, RequestKind.ApplyProfile) { ProfileId = profileId, Adapter = adapter };
+    /// <summary>Dhcp request for the adapter (null = the work adapter).</summary>
     public static ServiceRequest Dhcp(string? adapter = null) => new(ServiceProtocol.Version, RequestKind.Dhcp) { Adapter = adapter };
+    /// <summary>Reach request for a target address or a.b.c.d/n.</summary>
     public static ServiceRequest Reach(string target, string? adapter = null, bool? replacePrimary = null) => new(ServiceProtocol.Version, RequestKind.Reach) { Target = target, Adapter = adapter, ReplacePrimary = replacePrimary };
+    /// <summary>ClearTemp request: remove every temporary address.</summary>
     public static ServiceRequest ClearTemp() => new(ServiceProtocol.Version, RequestKind.ClearTemp);
+    /// <summary>DeleteRoute request for a prefix and optional next hop.</summary>
     public static ServiceRequest DeleteRoute(string prefix, string? gateway, string? adapter = null) => new(ServiceProtocol.Version, RequestKind.DeleteRoute) { RoutePrefix = prefix, RouteGateway = gateway, Adapter = adapter };
+    /// <summary>ResetAdapter request (disable, enable).</summary>
     public static ServiceRequest ResetAdapter(string? adapter = null) => new(ServiceProtocol.Version, RequestKind.ResetAdapter) { Adapter = adapter };
+    /// <summary>Renew request (ipconfig /renew).</summary>
     public static ServiceRequest Renew(string? adapter = null) => new(ServiceProtocol.Version, RequestKind.Renew) { Adapter = adapter };
+    /// <summary>Release request (ipconfig /release).</summary>
     public static ServiceRequest Release(string? adapter = null) => new(ServiceProtocol.Version, RequestKind.Release) { Adapter = adapter };
+    /// <summary>Prefer request (lowest interface metric for the adapter).</summary>
     public static ServiceRequest Prefer(string? adapter = null) => new(ServiceProtocol.Version, RequestKind.Prefer) { Adapter = adapter };
+    /// <summary>SetMtu request, 576..9000 bytes.</summary>
     public static ServiceRequest SetMtu(int mtu, string? adapter = null) => new(ServiceProtocol.Version, RequestKind.SetMtu) { Mtu = mtu, Adapter = adapter };
     /// <summary>G13: put the adapter of the last apply back into the state the service snapshotted just before it.</summary>
     public static ServiceRequest RevertLastApply() => new(ServiceProtocol.Version, RequestKind.RevertLastApply);
@@ -230,18 +246,23 @@ static class ServerCheck
         finally { CloseServiceHandle(scm); }
     }
 
+    /// <summary>kernel32: the process id of the pipe server behind the handle.</summary>
     [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true)]
     static extern bool GetNamedPipeServerProcessId(Microsoft.Win32.SafeHandles.SafePipeHandle pipe, out uint serverProcessId);
 
+    /// <summary>advapi32: opens the Service Control Manager with the given access.</summary>
     [System.Runtime.InteropServices.DllImport("advapi32.dll", SetLastError = true, CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
     static extern IntPtr OpenSCManagerW(string? machine, string? database, uint access);
 
+    /// <summary>advapi32: opens one service by name.</summary>
     [System.Runtime.InteropServices.DllImport("advapi32.dll", SetLastError = true, CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
     static extern IntPtr OpenServiceW(IntPtr scm, string name, uint access);
 
+    /// <summary>advapi32: SERVICE_STATUS_PROCESS for the service (holds its process id).</summary>
     [System.Runtime.InteropServices.DllImport("advapi32.dll", SetLastError = true)]
     static extern bool QueryServiceStatusEx(IntPtr service, uint infoLevel, byte[] buffer, int size, out int needed);
 
+    /// <summary>advapi32: closes an SCM or service handle.</summary>
     [System.Runtime.InteropServices.DllImport("advapi32.dll", SetLastError = true)]
     static extern bool CloseServiceHandle(IntPtr handle);
 }

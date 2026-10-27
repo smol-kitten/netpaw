@@ -11,6 +11,7 @@ namespace NetPaw.Ipc;
 /// </summary>
 public static class ServiceSid
 {
+    /// <summary>The NT SERVICE\&lt;name&gt; SID: S-1-5-80 plus the SHA-1 of the upper-case UTF-16 name as five little-endian DWORDs.</summary>
     public static string For(string serviceName)
     {
         var hash = SHA1.HashData(Encoding.Unicode.GetBytes(serviceName.ToUpperInvariant()));

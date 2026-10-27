@@ -17,6 +17,7 @@ public sealed class AppliesTo
 
     public bool IsEmpty => Names.Count == 0 && Macs.Count == 0;
 
+    /// <summary>True when the adapter name matches one of the globs or the MAC equals one of the listed MACs.</summary>
     public bool Matches(string adapterName, string mac) =>
         Names.Any(p => NameMatches(p, adapterName)) || Macs.Any(m => MacEquals(m, mac));
 
@@ -40,6 +41,8 @@ public sealed class AppliesTo
         return p == pattern.Length;
     }
 
+    /// <summary>A MAC reduced to its hex digits (separators and case ignored).</summary>
     static string NormMac(string m) => new([.. m.Where(Uri.IsHexDigit)]);
+    /// <summary>MAC equality after normalisation; an empty MAC never matches.</summary>
     static bool MacEquals(string a, string b) => NormMac(a) is { Length: > 0 } na && na.Equals(NormMac(b), StringComparison.OrdinalIgnoreCase);
 }
