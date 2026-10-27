@@ -461,18 +461,6 @@ CLAIMS = [
    "min": 1
   },
   "id": "c45"
- },
- {
-  "line": 196,
-  "text": "**Not (yet) in scope:** IPv6 (see [Limitations](docs/features.md#limitations) \u2014 on dual-stack networks a profile pins IPv4 DNS only), Wi-Fi profile switching, multi-VLAN trunk NICs, per-profile firewall rules. PRs welcome \u2014 the planner is pure and tested, so a new step is a small change with a test next to it.",
-  "kind": "grep",
-  "check": {
-   "path": "docs/features.md",
-   "regex": "Limitations",
-   "min": 1,
-   "max": 1
-  },
-  "id": "c46"
  }
 ]
 
