@@ -33,12 +33,16 @@ Fix what is measured broken (3 follow-ups) while the harness is blocked. build t
 the cleanup lands. then run the security-model items against it in plan order (G9, G5, G4, G15).
 
 ## Steps
-1. Tag v0.15.0 at the `release/0.15` head on the 11-01 wake (t-1fa3e6). verify latest, signed assets,
-   site promotion. Check: `gh api releases/latest` = v0.15.0, `install.ps1` → 0.15.0.
+1. Tag v0.15.0 at the `release/0.15` head on the 11-01 wake (t-1fa3e6). Gate: the orchestrator's GO
+   exists (m-6438) and the storage-hold release message is in the netpaw inbox before the tag command.
+   Then verify latest, signed assets, site promotion. Check: `gh api releases/latest` = v0.15.0,
+   `install.ps1` → 0.15.0.
 2. t-561758: in `IntentHandler.Handle` treat `netsh ... source=dhcp` "already enabled" as a no-op success
    (match the exit text, or pre-check `PrefixOrigin`). Test: Dhcp on a DHCP adapter returns ok.
-3. t-b34fd9: the release job sends `repository_dispatch netpaw-release` to netpaw-site and
-   netpaw-site-deploy (needs a token with both repos. ask the orchestrator for scope). Check: a tag push
+3. t-b34fd9, ask first: the release job (ci.yml `release`, exists, dispatches to catwinget) also
+   needs to reach netpaw-site and netpaw-site-deploy. Step 3a: ask the orchestrator whether the existing
+   dispatch token may cover those two repos, or whether the site repos should pull release events
+   with their own scheduled check (no new token). Step 3b: implement the answer. Check: a tag push
    rebuilds the site within 10 min, measured by curl.
 4. Dependabot cooldown (`cooldown: default-days: 7`) in `.github/dependabot.yml`. Check: secscan −2.
 5. `UpdateChecker.cs:100` Path.Combine: validate `dir` with `Path.GetFullPath` under the cache root.
@@ -53,23 +57,30 @@ the cleanup lands. then run the security-model items against it in plan order (G
 10. G16 (S): document what uninstall keeps. `RemoveFolder` for `%LOCALAPPDATA%\NetPaw\updates`.
     verify-windows: the cache folder is gone after `/x`.
 11. G10 docs: the GPO/Intune root-distribution recipe and the SmartScreen note in `docs/signed-release.md`.
-12. G11 step 2 (after cleanup-done): bridge, pool, token, peer LXC. Step 0 measurements as `RESULT|…`.
-13. G11 step 3: template 9160 (unattend with BitLocker off), `tools/vm-harness.sh` gate → clone → verify.
-    Exit: one green run with every `RESULT|gate|…` check exercised, kill -9 orphan test passes.
+12. G11 step 2, one PR or measurement each, started only after the orchestrator's cleanup-done
+    message id is recorded on t-f7c79c: 12a bridge `vmbr-nptest`, 12b pool `netpaw-harness`, 12c the
+    pool-scoped token (ACL dump as `RESULT|acl|…`), 12d the peer LXC. Step 0 measurements per
+    PLAN-G11a between 12c and 12d.
+13. G11 step 3, split: 13a template 9160 (unattend with BitLocker off, build steps recorded in
+    PLAN-G11a). 13b `tools/vm-harness.sh` gate → clone → verify. 13c the kill -9 orphan test. Exit: one
+    green run with every `RESULT|gate|…` check exercised.
 14. t-1db04a on the harness: SMB open from the peer host. assert the NETWORK deny refuses it and the
     `, network logon` marker appears if a request gets through. Record in the threat model.
-15. Harness in CI: n4 job `verify-vm` runs nightly inside the window. reports RESULT lines as the job
-    summary. no artifact upload (storage cap).
-16. G9 full: `RegNotifyChangeKeyValue` policy reload + policy source in the audit line. Harness test: a
-    registry change is applied within 5 s without restart.
-17. G5 design page: adapter identity by `NetCfgInstanceId` + MAC. protocol v2 with v1 readable.
-    Orchestrator review before code.
-18. G5 code: `ServiceRequest.AdapterId`, resolver prefers id over alias, alias display-only.
-    Harness test: a renamed alias still resolves. a swapped NIC order is refused.
-19. G4 design page: timer + liveness on the M2 snapshot, setting `CommitConfirm` default off, policy
-    `Tier.CommitConfirm`. Orchestrator review before code.
-20. G4 code + harness test: a simulated connectivity loss reverts within the timer. an explicit confirm
-    cancels it.
+15. Harness in CI: n4 job `verify-vm` runs nightly inside the G11 window (02:30–07:00 Berlin, per
+    PLAN-G11a, outside PawCheck's 00:30–02:30). It reports RESULT lines as the job summary, no artifact
+    upload (storage cap).
+16. G9 full, two PRs: 16a `RegNotifyChangeKeyValue` policy reload. 16b policy source in the audit
+    line. Harness test: a registry change is applied within 5 s without restart.
+17. G5 design page (one PR): adapter identity by `NetCfgInstanceId` + MAC, protocol v2 with v1
+    readable. Orchestrator review before any code.
+18. G5 code, two PRs: 18a `ServiceRequest.AdapterId` + resolver prefers id over alias. 18b alias
+    display-only in the tray and CLI. Harness test: a renamed alias still resolves, a swapped NIC
+    order is refused.
+19. G4 design page (one PR): timer + liveness on the M2 snapshot, setting `CommitConfirm` default
+    off, policy `Tier.CommitConfirm`. Orchestrator review before any code.
+20. G4, three steps: 20a service timer + liveness code (PR, orchestrator review). 20b harness test:
+    a simulated connectivity loss reverts within the timer. 20c harness test: an explicit confirm
+    cancels the timer.
 21. G15 decision page: service-side verified install vs "updates need an admin". measure msiexec from
     the service on the harness. orchestrator decides.
 22. G7: `global.json` SDK pin, NuGet lock file + `--locked-mode`, `Deterministic` +
@@ -78,9 +89,8 @@ the cleanup lands. then run the security-model items against it in plan order (G
 23. Diff-view half of t-73ace8: current-vs-profile table in `PlanPreviewForm` (addresses, gateway, DNS,
     routes), fed by `ProfileLint`-style pure code in Core. tests on the diff model.
 24. STE pass on the user-facing docs (`features.md`, `usage.md`, `policy.md`): `stelint.py` ≤ 1.5/100w.
-25. 1.0 bar audit: walk M5 line by line with measured evidence links. open `v1.0.0-rc.1` only when every
-    line has one.
-
+25. 1.0 bar audit: walk M5 line by line with measured evidence links. Gate: the orchestrator reviews
+    the table and gives GO before `v1.0.0-rc.1` is tagged. No tag without that message.
 ## Verification
 - Steps 1–11: PR merged on green plus the named check. Steps 12–22: one `RESULT|` line per claim from
   the harness, pasted into the PR. Step 25: the M5 table with links, reviewed by the orchestrator.
@@ -89,3 +99,13 @@ the cleanup lands. then run the security-model items against it in plan order (G
 - The thin-pool cleanup slips: steps 12–22 wait. steps 2–11 and 23–24 do not depend on it.
 - G4 and G5 touch the wire and timers: design page and review first, code second, harness third.
 - Hosted-runner CodeQL C# drops mid-run on runner-pve-r1 (seen 2026-10-15). it is not a required check.
+
+## Review reconciliation
+
+- Round 1 (nano): tag gates adopted, steps 1 and 25 now name the orchestrator message that must exist
+  before any `v*` tag. Step 3 adopted as ask-first (3a/3b), the release job exists (ci.yml `release`,
+  it dispatches to catwinget today), the token scope is the orchestrator's call. Cleanup-done
+  confirmation adopted: the message id is recorded on t-f7c79c before 12a. The window adopted from
+  PLAN-G11a (02:30–07:00 Berlin). Bundled steps split into sub-steps (12a–d, 13a–c, 16a–b, 18a–b,
+  20a–c), each one PR or one measurement. Execution order adopted: non-pve, non-tag work first, one
+  checkpoint, then pve and tag work.
