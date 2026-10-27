@@ -92,6 +92,11 @@ unit test exists or is cheap). Keep ≥ 8, or ≥ 7 with N = 2.
 
 Held (score 7, revisit after 1.0): 14, 17, 23–26, 33, 37, 43, 46, 50. Dropped: the rest, reason in the table.
 
+## Operator decision (2026-10-27, q-8c78, relayed in m-8197)
+
+**KEEP ALL 12** (the 10 kept and both extras). Sequenced after the 1.0 bar. #12 revert history waits
+for G4's design page. Tasks filed, in list order: t-bf17f9, t-d4f175, t-74844a, t-63c9ba, t-ad7c18, t-0adb7a, t-de5d06, t-45c383, t-03c582, t-89db54, t-88bd68, t-82c880.
+
 ## Options considered
 - A. Keep by score alone: rejected, it kept two 1.0 items (G4, G5) that are not 1.x features.
 - B. Score, then remove 1.0 items and merge near-duplicates: chosen.
@@ -112,3 +117,5 @@ list goes to the operator as one decision (keep/trim), not fifty.
 ## Risks
 - Scores are one person's estimate: the review round and the operator decision are the correction.
 - The 1.0 bar slips if features start first: steps are sequenced after it.
+
+Further rounds stop here
