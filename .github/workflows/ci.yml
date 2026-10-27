@@ -529,6 +529,20 @@ jobs:
           "unsupported-schema reason in the Event Log: **$(if ($ev) { 'yes' } else { 'NO' })**" >> $env:GITHUB_STEP_SUMMARY
           Remove-ItemProperty -Path HKLM:\SOFTWARE\Policies\NetPaw -Name PolicySchemaVersion -Force
           if (-not $ev) { SvcLog; throw "the unsupported-schema reason was not logged to the Event Log" }
+          # 0.17 CatWinget update intent (docs/PLAN-catwinget-update.md step 3): a standard user is refused by the tier
+          # gate (Admin by default); the runner admin gets to the resolve step and is refused there (this build's version
+          # is above anything the source offers, so "downgrade not allowed" — or "download failed" when the source is
+          # unreachable from the runner); in both cases nothing is downloaded or installed.
+          '{"v":1,"kind":"InstallUpdate"}' | Set-Content "$env:PUBLIC\np-req.json"
+          $u1 = AsNptest $send
+          "`nInstallUpdate from a standard user: ``$u1``" >> $env:GITHUB_STEP_SUMMARY
+          if ($u1 -notmatch '"ok":false' -or $u1 -notmatch 'needs tier Admin') { SvcLog; throw "InstallUpdate from a standard user was not refused by the tier gate: $u1" }
+          $u2 = & ([ScriptBlock]::Create($send))
+          "InstallUpdate from the runner admin: ``$u2``" >> $env:GITHUB_STEP_SUMMARY
+          if ($u2 -notmatch '"ok":false' -or $u2 -notmatch 'update refused' -or $u2 -notmatch 'resolve: ') { SvcLog; throw "InstallUpdate from an admin did not stop at the resolve step: $u2" }
+          $installed = Get-WinEvent -FilterHashtable @{ LogName = 'Application'; ProviderName = 'NetPaw' } -MaxEvents 60 -ErrorAction SilentlyContinue | Where-Object { $_.Message -match 'update: (download|install start)' }
+          if ($installed) { SvcLog; throw "the service downloaded or started an installer during the refusal tests" }
+          if (Test-Path "$env:ProgramData\NetPaw\service\updates\*.msi") { throw "an installer file was left in the updates folder" }
           # Upgrade case: a managed-profile file planted by a standard user before 0.14 survives the upgrade
           # and is still owned by that user. The loader must skip it (owner not SYSTEM/Administrators).
           $planted = "$env:ProgramData\NetPaw\profiles.d\planted.json"

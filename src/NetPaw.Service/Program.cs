@@ -93,6 +93,13 @@ sealed class NetPawWindowsService : ServiceBase
 
 static class Startup
 {
+    /// <summary>The running build's three-part version, what a CatWinget update must be newer than.</summary>
+    static Version CatWingetSourceVersion()
+    {
+        var v = typeof(Startup).Assembly.GetName().Version ?? new Version(0, 0, 0);
+        return new Version(v.Major, Math.Max(0, v.Minor), Math.Max(0, v.Build));
+    }
+
     /// <summary>The change-request handler over the machine's service store; reports an apply that a crash interrupted.</summary>
     public static IntentHandler Intents(Action<string> log)
     {
@@ -104,7 +111,9 @@ static class Startup
         var dir = ServiceFolder.Ensure(root, log);
         // PR 4 tiers: read HKLM policy, cache the last-known-good in the (SYSTEM/Admins-owned) service folder, audit to the log.
         var policy = new NetPaw.Ipc.PolicyTiers(new RegistryPolicySource(), Path.Combine(dir, "policy.cache.json"), log);
-        var handler = new IntentHandler(NetPaw.NetPawService.CreateDefault(dir), dir, log, policy: policy);
+        var current = CatWingetSourceVersion();
+        var installer = new NetPaw.Updates.UpdateInstaller(new WindowsUpdateEnvironment(dir, log), current, log);
+        var handler = new IntentHandler(NetPaw.NetPawService.CreateDefault(dir), dir, log, policy: policy, installer: installer);
         handler.Interrupted();
         return handler;
     }

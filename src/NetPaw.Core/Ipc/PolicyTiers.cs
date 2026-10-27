@@ -4,7 +4,7 @@ namespace NetPaw.Ipc;
 
 /// <summary>The gated units policy tiers apply to. Most map 1:1 to <see cref="RequestKind"/>; VirtualUnlock is the
 /// extra gate for targeting a non-host-facing adapter (not a request kind of its own).</summary>
-public enum PolicyIntent { Status, ApplyProfile, Dhcp, Reach, Renew, ClearTemp, DeleteRoute, ResetAdapter, Release, Prefer, SetMtu, VirtualUnlock, RevertLastApply }
+public enum PolicyIntent { Status, ApplyProfile, Dhcp, Reach, Renew, ClearTemp, DeleteRoute, ResetAdapter, Release, Prefer, SetMtu, VirtualUnlock, RevertLastApply, InstallUpdate }
 
 /// <summary>One tier decision, for the audit line and the caller.</summary>
 public sealed record PolicyDecision(PolicyIntent Intent, Tier Required, Tier Caller, bool Allowed, string Via);
@@ -52,7 +52,8 @@ public sealed class PolicyTiers
         [PolicyIntent.Prefer] = Tier.NetworkConfigOperators,
         [PolicyIntent.SetMtu] = Tier.NetworkConfigOperators,
         [PolicyIntent.VirtualUnlock] = Tier.NetworkConfigOperators,
-        [PolicyIntent.RevertLastApply] = Tier.StandardUser,   // G13: undo = re-apply the snapshotted pre-state; same class as ApplyProfile/Dhcp
+        [PolicyIntent.RevertLastApply] = Tier.StandardUser,
+        [PolicyIntent.InstallUpdate] = Tier.Admin,   // CatWinget update: the service installs its own verified download   // G13: undo = re-apply the snapshotted pre-state; same class as ApplyProfile/Dhcp
     };
 
     // A policy may tighten above the floor but never loosen below it. Only the inline virtual-adapter unlock has a
@@ -60,6 +61,7 @@ public sealed class PolicyTiers
     static readonly IReadOnlyDictionary<PolicyIntent, Tier> Floors = new Dictionary<PolicyIntent, Tier>
     {
         [PolicyIntent.VirtualUnlock] = Tier.NetworkConfigOperators,
+        [PolicyIntent.InstallUpdate] = Tier.NetworkConfigOperators,   // a policy may not open installs to standard users
     };
 
     /// <summary>The policy schema this build understands. An optional <c>PolicySchemaVersion</c> value in the

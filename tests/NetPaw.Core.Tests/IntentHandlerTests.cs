@@ -11,8 +11,9 @@ namespace NetPaw.Tests;
 /// that reaches a command line is checked, and the service builds the commands itself.</summary>
 public class IntentHandlerTests
 {
-    sealed record Rig(IntentHandler Handler, FakeRunner Runner, string Dir, List<string> Log);
+    internal sealed record Rig(IntentHandler Handler, FakeRunner Runner, string Dir, List<string> Log);
 
+    internal static Rig MakeRigFor(Dictionary<string, object>? policy) => Make(policy);
     static Rig Make(Dictionary<string, object>? policy = null, string? managedJson = null)
     {
         var dir = Directory.CreateTempSubdirectory().FullName;

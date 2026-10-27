@@ -16,7 +16,7 @@ namespace NetPaw.Ipc;
 /// the middle is visible at the next start (<see cref="Interrupted"/>).</item>
 /// </list>
 /// </summary>
-public sealed class IntentHandler(NetPawService svc, string journalDirectory, Action<string> log, int settleMs = 2500, PolicyTiers? policy = null)
+public sealed class IntentHandler(NetPawService svc, string journalDirectory, Action<string> log, int settleMs = 2500, PolicyTiers? policy = null, Updates.UpdateInstaller? installer = null)
 {
     readonly Lock _gate = new();
     // PR 4: the one authorization point. When no policy is injected, an empty-but-valid source means the default
@@ -54,6 +54,7 @@ public sealed class IntentHandler(NetPawService svc, string journalDirectory, Ac
         RequestKind.Prefer => PolicyIntent.Prefer,
         RequestKind.SetMtu => PolicyIntent.SetMtu,
         RequestKind.RevertLastApply => PolicyIntent.RevertLastApply,
+        RequestKind.InstallUpdate => PolicyIntent.InstallUpdate,
         _ => throw new Rejected($"{k} is not a change request"),
     };
 
@@ -87,6 +88,7 @@ public sealed class IntentHandler(NetPawService svc, string journalDirectory, Ac
                     RequestKind.Prefer => Run(Connectivity.Advisor.PlanPrefer(Adapter(r), svc.GetAdapters()), caller),
                     RequestKind.SetMtu => SetMtu(r, caller),
                     RequestKind.RevertLastApply => RevertLastApply(caller, callerTier, overrides),
+                    RequestKind.InstallUpdate => InstallUpdate(r, caller),
                     _ => throw new Rejected($"{r.Kind} is not a change request"),
                 };
                 return new(ServiceProtocol.Version, report.Success) { Apply = report, Error = report.Success ? null : "one or more steps failed" };
@@ -162,6 +164,17 @@ public sealed class IntentHandler(NetPawService svc, string journalDirectory, Ac
     }
 
     /// <summary>ClearTemp: removes every temporary address the service tracks.</summary>
+    /// <summary>Update from CatWinget: capability gate, then the installer does resolve → download → verify twice → msiexec.
+    /// The request carries a version and a channel at most; never a URL or a path.</summary>
+    ApplyReport InstallUpdate(ServiceRequest r, string caller)
+    {
+        svc.Require(Capability.CatWingetUpdate);
+        if (installer is null) throw new Rejected("updates from CatWinget are not available in this service build");
+        if (r.Channel is not null && r.Channel is not ("stable" or "prerelease")) throw new Rejected("channel must be stable or prerelease");
+        log($"update: requested by {caller} (version {r.Version ?? "newest"}, channel {r.Channel ?? "stable"}, downgrade {(r.AllowDowngrade == true ? "allowed" : "refused")})");
+        return installer.Install(r.Version, r.Channel, r.AllowDowngrade == true).GetAwaiter().GetResult();
+    }
+
     ApplyReport ClearTemp()
     {
         var outcome = svc.ClearTemp();
