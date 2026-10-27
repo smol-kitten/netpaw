@@ -8,6 +8,7 @@ public enum VpnKind { WireGuard, OpenVpn, WindowsNative, Tailscale, ZeroTier, Ot
 public sealed record VpnInfo(string Adapter, VpnKind Kind, bool Up, bool HasAddress, bool FullTunnel)
 {
     public string Mode => !Up ? "down" : FullTunnel ? "full tunnel (default route)" : "split tunnel";
+    /// <summary>"Kind 'adapter': mode", for logs.</summary>
     public override string ToString() => $"{Kind} '{Adapter}': {Mode}";
 }
 
@@ -27,6 +28,7 @@ public static class VpnDetector
         ("cisco anyconnect", VpnKind.Other), ("fortinet", VpnKind.Other), ("fortissl", VpnKind.Other), ("globalprotect", VpnKind.Other), ("pangp", VpnKind.Other), ("juniper", VpnKind.Other), ("pulse secure", VpnKind.Other), ("sonicwall", VpnKind.Other), ("checkpoint", VpnKind.Other),
     ];
 
+    /// <summary>Guesses the VPN product from the adapter name and description (TAP, WireGuard, Cisco, …); null when none matches.</summary>
     public static VpnKind? Classify(string name, string description)
     {
         var hay = (name + " " + description).ToLowerInvariant();

@@ -23,6 +23,7 @@ public static class PortCheck
         return IPAddress.TryParse(host, out var ip) ? ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork : Uri.CheckHostName(host) == UriHostNameType.Dns;
     }
 
+    /// <summary>One TCP port check with the probe's connect; the result names open/refused/timeout.</summary>
     public static async Task<PortResult> Run(IProbe probe, string host, int port, int timeoutMs = 2000, CancellationToken ct = default)
     {
         var r = await probe.Connect(host, port, timeoutMs, ct);

@@ -30,6 +30,7 @@ public sealed class ChangeChannel
     readonly Func<ChannelMode> _detect;
     readonly Func<ServiceRequest, ChangeResult> _send;
 
+    /// <summary>Creates the channel with the mode detector and the service send function (null = service mode unavailable).</summary>
     public ChangeChannel(Func<ChannelMode> detect, Func<ServiceRequest, ChangeResult>? send = null)
     {
         _detect = detect;
@@ -56,6 +57,7 @@ public sealed class ChangeChannel
         _ => ChangeResult.Unreachable("This change needs the NetPaw service (install the MSI), or run the portable copy as administrator."),
     };
 
+    /// <summary>Elevated mode: runs the in-process work and wraps its outcome as a ChangeResult.</summary>
     static ChangeResult Direct(ApplyPlan plan, Func<ApplyOutcome> directWork)
     {
         var outcome = directWork();

@@ -6,6 +6,7 @@ public enum HotkeyModifiers { None = 0, Alt = 1, Ctrl = 2, Shift = 4, Win = 8 }
 /// <summary>A parsed hotkey: Win32 MOD_* flags plus a virtual-key code, ready for RegisterHotKey.</summary>
 public sealed record Hotkey(HotkeyModifiers Modifiers, int VirtualKey, string KeyName)
 {
+    /// <summary>Canonical text of the hotkey ("Ctrl+Alt+1").</summary>
     public override string ToString()
     {
         var parts = new List<string>();
@@ -54,6 +55,7 @@ public static class HotkeyParser
         return true;
     }
 
+    /// <summary>Maps a key name (letter, digit, F-key, named key) to its virtual-key code and canonical name.</summary>
     static bool TryKey(string key, out int vk, out string name)
     {
         vk = 0; name = key;

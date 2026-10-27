@@ -10,6 +10,7 @@ namespace NetPaw.Connectivity;
 /// </summary>
 public static class DnsQuery
 {
+    /// <summary>Builds one wire-format A query (id, recursion desired) for name.</summary>
     public static byte[] BuildQuery(ushort id, string name)
     {
         var labels = name.Trim().TrimEnd('.').Split('.', StringSplitOptions.RemoveEmptyEntries);
@@ -41,6 +42,7 @@ public static class DnsQuery
         return true;
     }
 
+    /// <summary>Position after a wire-format name at pos, following a compression pointer if present.</summary>
     static int SkipName(byte[] r, int pos)
     {
         while (true)
@@ -52,6 +54,7 @@ public static class DnsQuery
         }
     }
 
+    /// <summary>The RFC 1035 name of a response code ("NXDOMAIN"), or "RCODE n" for the rest.</summary>
     public static string RcodeName(int rcode) => rcode switch { 0 => "NOERROR", 1 => "FORMERR", 2 => "SERVFAIL", 3 => "NXDOMAIN", 4 => "NOTIMP", 5 => "REFUSED", _ => $"RCODE{rcode}" };
 
     /// <summary>One query to one server. Ok = a reply came back at all.</summary>

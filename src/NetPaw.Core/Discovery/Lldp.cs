@@ -35,13 +35,16 @@ static class Frame
         return (et, off);
     }
 
+    /// <summary>Bytes as a dash-separated lowercase MAC ("00-11-22-33-44-55").</summary>
     public static string Mac(ReadOnlySpan<byte> b) => string.Join("-", b.ToArray().Select(x => x.ToString("x2")));
+    /// <summary>Bytes as UTF-8 text without trailing NULs and spaces.</summary>
     public static string Text(ReadOnlySpan<byte> b) => Encoding.UTF8.GetString(b).Trim('\0', ' ');
 }
 
 /// <summary>IEEE 802.1AB LLDP: TLV list after the Ethernet header. Only the TLVs an admin wants are decoded.</summary>
 public static class LldpDecoder
 {
+    /// <summary>Decodes an LLDP frame into the switch neighbour (chassis, port, name, management address); null when not LLDP.</summary>
     public static SwitchNeighbor? Decode(ReadOnlySpan<byte> frame, DateTimeOffset? at = null)
     {
         var (et, off) = Frame.Header(frame);
@@ -90,8 +93,10 @@ public static class LldpDecoder
 /// <summary>Cisco Discovery Protocol: SNAP-encapsulated (LLC AA AA 03, OUI 00-00-0C, protocol 0x2000), then version/TTL/checksum and TLVs.</summary>
 public static class CdpDecoder
 {
+    /// <summary>True when the frame is addressed to the CDP multicast MAC.</summary>
     public static bool IsCdp(ReadOnlySpan<byte> frame) => frame.Length > 22 && frame[..6].SequenceEqual(Frame.CdpMac);
 
+    /// <summary>Decodes a CDP frame into the switch neighbour; null when not CDP.</summary>
     public static SwitchNeighbor? Decode(ReadOnlySpan<byte> frame, DateTimeOffset? at = null)
     {
         if (!IsCdp(frame)) return null;
@@ -130,6 +135,7 @@ public static class CdpDecoder
         return new SwitchNeighbor("CDP", dev, port, null, dev, desc.Length == 0 ? null : desc, addr, vlan, caps, at ?? DateTimeOffset.Now);
     }
 
+    /// <summary>The first IPv4 address in a CDP Addresses TLV, or null.</summary>
     static string? FirstIPv4(ReadOnlySpan<byte> v)
     {
         if (v.Length < 4) return null;
@@ -151,10 +157,12 @@ public static class CdpDecoder
 /// <summary>Just enough pcapng to read what `pktmon etl2pcapng` writes: Section Header, Interface Description and Enhanced Packet blocks.</summary>
 public static class PcapNg
 {
+    /// <summary>Splits a pcap file into (timestamp, frame) pairs; handles both byte orders.</summary>
     public static List<(DateTimeOffset At, byte[] Frame)> Frames(byte[] file)
     {
         var list = new List<(DateTimeOffset, byte[])>();
         var p = 0; var little = true;
+        /// <summary>Reads a 32-bit value at the offset in the file's byte order.</summary>
         uint U32(int at) => little ? BinaryPrimitives.ReadUInt32LittleEndian(file.AsSpan(at)) : BinaryPrimitives.ReadUInt32BigEndian(file.AsSpan(at));
         while (p + 12 <= file.Length)
         {
