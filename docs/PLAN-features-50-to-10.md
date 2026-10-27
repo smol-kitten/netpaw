@@ -4,13 +4,13 @@
 List 50 candidate features, score each against fixed criteria, and keep about 10 for the 1.x roadmap.
 
 ## Given state (measured 2026-10-27)
-- Product: Windows tray + CLI + LocalSystem service over a named pipe; IPv4 profiles, reach mode, DHCP,
+- Product: Windows tray + CLI + LocalSystem service over a named pipe. IPv4 profiles, reach mode, DHCP,
   routes, VLAN, presets, scan, ARP/pktmon diagnostics, managed profiles, policy tiers, signed MSI,
   winget facts, auto-update with pinned root.
 - Decided out of 1.0: IPv6 (1.x milestone t-33f24d), paid certificate, G4 default-on.
-- Users: the operator and the fleet; no external user base measured. Threat model: local admin trusted,
+- Users: the operator and the fleet. no external user base measured. Threat model: local admin trusted,
   standard user limited by tiers, service is the only writer.
-- 1.0 bar (PLAN-v1.0 M5) is not met yet; features compete with it for the same person-hours.
+- 1.0 bar (PLAN-v1.0 M5) is not met yet. features compete with it for the same person-hours.
 
 ## Requirements
 - Every candidate gets the same five criteria and a one-line verdict.
@@ -78,17 +78,17 @@ unit test exists or is cheap). Keep ≥ 8, or ≥ 7 with N = 2.
 
 ## Scrutiny result: the 10 kept
 1. #1 Profile diff before apply (S). Need: t-73ace8 half left open.
-2. #11 + #28 "Why can't I" view with the audit lines (M). Need: G12 shipped the data; no view yet.
+2. #11 + #28 "Why can't I" view with the audit lines (M). Need: G12 shipped the data. no view yet.
 3. #47 `service selftest` (S): pipe, token, folder ACL, policy source, last apply, in one report.
 4. #15 Temp-address TTL (S). Need: temp addresses are the one state that outlives a session.
-5. #9 Signed user profile packs (S): reuses PackSigner; makes profiles portable without a repo.
+5. #9 Signed user profile packs (S): reuses PackSigner. makes profiles portable without a repo.
 6. #41 CLI `--json` everywhere (M): the harness and scripts parse output today by regex.
-7. #49 Winget publish automation (M): facts file exists; the manual step is the gap.
+7. #49 Winget publish automation (M): facts file exists. the manual step is the gap.
 8. #30 + #31 ADMX for every tier + generated OMA-URI samples (M): the policy table is the source.
 9. #16 DHCP lease viewer (S): the data is already read for `DhcpServers`.
-10. #13 Fingerprint confidence meter (S): auto-switch exists; its decision is invisible.
-11. #40 Portable badge + docs (S) — kept as the eleventh because it is a docs item.
-12. #2 Revert history (M) — kept as the twelfth, behind G4's design.
+10. #13 Fingerprint confidence meter (S): auto-switch exists. its decision is invisible.
+11. #40 Portable badge + docs (S). kept as the eleventh because it is a docs item.
+12. #2 Revert history (M). kept as the twelfth, behind G4's design.
 
 Held (score 7, revisit after 1.0): 14, 17, 23–26, 33, 37, 43, 46, 50. Dropped: the rest, reason in the table.
 
@@ -102,12 +102,12 @@ Score first, remove what the 1.0 plan already owns, merge duplicates, keep the t
 list goes to the operator as one decision (keep/trim), not fifty.
 
 ## Steps
-1. Orchestrator review of the kept list; operator decision in the next round.
-2. File one task per kept item with the score line; sequence after the 1.0 bar.
+1. Orchestrator review of the kept list. operator decision in the next round.
+2. File one task per kept item with the score line. sequence after the 1.0 bar.
 3. Re-score the held band after v1.0.0.
 
 ## Verification
-- Each kept item has a task id and a cost; the held and dropped items have a reason in the table.
+- Each kept item has a task id and a cost. the held and dropped items have a reason in the table.
 
 ## Risks
 - Scores are one person's estimate: the review round and the operator decision are the correction.
