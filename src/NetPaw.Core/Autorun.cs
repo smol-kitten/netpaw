@@ -65,6 +65,7 @@ public sealed class Autorun(IAutorunStore store, Func<string, int>? schtasks = n
         return changed ? MigrationResult.Migrated : MigrationResult.NothingToDo;
     }
 
+    /// <summary>True when the pre-0.14 scheduled task exists and its action is this NetPaw executable.</summary>
     bool TaskPointsAtNetPaw()
     {
         if (schtasks is null) return false;
@@ -73,6 +74,7 @@ public sealed class Autorun(IAutorunStore store, Func<string, int>? schtasks = n
         return schtasks($"/query /tn {TaskName}") == 0;
     }
 
+    /// <summary>The quoted path of the running executable, as the autorun command.</summary>
     static string Command()
     {
         var exe = Environment.ProcessPath ?? AppDomain.CurrentDomain.FriendlyName;
@@ -88,7 +90,10 @@ public enum MigrationResult { NothingToDo, Migrated, TaskDeleteFailed }
 /// value name <see cref="Autorun.RunValueName"/>. Implemented on Windows by the tray; faked in tests.</summary>
 public interface IAutorunStore
 {
+    /// <summary>True when an autorun entry for NetPaw exists.</summary>
     bool Exists();
+    /// <summary>Writes the autorun entry with this command line.</summary>
     void Set(string command);
+    /// <summary>Removes the autorun entry; no error when absent.</summary>
     void Remove();
 }

@@ -21,6 +21,7 @@ public sealed record Advisory(AdvisorySeverity Severity, string Title, string Te
     public Planning.RouteEntry? Route { get; init; }
     /// <summary>The address a <see cref="RepairKind.Reach"/> repair reaches (intent watcher).</summary>
     public string? Target { get; init; }
+    /// <summary>"Title: Text", for logs and the CLI.</summary>
     public override string ToString() => $"{Title}: {Text}";
 }
 
@@ -31,12 +32,14 @@ public sealed record Advisory(AdvisorySeverity Severity, string Title, string Te
 /// </summary>
 public static class Advisor
 {
+    /// <summary>Advisories for one adapter's snapshot, without cross-adapter findings.</summary>
     public static IReadOnlyList<Advisory> Analyze(Snapshot s) => Analyze(s, null);
 
     /// <param name="others">All adapters on the machine, for cross-adapter findings (held addresses, competing gateways).</param>
     public static IReadOnlyList<Advisory> Analyze(Snapshot s, IReadOnlyList<AdapterInfo>? others) =>
         s.Adapter is null ? [] : AnalyzeCore(s, others).Select(x => x.Adapter is null ? x with { Adapter = s.Adapter.Name } : x).ToList();
 
+    /// <summary>The rule table: each finding is one advisory with severity, text and the repair it allows.</summary>
     static List<Advisory> AnalyzeCore(Snapshot s, IReadOnlyList<AdapterInfo>? others)
     {
         var list = new List<Advisory>();
@@ -166,6 +169,7 @@ public static class Advisor
         return plan;
     }
 
+    /// <summary>The plan for `ipconfig /release` on the adapter (a dock's old NIC still holding the address).</summary>
     public static ApplyPlan PlanRelease(AdapterInfo adapter)
     {
         var plan = new ApplyPlan { Title = "release DHCP lease", Adapter = adapter.Name };
@@ -224,6 +228,7 @@ public sealed class RenewScheduler
     /// <summary>A renewable finding must persist this long before the first automatic attempt — DHCP usually finishes on its own within it.</summary>
     public static readonly TimeSpan MinPersist = TimeSpan.FromSeconds(10);
 
+    /// <summary>Decides one automatic renew: AutoRenew on, a renewable advisory present, the attempt budget and spacing not exhausted.</summary>
     public bool ShouldRenew(RepairSettings r, IReadOnlyList<Advisory> advisories, DateTimeOffset now)
     {
         if (!r.AutoRenew) return false;
@@ -235,6 +240,8 @@ public sealed class RenewScheduler
         return true;
     }
 
+    /// <summary>Records one renew attempt at now.</summary>
     public void Mark(DateTimeOffset now) { Attempts++; LastAttempt = now; }
+    /// <summary>Clears the attempt counter and timestamps (the problem went away).</summary>
     public void Reset() { Attempts = 0; LastAttempt = null; _since = null; }
 }

@@ -10,7 +10,9 @@ public sealed record ProbeResult(string Target, bool Ok, int Ms, string? Detail 
 /// <summary>ICMP/DNS probes behind an interface so the state machine is testable without a network.</summary>
 public interface IProbe
 {
+    /// <summary>ICMP echo to host; Detail carries the round trip or the failure reason.</summary>
     Task<ProbeResult> Ping(string host, int timeoutMs, CancellationToken ct);
+    /// <summary>DNS resolution of host with the system resolver; Detail carries the first address or the failure reason.</summary>
     Task<ProbeResult> Resolve(string host, int timeoutMs, CancellationToken ct);
     /// <summary>GET a URL and report whether the body equals <paramref name="expectedBody"/> — a captive portal answers with its login page instead.</summary>
     Task<ProbeResult> Http(string url, string expectedBody, int timeoutMs, CancellationToken ct) => Task.FromResult(new ProbeResult(url, true, 0, "not implemented"));
@@ -29,6 +31,7 @@ public sealed class NetworkProbe : IProbe
     // System proxy honoured on purpose: on a proxy-only corporate LAN a direct GET fails and would look like a portal.
     static readonly HttpClient Http1 = new(new SocketsHttpHandler { AllowAutoRedirect = false, UseProxy = true }) { Timeout = TimeSpan.FromSeconds(5) };
 
+    /// <inheritdoc/>
     public async Task<ProbeResult> Http(string url, string expectedBody, int timeoutMs, CancellationToken ct)
     {
         var sw = System.Diagnostics.Stopwatch.StartNew();
@@ -48,6 +51,7 @@ public sealed class NetworkProbe : IProbe
         catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException) { return new ProbeResult(url, true, (int)sw.ElapsedMilliseconds, "inconclusive: " + ex.GetBaseException().Message); }
     }
 
+    /// <inheritdoc/>
     public async Task<ProbeResult> Connect(string host, int port, int timeoutMs, CancellationToken ct)
     {
         var sw = System.Diagnostics.Stopwatch.StartNew(); var target = $"{host}:{port}";
@@ -73,8 +77,10 @@ public sealed class NetworkProbe : IProbe
         }
     }
 
+    /// <inheritdoc/>
     public Task<ProbeResult> DnsQuery(string server, string name, int timeoutMs, CancellationToken ct) => Connectivity.DnsQuery.Ask(server, name, timeoutMs, ct);
 
+    /// <inheritdoc/>
     public async Task<ProbeResult> PingDf(string host, int payload, int timeoutMs, CancellationToken ct)
     {
         var sw = System.Diagnostics.Stopwatch.StartNew();

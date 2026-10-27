@@ -64,7 +64,9 @@ const string Usage = """
     """;
 
 var argv = args.ToList();
+/// <summary>Consumes a boolean flag from argv (any of the names). True when it was present.</summary>
 bool Flag(params string[] names) { var i = argv.FindIndex(a => names.Contains(a)); if (i < 0) return false; argv.RemoveAt(i); return true; }
+/// <summary>Consumes an option and its value from argv (any of the names). Null when absent or without a value.</summary>
 string? Opt(params string[] names) { var i = argv.FindIndex(a => names.Contains(a)); if (i < 0 || i + 1 >= argv.Count) return null; var v = argv[i + 1]; argv.RemoveRange(i, 2); return v; }
 
 var dryRun = Flag("-n", "--dry-run");
@@ -564,17 +566,20 @@ try
 catch (DeniedByPolicyException ex) { Console.Error.WriteLine("netpaw: " + ex.Message); return 4; }
 catch (InvalidOperationException ex) { return Fail(ex.Message); }
 
+/// <summary>The profile named at argv[i], or an InvalidOperationException that lists the known profiles.</summary>
 static Profile Need(NetPawService svc, List<string> argv, int i)
 {
     if (argv.Count <= i) throw new InvalidOperationException("profile name required");
     return svc.FindProfile(argv[i]) ?? throw new InvalidOperationException($"no profile '{argv[i]}'. Known: {string.Join(", ", svc.Profiles.Select(p => p.Name))}");
 }
 
+/// <summary>Prints "netpaw: &lt;msg&gt;" to stderr and returns exit code 2 (usage or precondition error).</summary>
 static int Fail(string msg) { Console.Error.WriteLine("netpaw: " + msg); return 2; }
 
 // From v0.14 a change goes to the NetPaw service when one answers the pipe (the service re-plans from the
 // intent and applies); otherwise it runs in-process, which needs an elevated prompt. A dry run only prints the
 // local plan either way.
+/// <summary>Runs one change: dry run prints the plan; a running service gets the intent; else in-process, which needs an elevated prompt.</summary>
 static int Run(NetPawService svc, ServiceRequest request, ApplyPlan plan, bool dryRun)
 {
     if (dryRun || plan.IsEmpty) return Report(plan, null, dryRun);
@@ -586,6 +591,7 @@ static int Run(NetPawService svc, ServiceRequest request, ApplyPlan plan, bool d
 }
 
 // VLAN tagging has no service intent (niche, driver-specific), so it stays an in-process, elevated change.
+/// <summary>Runs a change that has no service intent (VLAN) in-process; refuses without elevation unless it is a dry run.</summary>
 static int RunLocal(NetPawService svc, ApplyPlan plan, bool dryRun)
 {
     if (!dryRun && !plan.IsEmpty && OperatingSystem.IsWindows() && !IsElevated())
@@ -594,6 +600,7 @@ static int RunLocal(NetPawService svc, ApplyPlan plan, bool dryRun)
 }
 
 /// <summary>Print a change the service applied, matching <see cref="Report"/>'s format and exit codes.</summary>
+/// <summary>Prints a service-side ChangeResult (warnings, steps, verify diffs) and maps it to the exit code.</summary>
 static int ReportChange(ChangeResult result)
 {
     if (result.Report is not { } rep) return Fail(result.Error ?? "the NetPaw service did not answer");
@@ -606,6 +613,7 @@ static int ReportChange(ChangeResult result)
     return rep.Success ? 0 : 1;
 }
 
+/// <summary>Prints a plan and its in-process outcome (or the plan alone for a dry run) and maps it to the exit code.</summary>
 static int Report(ApplyPlan plan, ApplyOutcome? outcome, bool dryRun)
 {
     foreach (var w in plan.Warnings) Console.WriteLine("warn: " + w);
@@ -622,6 +630,7 @@ static int Report(ApplyPlan plan, ApplyOutcome? outcome, bool dryRun)
     return outcome.Success ? 0 : 1;
 }
 
+/// <summary>True when the process token is in the Administrators role; always true off Windows (nothing to elevate).</summary>
 static bool IsElevated()
 {
     if (!OperatingSystem.IsWindows()) return true;
