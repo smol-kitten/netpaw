@@ -174,6 +174,7 @@ public sealed class NetPawService
         Capability.Capture => Policy.AllowCapture,
         Capability.UpdateCheck => Policy.AllowUpdateCheck,
         Capability.IntentWatch => Policy.AllowIntentWatch,
+        Capability.CatWingetUpdate => Policy.AllowCatWingetUpdate,
         _ => true,
     };
 

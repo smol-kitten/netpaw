@@ -49,11 +49,13 @@ public class PolicyTiersTests
         {
             var required = PolicyTiers.Required(intent, overrides);
             // today: the old PrivilegedOnly set needed NCO/Admin; VirtualUnlock was managed-or-privileged (NCO); all else StandardUser.
-            var expected = WasPrivilegedOnly.Contains(intent) || intent == PolicyIntent.VirtualUnlock ? Tier.NetworkConfigOperators : Tier.StandardUser;
+            // InstallUpdate (0.17, CatWinget) is the one Admin-by-default intent: the service installs software.
+            var expected = intent == PolicyIntent.InstallUpdate ? Tier.Admin
+                : WasPrivilegedOnly.Contains(intent) || intent == PolicyIntent.VirtualUnlock ? Tier.NetworkConfigOperators : Tier.StandardUser;
             Assert.Equal(expected, required);
-            // a StandardUser is allowed exactly the StandardUser intents; an NCO is allowed everything in the default table.
+            // a StandardUser is allowed exactly the StandardUser intents; an NCO is allowed everything below Admin.
             Assert.Equal(expected == Tier.StandardUser, t.Decide(intent, Tier.StandardUser, overrides).Allowed);
-            Assert.True(t.Decide(intent, Tier.NetworkConfigOperators, overrides).Allowed);
+            Assert.Equal(expected != Tier.Admin, t.Decide(intent, Tier.NetworkConfigOperators, overrides).Allowed);
         }
     }
 

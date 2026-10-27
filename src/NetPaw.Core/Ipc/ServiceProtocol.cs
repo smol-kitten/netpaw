@@ -60,7 +60,7 @@ public static class ServiceProtocol
     }
 }
 
-public enum RequestKind { None, Status, ApplyProfile, Dhcp, Reach, ClearTemp, DeleteRoute, ResetAdapter, Renew, Release, Prefer, SetMtu, RevertLastApply }
+public enum RequestKind { None, Status, ApplyProfile, Dhcp, Reach, ClearTemp, DeleteRoute, ResetAdapter, Renew, Release, Prefer, SetMtu, RevertLastApply, InstallUpdate }
 
 /// <summary>One request: what the caller wants, never how. The service resolves the adapter against the live
 /// list, checks every value (<see cref="ProfileGuard"/>) and builds the commands itself.</summary>
@@ -80,6 +80,12 @@ public sealed record ServiceRequest(int V, RequestKind Kind)
     /// <summary>DeleteRoute: "a.b.c.d/n" and the next hop, if the route has one.</summary>
     public string? RoutePrefix { get; init; }
     public string? RouteGateway { get; init; }
+    /// <summary>InstallUpdate: the version to install (null = the newest on the channel). The service resolves it itself; no URL or path is accepted.</summary>
+    public string? Version { get; init; }
+    /// <summary>InstallUpdate: "stable" (default) or "prerelease".</summary>
+    public string? Channel { get; init; }
+    /// <summary>InstallUpdate: allow a version that is not newer than the running one (CLI flag only).</summary>
+    public bool? AllowDowngrade { get; init; }
 }
 
 public sealed record ServiceResponse(int V, bool Ok, string? Error = null, ServiceStatus? Status = null)
@@ -192,6 +198,8 @@ public static class ServiceChange
     public static ServiceRequest SetMtu(int mtu, string? adapter = null) => new(ServiceProtocol.Version, RequestKind.SetMtu) { Mtu = mtu, Adapter = adapter };
     /// <summary>G13: put the adapter of the last apply back into the state the service snapshotted just before it.</summary>
     public static ServiceRequest RevertLastApply() => new(ServiceProtocol.Version, RequestKind.RevertLastApply);
+    /// <summary>Update from CatWinget: the service resolves, downloads, verifies twice and installs. Never a URL or a path.</summary>
+    public static ServiceRequest InstallUpdate(string? version = null, string? channel = null, bool allowDowngrade = false) => new(ServiceProtocol.Version, RequestKind.InstallUpdate) { Version = version, Channel = channel, AllowDowngrade = allowDowngrade ? true : null };
 }
 
 /// <summary>Is the process on the other end of the pipe the NetPaw service? (review of #75: pipe squatting)</summary>
