@@ -17,8 +17,11 @@ public static class Wlan
     {
         var list = new List<WlanInfo>();
         string? name = null, ssid = null, bssid = null, radio = null; int? signal = null, channel = null, rx = null, tx = null;
+        /// <summary>Emits the interface parsed so far and resets the per-interface fields.</summary>
         void Flush() { if (name is not null) list.Add(new WlanInfo(name, ssid, bssid, signal, channel, radio, rx, tx)); name = ssid = bssid = radio = null; signal = channel = rx = tx = null; }
+        /// <summary>Leading integer of a netsh value ("54 Mbps" → 54), or null.</summary>
         static int? Num(string v) { var digits = new string(v.TakeWhile(c => char.IsAsciiDigit(c)).ToArray()); return int.TryParse(digits, out var n) ? n : null; }
+        /// <summary>True when the netsh key starts with any of the names (localized labels).</summary>
         static bool Is(string key, params string[] names) => names.Any(n => key.StartsWith(n, StringComparison.OrdinalIgnoreCase));
         foreach (var raw in text.Split('\n'))
         {

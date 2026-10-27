@@ -45,8 +45,10 @@ public sealed record AdapterInfo(
     public string SpeedText => SpeedBps <= 0 ? "" : SpeedBps >= 1_000_000_000 ? $"{SpeedBps / 1_000_000_000.0:0.#} Gbit/s" : $"{SpeedBps / 1_000_000} Mbit/s";
     public IpAddr? Primary => Addresses.Count > 0 ? Addresses[0] : null;
     public bool HasGateway => Gateways.Count > 0;
+    /// <summary>True when one of the adapter's subnets contains the address.</summary>
     public bool Covers(string ip) => Addresses.Any(a => a.Contains(ip));
 
+    /// <summary>One line for the tray and CLI: down, uplink, DHCP with address, no address, or the static addresses with the gateway.</summary>
     public string Summary() => !Up ? "down"
         : VSwitchUplink ? "Hyper-V switch uplink (no host address here)"
         : Dhcp ? $"DHCP {Primary?.ToString() ?? "(no address)"}"
@@ -56,6 +58,7 @@ public sealed record AdapterInfo(
 
 public interface IAdapterProvider
 {
+    /// <summary>The live adapter list, already ordered and tagged (uplinks, external vSwitch) by the provider.</summary>
     IReadOnlyList<AdapterInfo> GetAdapters();
 }
 

@@ -10,8 +10,10 @@ public sealed class NetworkInterfaceAdapterProvider : IAdapterProvider
     static readonly System.Text.RegularExpressions.Regex FilterSuffix = new(@"-\d{4}$");
     static readonly string[] VirtualHints = ["virtual", "hyper-v", "vmware", "vethernet", "loopback", "tap-", "tunnel", "wintun", "wireguard", "bluetooth", "npcap", "wan miniport", "isatap", "teredo"];
 
+    /// <summary>Link speed in bit/s, or 0 when the platform or driver cannot report it.</summary>
     static long SafeSpeed(NetworkInterface nic) { try { return nic.Speed; } catch (PlatformNotSupportedException) { return 0; } catch (NetworkInformationException) { return 0; } }
 
+    /// <summary>Reads every NIC from System.Net.NetworkInformation, classifies physical / Hyper-V / virtual, orders them and tags vSwitch uplinks.</summary>
     public IReadOnlyList<AdapterInfo> GetAdapters()
     {
         var list = new List<AdapterInfo>();

@@ -85,6 +85,7 @@ public static class ArpTable
 /// <summary>Windows: `arp -a` for the cache, IpHlpApi SendARP for probes. On other OSes the cache is empty and probes fail — used only through the fake in tests.</summary>
 public sealed class WindowsArpProvider : IArpProvider
 {
+    /// <summary>The ARP cache from `arp -a`, parsed; empty off Windows or when the tool fails.</summary>
     public IReadOnlyList<ArpEntry> ReadCache()
     {
         if (!OperatingSystem.IsWindows()) return [];
@@ -97,10 +98,12 @@ public sealed class WindowsArpProvider : IArpProvider
         catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException) { return []; }
     }
 
+    /// <summary>iphlpapi SendARP: one ARP request for destIp from srcIp; the MAC lands in mac/macLen.</summary>
     [SupportedOSPlatform("windows")]
     [DllImport("iphlpapi.dll", ExactSpelling = true)]
     static extern int SendARP(uint destIp, uint srcIp, byte[] mac, ref uint macLen);
 
+    /// <summary>One ARP probe to ip from the optional source address: the MAC and the round-trip time, or (null, 0) off Windows.</summary>
     public Task<(string? Mac, int Ms)> Probe(string ip, string? sourceIp, CancellationToken ct) => Task.Run(() =>
     {
         if (!OperatingSystem.IsWindows()) return ((string?)null, 0);
@@ -119,6 +122,7 @@ public sealed class WindowsArpProvider : IArpProvider
 /// </summary>
 public static class ArpReachability
 {
+    /// <summary>Probes many addresses in parallel (bounded by parallel) and returns the ones that answered, with progress counts.</summary>
     public static async Task<List<ArpEntry>> Check(IArpProvider arp, IEnumerable<string> ips, string? sourceIp, int parallel = 32, IProgress<int>? progress = null, CancellationToken ct = default)
     {
         var results = new List<ArpEntry>(); var done = 0;

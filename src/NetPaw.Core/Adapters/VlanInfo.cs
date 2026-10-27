@@ -7,6 +7,7 @@ public sealed record VlanInfo(bool Capable, int? VlanId, string? Source);
 
 public interface IVlanProvider
 {
+    /// <summary>VLAN state of one adapter: whether the driver supports tagging and the current id, if set.</summary>
     VlanInfo Query(string adapterName);
 }
 
@@ -21,6 +22,7 @@ public sealed class PowerShellVlanProvider(Planning.IStepRunner runner) : IVlanP
     public static readonly TimeSpan CacheFor = TimeSpan.FromSeconds(60);
     readonly Dictionary<string, (VlanInfo Info, DateTimeOffset At)> _cache = new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>Queries Get-NetAdapterAdvancedProperty through PowerShell; answers are cached per adapter for CacheFor.</summary>
     public VlanInfo Query(string adapterName)
     {
         lock (_cache)
@@ -42,6 +44,7 @@ public sealed class PowerShellVlanProvider(Planning.IStepRunner runner) : IVlanP
         return new VlanInfo(true, int.TryParse(value.Split(',')[0], out var id) ? id : null, "VlanID");
     }
 
+    /// <summary>Drops the cached answer for one adapter (after a VLAN change).</summary>
     public void Forget(string adapterName) { lock (_cache) _cache.Remove(adapterName); }
 }
 
@@ -53,6 +56,7 @@ public sealed class PowerShellVlanProvider(Planning.IStepRunner runner) : IVlanP
 /// </summary>
 public sealed class RegistryVlanProvider(Func<string, string?> adapterIdByName, IVlanProvider fallback, Func<string, VlanInfo?>? reader = null) : IVlanProvider
 {
+    /// <summary>Reads the VLAN id from the driver's registry key via the adapter GUID; no PowerShell process.</summary>
     public VlanInfo Query(string adapterName)
     {
         var id = adapterIdByName(adapterName);
@@ -62,6 +66,7 @@ public sealed class RegistryVlanProvider(Func<string, string?> adapterIdByName, 
 
     const string ClassKey = @"SYSTEM\CurrentControlSet\Control\Class\{4d36e972-e325-11ce-bfc1-08002be10318}";
 
+    /// <summary>Reads VlanID under the NIC class key for the adapter GUID; null when the key or value is absent.</summary>
     [System.Runtime.Versioning.SupportedOSPlatform("windows")]
     static VlanInfo? ReadRegistry(string adapterGuid)
     {
@@ -86,5 +91,6 @@ public sealed class RegistryVlanProvider(Func<string, string?> adapterIdByName, 
 
 public sealed class NullVlanProvider : IVlanProvider
 {
+    /// <summary>Always "not capable": for tests and non-Windows hosts.</summary>
     public VlanInfo Query(string adapterName) => new(false, null, null);
 }

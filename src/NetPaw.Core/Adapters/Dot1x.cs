@@ -5,6 +5,7 @@ namespace NetPaw.Adapters;
 /// <summary>Wired 802.1X state of one adapter, from <c>netsh lan show interfaces</c> (needs the Wired AutoConfig service).</summary>
 public sealed record Dot1xInfo(string Name, string State)
 {
+    /// <summary>Case-insensitive contains for any of the words (netsh output is localized).</summary>
     static bool Has(string s, params string[] words) => words.Any(w => s.Contains(w, StringComparison.OrdinalIgnoreCase));
     /// <summary>The switch rejected the credentials/certificate: the port stays closed, DHCP never answers.</summary>
     public bool Failed => Has(State, "fail", "fehlgeschlagen", "échou");
@@ -20,6 +21,7 @@ public static class Dot1x
     {
         var list = new List<Dot1xInfo>();
         string? name = null, state = null;
+        /// <summary>Emits the interface parsed so far and resets the per-interface fields.</summary>
         void Flush() { if (name is not null) list.Add(new Dot1xInfo(name, state ?? "")); name = state = null; }
         foreach (var raw in text.Split('\n'))
         {

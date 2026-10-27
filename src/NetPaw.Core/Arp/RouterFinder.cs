@@ -28,9 +28,11 @@ public sealed class RouterFinder(Func<IpAddr, CancellationToken, Task<bool>> add
         "10.0.0.0/24", "10.0.1.0/24", "10.1.1.0/24", "10.10.10.0/24", "10.1.10.0/24", "172.16.0.0/24", "172.16.1.0/24", "172.16.16.0/24",
     ];
 
+    /// <summary>Merges the preset networks and extra CIDRs into one candidate list per subnet (gateways and vendors joined).</summary>
     public static List<RouterCandidate> Candidates(IEnumerable<Preset> presets, IEnumerable<string>? extraCidrs = null)
     {
         var map = new Dictionary<string, (HashSet<string> Gw, HashSet<string> Vendors)>();
+        /// <summary>Adds one network to the map, joining its gateway and vendor into the existing entry.</summary>
         void Add(string network, int prefix, string? gw, string? vendor)
         {
             var key = $"{network}/{prefix}";
@@ -60,6 +62,7 @@ public sealed class RouterFinder(Func<IpAddr, CancellationToken, Task<bool>> add
     public static IpAddr TempAddress(RouterCandidate c) =>
         new(IpMath.HostCandidates(c.Network, c.Prefix, c.GatewayGuesses).First(), c.Prefix);
 
+    /// <summary>Tries each candidate subnet on the adapter (temporary address, ARP probe of the gateway) and reports the hits with progress.</summary>
     public async Task<List<RouterHit>> Find(IReadOnlyList<RouterCandidate> candidates, IReadOnlyList<AdapterInfo> adapters, string adapterName, IProgress<(int Index, int Total, RouterCandidate Candidate, RouterHit? Hit)>? progress = null, CancellationToken ct = default)
     {
         var hits = new List<RouterHit>();
