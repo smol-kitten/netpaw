@@ -15,6 +15,7 @@ namespace NetPaw.Diagnostics;
 /// </summary>
 public static class Bundle
 {
+    /// <summary>Default zip name: netpaw-diag-&lt;machine&gt;-&lt;yyyyMMdd-HHmm&gt;.zip.</summary>
     public static string DefaultName(string machine, DateTimeOffset now) => $"netpaw-diag-{machine}-{now:yyyyMMdd-HHmm}.zip";
 
     /// <summary>Writes the zip and returns the entry names in order.</summary>
@@ -22,8 +23,11 @@ public static class Bundle
     {
         var entries = new List<string>();
         using var zip = ZipFile.Open(zipPath, ZipArchiveMode.Create);
+        /// <summary>Adds one text entry to the zip and records its name.</summary>
         void Text(string name, string content) { var e = zip.CreateEntry(name); using var w = new StreamWriter(e.Open()); w.Write(content); entries.Add(name); }
+        /// <summary>Runs one read-only command and stores its output as an entry (a failure is stored, not thrown).</summary>
         void Command(string name, string file, string args) { var r = runner.Run(new Step(name, file, args, Critical: false, ExpectFailure: true)); Text(name, $"> {file} {args}\r\n(exit {r.ExitCode})\r\n\r\n{r.Output}"); }
+        /// <summary>Stores a file's content as an entry when the file exists.</summary>
         void FileIfExists(string path, string name) { if (File.Exists(path)) Text(name, File.ReadAllText(path)); }
 
         Text("README.txt", $"NetPaw diagnostics\r\nmachine: {machine}\r\nnetpaw: {version}\r\nwindows: {Environment.OSVersion}\r\ntaken: {now:O}\r\n\r\nContains addresses and adapter names by design. Credentials are redacted.\r\n");
@@ -52,6 +56,7 @@ public static class Bundle
         Walk(root);
         return root?.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) ?? "";
 
+        /// <summary>Redacts secret-looking JSON values in place (keys named token, password, secret, key).</summary>
         static void Walk(JsonNode? n)
         {
             switch (n)

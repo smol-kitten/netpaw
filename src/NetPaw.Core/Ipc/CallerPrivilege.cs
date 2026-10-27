@@ -27,6 +27,7 @@ public static class CallerPrivilege
     /// <summary>True when the token carries the NETWORK SID at all (enabled or deny-only: a deny ACE matches both).</summary>
     public static bool IsNetworkLogon(IEnumerable<(string Sid, uint Attributes)> groups) => groups.Any(g => g.Sid == NetworkSid);
 
+    /// <summary>True when any of the privileged SIDs is enabled and not deny-only in the token groups.</summary>
     public static bool IsPrivileged(IEnumerable<(string Sid, uint Attributes)> groups, IReadOnlyCollection<string>? privilegedSids = null)
     {
         var want = privilegedSids ?? PrivilegedSids;
@@ -40,6 +41,7 @@ public static class CallerPrivilege
     /// <see cref="IsPrivileged"/>, so a UAC-filtered admin token reads as StandardUser.</summary>
     public static Tier TierOf(IEnumerable<(string Sid, uint Attributes)> groups)
     {
+        /// <summary>True when the SID is present, enabled and not deny-only.</summary>
         bool Has(string sid) => groups.Any(g => (g.Attributes & SE_GROUP_ENABLED) != 0
                                                 && (g.Attributes & SE_GROUP_USE_FOR_DENY_ONLY) == 0
                                                 && g.Sid == sid);

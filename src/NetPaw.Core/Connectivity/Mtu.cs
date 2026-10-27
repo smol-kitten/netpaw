@@ -15,9 +15,11 @@ public static class Mtu
     public const int Overhead = 28;
     public const int Floor = 1200;
 
+    /// <summary>Path-MTU search by binary search with DF pings; null when even the floor (576) does not pass.</summary>
     public static async Task<MtuResult?> Discover(IProbe probe, string host, int timeoutMs = 1000, CancellationToken ct = default)
     {
         var probes = 0;
+        /// <summary>One DF ping at this MTU (payload = MTU minus headers); counts the probe.</summary>
         async Task<bool> Passes(int mtu) { probes++; return (await probe.PingDf(host, mtu - Overhead, timeoutMs, ct)).Ok; }
         if (!await Passes(Floor)) return null;
         if (await Passes(1500)) return new MtuResult(host, 1500, probes);

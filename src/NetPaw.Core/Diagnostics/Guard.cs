@@ -6,6 +6,7 @@ namespace NetPaw.Diagnostics;
 /// </summary>
 public static class Guard
 {
+    /// <summary>Runs work; an exception is logged and reported, never thrown to the caller (UI handlers, timers).</summary>
     public static async Task Run(string op, Func<Task> work, Action<string> log, Action<Exception, string>? report = null)
     {
         try { await work(); }
@@ -17,6 +18,7 @@ public static class Guard
         }
     }
 
+    /// <summary>Runs work and returns its value; on an exception logs, reports and returns fallback.</summary>
     public static async Task<T?> Run<T>(string op, Func<Task<T>> work, Action<string> log, Action<Exception, string>? report = null, T? fallback = default)
     {
         try { return await work(); }

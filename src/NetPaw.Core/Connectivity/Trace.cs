@@ -20,6 +20,7 @@ public sealed record TraceResult(string Host, IReadOnlyList<Hop> Hops, bool Reac
 /// </summary>
 public static class Trace
 {
+    /// <summary>Hop-by-hop trace with TTL-limited pings; stops after maxHops or a run of silent hops.</summary>
     public static async Task<TraceResult> Run(IProbe probe, string host, int maxHops = 30, int probes = 3, int timeoutMs = 1000, IProgress<Hop>? progress = null, CancellationToken ct = default)
     {
         var hops = new List<Hop>(); var silentRun = 0;

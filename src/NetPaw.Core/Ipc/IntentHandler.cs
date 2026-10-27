@@ -63,6 +63,7 @@ public sealed class IntentHandler(NetPawService svc, string journalDirectory, Ac
     internal ServiceResponse Handle(ServiceRequest r, string caller, bool privileged) =>
         Handle(r, caller, privileged ? Tier.NetworkConfigOperators : Tier.StandardUser);
 
+    /// <summary>Handles one change request: tier gate, reload, dispatch by kind; every failure becomes a ServiceResponse, never an exception.</summary>
     public ServiceResponse Handle(ServiceRequest r, string caller, Tier callerTier)
     {
         lock (_gate)
@@ -99,6 +100,7 @@ public sealed class IntentHandler(NetPawService svc, string journalDirectory, Ac
 
     sealed class Rejected(string why) : Exception(why);
 
+    /// <summary>Resolves the request's adapter against the live list and refuses an unsafe name.</summary>
     AdapterInfo Adapter(ServiceRequest r)
     {
         if (r.Adapter is { Length: > 256 }) throw new Rejected("adapter name too long");
@@ -109,6 +111,7 @@ public sealed class IntentHandler(NetPawService svc, string journalDirectory, Ac
         return a;
     }
 
+    /// <summary>ApplyProfile: managed by id or inline profile, guard, appliesTo binding, virtual-adapter gate, then plan and apply.</summary>
     ApplyReport ApplyProfile(ServiceRequest r, string caller, Tier callerTier, IReadOnlyDictionary<PolicyIntent, Tier> overrides)
     {
         Model.Profile p;
@@ -148,6 +151,7 @@ public sealed class IntentHandler(NetPawService svc, string journalDirectory, Ac
         return Journaled(plan, caller, () => svc.ApplyAndVerify(plan, settleMs));
     }
 
+    /// <summary>Reach: validates the target, resolves the decision and applies the temporary address.</summary>
     ApplyReport Reach(ServiceRequest r, string caller)
     {
         if (!ProfileGuard.IsIPv4OrPrefix(r.Target)) throw new Rejected("reach target must be an IPv4 address or a.b.c.d/n");
@@ -157,6 +161,7 @@ public sealed class IntentHandler(NetPawService svc, string journalDirectory, Ac
         return Journaled(plan, caller, () => svc.Reach(d, adapter, dryRun: false, r.ReplacePrimary).Outcome);
     }
 
+    /// <summary>ClearTemp: removes every temporary address the service tracks.</summary>
     ApplyReport ClearTemp()
     {
         var outcome = svc.ClearTemp();
@@ -165,6 +170,7 @@ public sealed class IntentHandler(NetPawService svc, string journalDirectory, Ac
         return ApplyReport.From(plan, outcome);
     }
 
+    /// <summary>DeleteRoute: validates prefix and gateway, then runs the delete plan.</summary>
     ApplyReport DeleteRoute(ServiceRequest r, string caller)
     {
         if (r.RoutePrefix is null || !r.RoutePrefix.Contains('/') || !ProfileGuard.IsIPv4OrPrefix(r.RoutePrefix)) throw new Rejected("route prefix must be a.b.c.d/n");
@@ -173,12 +179,14 @@ public sealed class IntentHandler(NetPawService svc, string journalDirectory, Ac
         return Run(ApplyPlanner.PlanDeleteRoute(new RouteEntry(r.RoutePrefix, adapter.Index, r.RouteGateway, 0), adapter.Name), caller);
     }
 
+    /// <summary>SetMtu: validates 576..9000, then runs the MTU plan.</summary>
     ApplyReport SetMtu(ServiceRequest r, string caller)
     {
         if (r.Mtu is not (>= 576 and <= 9000)) throw new Rejected("MTU must be 576..9000");
         return Run(Connectivity.Advisor.PlanSetMtu(Adapter(r), r.Mtu!.Value), caller);
     }
 
+    /// <summary>Runs a plan through the journal, after an optional capability check.</summary>
     ApplyReport Run(ApplyPlan plan, string caller, Capability? require = null)
     {
         if (require is { } c) svc.Require(c);
@@ -192,6 +200,7 @@ public sealed class IntentHandler(NetPawService svc, string journalDirectory, Ac
     /// (a DHCP pre-state restores DNS from DHCP too, as PlanDhcp does).</summary>
     public sealed record PreApply(string Adapter, string Mac, string Title, string Caller, DateTimeOffset At, Model.Profile Before);
 
+    /// <summary>Writes last-apply.json with the adapter's state before the first command; drops the previous snapshot on failure.</summary>
     void SavePreState(ApplyPlan plan, string caller)
     {
         if (string.IsNullOrEmpty(plan.Adapter)) return;   // clear-temp and the like: no adapter is touched, the last snapshot stays valid
@@ -206,6 +215,7 @@ public sealed class IntentHandler(NetPawService svc, string journalDirectory, Ac
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { DropPreState(ex.Message); }
     }
 
+    /// <summary>Deletes the previous snapshot and logs why nothing can be reverted after this apply.</summary>
     void DropPreState(string why)
     {
         try { File.Delete(PreApplyPath); } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { log("stale pre-apply snapshot could not be removed: " + ex.Message); }
@@ -222,6 +232,7 @@ public sealed class IntentHandler(NetPawService svc, string journalDirectory, Ac
     /// <summary>One line for Status / the tray menu: "DHCP on Ethernet 2 at 00:58 by PC\anna (session 2)".</summary>
     public string? LastApplySummary() => LastApply() is { } la ? $"{la.Title} on {la.Adapter} at {la.At:HH:mm} by {la.Caller}" : null;
 
+    /// <summary>RevertLastApply: re-applies the snapshot to the same adapter (MAC-checked), with the virtual-adapter and user-profile gates.</summary>
     ApplyReport RevertLastApply(string caller, Tier callerTier, IReadOnlyDictionary<PolicyIntent, Tier> overrides)
     {
         var pre = LastApply() ?? throw new Rejected("nothing to revert: no apply has been recorded");
@@ -244,6 +255,7 @@ public sealed class IntentHandler(NetPawService svc, string journalDirectory, Ac
         return Journaled(plan, caller, () => svc.ApplyAndVerify(plan, settleMs));
     }
 
+    /// <summary>Writes the pre-state and inflight.json, runs the apply, removes inflight.json, logs the result.</summary>
     ApplyReport Journaled(ApplyPlan plan, string caller, Func<ApplyOutcome?> apply)
     {
         if (plan.IsEmpty) return ApplyReport.From(plan, null);

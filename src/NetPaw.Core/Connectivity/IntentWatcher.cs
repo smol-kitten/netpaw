@@ -17,6 +17,7 @@ public enum StuckKind
 
 public sealed record StuckTarget(string Remote, int Port, int Pid, string Process, StuckKind Kind, ReachDecision Decision, DateTimeOffset Since)
 {
+    /// <summary>How long this connection attempt has been stuck, in whole seconds.</summary>
     public int SecondsWaiting(DateTimeOffset now) => (int)(now - Since).TotalSeconds;
 }
 
@@ -56,6 +57,7 @@ public sealed class IntentWatcher(int ownPid, Func<int, string?> processName)
         return stuck.Take(MaxReported).ToList();
     }
 
+    /// <summary>Filters the TCP table: not our own process, not loopback, only SYN_SENT-like states.</summary>
     bool Keep(TcpEndpoint e)
     {
         if (e.Pid == ownPid) return false;
@@ -65,6 +67,7 @@ public sealed class IntentWatcher(int ownPid, Func<int, string?> processName)
         return true;
     }
 
+    /// <summary>Why the target is unreachable: on-link but silent (ARP), off-subnet without a gateway, or unknown.</summary>
     public static StuckKind Classify(string remote, AdapterInfo? adapter, IReadOnlyList<ArpEntry> arp)
     {
         if (adapter is not null && adapter.Covers(remote))
@@ -76,6 +79,7 @@ public sealed class IntentWatcher(int ownPid, Func<int, string?> processName)
         return StuckKind.OffLinkNoReply;
     }
 
+    /// <summary>Names the stuck target from profiles, presets and the ARP cache, and attaches the reach suggestion.</summary>
     public StuckTarget Describe(TcpEndpoint e, DateTimeOffset since, AdapterInfo? adapter, IReadOnlyList<ArpEntry> arp, IEnumerable<Profile> profiles, IEnumerable<Preset> presets, int defaultPrefix = 24)
     {
         string name;

@@ -6,6 +6,7 @@ namespace NetPaw.Connectivity;
 /// <summary>One timestamped line in incidents.jsonl: a state change or a configuration finding on an adapter.</summary>
 public sealed record Incident(DateTimeOffset At, string Adapter, string Kind, string From, string To, string Text, IReadOnlyList<string> Advisories)
 {
+    /// <summary>One log line: time, adapter, kind, from → to, text and the advisories.</summary>
     public override string ToString() =>
         $"{At:yyyy-MM-dd HH:mm:ss} {Adapter,-14} {Kind,-9} {From} -> {To}: {Text}{(Advisories.Count == 0 ? "" : "  [" + string.Join("; ", Advisories) + "]")}";
 }
@@ -21,6 +22,7 @@ public sealed class IncidentLog(string file)
     public string File { get; } = file;
     readonly object _lock = new();
 
+    /// <summary>Appends one incident as a JSON line; trims the file to the size cap.</summary>
     public void Append(Incident i)
     {
         lock (_lock)
@@ -31,6 +33,7 @@ public sealed class IncidentLog(string file)
         }
     }
 
+    /// <summary>The last N incidents, oldest first; empty when the log does not exist.</summary>
     public IReadOnlyList<Incident> Read(int last = 200)
     {
         if (!System.IO.File.Exists(File)) return [];
