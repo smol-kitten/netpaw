@@ -66,16 +66,29 @@ path. it accepts a version string and resolves it itself.
   reason. Rules: highest `PackageVersion` whose `Channel` matches (null/"stable" for stable, "prerelease"
   for the opt-in channel). installer with `Architecture == x64`, `Scope == machine`, `InstallerType ==
   msi`. `InstallerUrl` host on the allow-list. `Version > current` unless `allowDowngrade`.
+  `InstallerType` must be `msi` or `wix`.
   `ReleaseNotesUrl` from `DefaultLocale.ReleaseNotesUrl`, else the GitHub tag URL built from the version.
 - **Core** `Updates/UpdateTrust.VerifyManifest(bytes, sha256FromManifest, roots)`: the hash must match and
   `MsiAuthenticode.Verify` must pass; both reasons are reported; the hash alone is never enough.
-- **HTTP**: a client with `AllowAutoRedirect = false`, default certificate validation, 15 s timeout for
-  the manifest, 64 MB cap for the MSI. a 3xx is followed at most twice and only to an allow-listed host.
+- **HTTP**: a client with `AllowAutoRedirect = false` and default certificate validation. Redirects are
+  followed by hand: at most 3 hops, every hop HTTPS (never a downgrade to http), every hop's host on the
+  allow-list. GitHub answers a release-asset URL with a 302 to `release-assets.githubusercontent.com` or
+  `objects.githubusercontent.com`, so both are on the allow-list next to `github.com` and
+  `winget.goes.moe`. Timeouts: 15 s for the manifest, 120 s for the download. Size cap 64 MB
+  (`UpdateTrust.MaxDownload`), checked on `Content-Length` and again while streaming. A manifest whose
+  installer is not `msi` or `wix` is refused.
 - **Service** intent `InstallUpdate { Version?, Channel?, AllowDowngrade }` (PolicyIntent
-  `InstallUpdate`, default tier Admin, floor NetworkConfigOperators). Steps, each an audit line:
-  resolve → download to `%ProgramData%\NetPaw\service\updates\` (service-owned ACL) → hash → Authenticode
-  → write `update.log` → start `msiexec /i "<file>" /qn /norestart /l*v "<log>"` detached with a 2 s
-  delay → answer the client before msiexec stops the service. Refuses when policy `AllowCatWingetUpdate`
+  `InstallUpdate`, default tier Admin, floor NetworkConfigOperators). One at a time: a named mutex
+  refuses a second request with "an update is already running". Steps, each an audit line
+  (`update: refused <why>` / `resolve <v>` / `download <bytes>` / `verify hash ok` / `verify
+  authenticode ok <signer>` / `install start` / `install exit <code>`):
+  resolve → download into `%ProgramData%\NetPaw\service\updates\`, created by the service with an
+  explicit DACL (SYSTEM and Administrators full control, nothing else) and checked with the same
+  reparse-point and owner checks as the service folder, so a user cannot plant a link there → close the
+  file → hash the file on disk → Authenticode on the same bytes → re-open the file read-only with
+  `FileShare.Read` and keep the handle while `msiexec /i "<file>" /qn /norestart /l*v "<log>"` starts
+  detached after a 2 s delay (no window between verify and install for a swap) → answer the client
+  before msiexec stops the service → the next service start deletes `updates\*` older than the install. Refuses when policy `AllowCatWingetUpdate`
   is 0, when the version is not newer (unless AllowDowngrade), when either check fails, when the
   download exceeds the cap, or when the service folder check fails.
 - **Policy**: `AllowCatWingetUpdate` (ADMX + Intune OMA-URI sample, default 1). `Tier.InstallUpdate`
@@ -96,8 +109,10 @@ path. it accepts a version string and resolves it itself.
    download path). PR, docs only.
 2. Core resolver + `VerifyManifest` + fixture JSON (the live manifest of 0.14.0 saved as a test asset) +
    unit tests: newest-version selection, channel rules, arch/scope filter, allow-list refusal,
-   downgrade refusal, hash mismatch refusal, Authenticode refusal with hash match, redirect refusal.
-   PR, Core only.
+   downgrade refusal, hash mismatch refusal, Authenticode refusal with hash match, a 302 chain through
+   the GitHub asset host (followed), a redirect to a host off the allow-list (refused), an http
+   redirect (refused), a fourth hop (refused), an installer type other than msi/wix (refused). PR, Core
+   only.
 3. Service intent + policy + tier + audit lines + `docs/policy.md`. verify-windows: a StandardUser
    call is refused with "needs tier", an Admin call against an unreachable source fails at "resolve"
    with the reason and installs nothing. PR, orchestrator review before merge.
@@ -130,3 +145,11 @@ B.
   to any other host is refused.
 - A prerelease channel without a catwinget convention: the constant is one line to change. stable is
   unaffected.
+
+## Review reconciliation
+
+- Orchestrator (m-8373, GO): 1 redirects adopted (manual, max 3 hops, HTTPS only, the two GitHub asset
+  hosts on the allow-list, fixture tests for the chain and the refusals). 2 download folder adopted
+  (explicit DACL, reparse and owner checks, hash after close, read-only handle held through the msiexec
+  start, cleanup on the next start). 3 adopted (size cap on header and stream, timeouts, msi/wix only).
+  4 adopted (named mutex, the audit line set). 5 as proposed (one constant, catwinget decides).
