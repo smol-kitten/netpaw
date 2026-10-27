@@ -1,5 +1,5 @@
-using System.Diagnostics;
 using System.Net.Http;
+using System.Runtime.InteropServices;
 using System.Security.AccessControl;
 using System.Security.Cryptography.X509Certificates;
 using NetPaw.Updates;
@@ -52,17 +52,36 @@ public sealed class WindowsUpdateEnvironment(string serviceDir, Action<string> l
         return new HttpAnswer(status, null, ms.ToArray(), len);
     }
 
-    /// <summary>msiexec starts detached after 2 s so the service answers the client before the MSI stops it.</summary>
+    /// <summary>
+    /// msiexec starts detached after 2 s so the service answers the client before the MSI stops it. The MSI upgrade stops
+    /// this service, which is msiexec's parent, so the child is created with CREATE_BREAKAWAY_FROM_JOB | DETACHED_PROCESS:
+    /// if the SCM (or anything else) put the service in a job object with kill-on-close, the installer is not in it and
+    /// survives the stop (orchestrator review of the plan, m-8383). Breakaway refused (ERROR_ACCESS_DENIED: the job
+    /// forbids it) is reported, not worked around with a plain start.
+    /// </summary>
     public (int? Pid, string Reason) StartInstaller(string msiPath, string logPath)
     {
-        try
+        var cmd = Path.Combine(Environment.SystemDirectory, "cmd.exe");
+        var msiexec = Path.Combine(Environment.SystemDirectory, "msiexec.exe");
+        var line = $"\"{cmd}\" /d /c timeout /t 2 /nobreak >nul & \"{msiexec}\" /i \"{msiPath}\" /qn /norestart /l*v \"{logPath}\"";
+        const uint CREATE_BREAKAWAY_FROM_JOB = 0x01000000, DETACHED_PROCESS = 0x00000008, CREATE_NO_WINDOW = 0x08000000;
+        var si = new STARTUPINFOW { cb = (uint)Marshal.SizeOf<STARTUPINFOW>() };
+        if (!CreateProcessW(null, line, IntPtr.Zero, IntPtr.Zero, false, CREATE_BREAKAWAY_FROM_JOB | DETACHED_PROCESS | CREATE_NO_WINDOW, IntPtr.Zero, Environment.SystemDirectory, ref si, out var pi))
         {
-            var cmd = Path.Combine(Environment.SystemDirectory, "cmd.exe");
-            var msiexec = Path.Combine(Environment.SystemDirectory, "msiexec.exe");
-            var p = Process.Start(new ProcessStartInfo(cmd, $"/d /c timeout /t 2 /nobreak >nul & \"{msiexec}\" /i \"{msiPath}\" /qn /norestart /l*v \"{logPath}\"")
-                { UseShellExecute = false, CreateNoWindow = true });
-            return p is null ? (null, "msiexec did not start") : (p.Id, "ok");
+            var err = Marshal.GetLastWin32Error();
+            return (null, err == 5 ? "the service's job object forbids breakaway (ERROR_ACCESS_DENIED); the installer would die with the service" : $"CreateProcess failed: Win32 error {err}");
         }
-        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException) { return (null, ex.Message); }
+        CloseHandle(pi.hThread); CloseHandle(pi.hProcess);
+        log($"update: installer process {pi.dwProcessId} created outside the service's job (breakaway, detached)");
+        return ((int)pi.dwProcessId, "ok");
     }
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    struct STARTUPINFOW { public uint cb; public IntPtr lpReserved, lpDesktop, lpTitle; public uint dwX, dwY, dwXSize, dwYSize, dwXCountChars, dwYCountChars, dwFillAttribute, dwFlags; public ushort wShowWindow, cbReserved2; public IntPtr lpReserved2, hStdInput, hStdOutput, hStdError; }
+    [StructLayout(LayoutKind.Sequential)]
+    struct PROCESS_INFORMATION { public IntPtr hProcess, hThread; public uint dwProcessId, dwThreadId; }
+    [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    static extern bool CreateProcessW(string? applicationName, string commandLine, IntPtr processAttributes, IntPtr threadAttributes, bool inheritHandles, uint creationFlags, IntPtr environment, string? currentDirectory, ref STARTUPINFOW startupInfo, out PROCESS_INFORMATION processInformation);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    static extern bool CloseHandle(IntPtr handle);
 }

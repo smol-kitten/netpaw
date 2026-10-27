@@ -8,6 +8,7 @@ namespace NetPaw.Tests;
 
 public class UpdateInstallerTests
 {
+    static UpdateInstallerTests() { UpdateInstaller.HoldAfterStart = TimeSpan.FromMilliseconds(300); }
     static string Dir => Path.Combine(AppContext.BaseDirectory, "Fixtures", "update");
     static readonly byte[] Valid = File.ReadAllBytes(Path.Combine(Dir, "valid.msi"));
     static readonly byte[] Unsigned = File.ReadAllBytes(Path.Combine(Dir, "unsigned.msi"));
@@ -56,6 +57,14 @@ public class UpdateInstallerTests
             l => Assert.StartsWith("update: verify authenticode ok", l),
             l => Assert.StartsWith("update: install start pid 4242 9.9.9", l));
         Assert.Contains(report.Steps, s => s.Command.Contains("/qn /norestart /l*v"));
+        // the verified file is still held open with FileShare.Read right after the start: a writer is refused. Share modes
+        // are enforced by Windows only (Linux has no mandatory locking), so the OS-level part runs there alone.
+        if (OperatingSystem.IsWindows())
+            Assert.Throws<IOException>(() => new FileStream(env.Started.Value.Item1, FileMode.Open, FileAccess.Write, FileShare.Read).Dispose());
+        Assert.DoesNotContain(audit, l => l.StartsWith("update: read-only handle released"));
+        await Task.Delay(UpdateInstaller.HoldAfterStart + TimeSpan.FromMilliseconds(500));
+        Assert.Contains(audit, l => l.StartsWith("update: read-only handle released"));
+        using var w = new FileStream(env.Started.Value.Item1, FileMode.Open, FileAccess.Write, FileShare.Read);   // released now
     }
 
     [Fact]
