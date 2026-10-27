@@ -153,3 +153,22 @@ B.
   (explicit DACL, reparse and owner checks, hash after close, read-only handle held through the msiexec
   start, cleanup on the next start). 3 adopted (size cap on header and stream, timeouts, msi/wix only).
   4 adopted (named mutex, the audit line set). 5 as proposed (one constant, catwinget decides).
+- Second model, round 1 (four points):
+  1. *Fallback A breaks "the service never runs a file the tray handed it".* Rebutted: in fallback A the
+     service is not involved at all. The tray downloads, verifies and starts msiexec itself under UAC,
+     exactly as the GitHub update path does today. The forbidden pattern is the tray handing a file to
+     the service, which no path does. Wording adopted in Options A: "the service is never involved".
+  2. *The client sends a version, which muddles the boundary.* Rebutted, with the rule stated: the service
+     ignores every client value except channel and the downgrade flag when it picks the file. `Version` is
+     only compared with the resolver's own pick and a mismatch is refused ("the newest stable version is
+     X, not Y"), so the UI installs what it showed and nothing else. No URL, path or hash field exists on
+     the request (test: `The_intent_is_admin_by_default…`, and the request record).
+  3. *The pinned root is a parameter, not a constant.* Adopted in wording: the service passes
+     `UpdateTrust.PinnedRoots`, the build constant R0 (fingerprint-pinned, embedded), the same set the
+     GitHub path uses; `VerifyManifest` takes the set as a parameter only so tests can use a test root.
+     Tests `Right_hash_but_unsigned_is_refused` and the wrong-root case in `Verify_needs_the_hash_and_the_signature`
+     refuse a hash-matching file with a bad or foreign signature.
+  4. *Stable-channel rule untestable on the live fixture.* Adopted: the test
+     `Prerelease_channel_is_opt_in_and_stable_never_sees_it` edits the live fixture (0.14.0 becomes
+     0.15.0-rc.1 with `Channel = "prerelease"`) and asserts stable resolves 0.13.3 while prerelease
+     resolves 0.15.0. The fixture file itself stays the unedited live document.
