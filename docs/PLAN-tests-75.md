@@ -28,12 +28,27 @@ the 1.0 bar: unit, contract, security-as-code, Windows integration, disposable-V
 ## Chosen approach
 Six layers, each with its own runner, listed in the order they can land. Items 1–40 need no Windows.
 
+## Order, effort and the success criterion
+- **Phase 1 (PR series, Linux only, ~2 weeks of S/M PRs):** A1–A2, A5–A8, then B9–B25 in file order.
+  Effort: S each (one test file per PR), A1 is M.
+- **Phase 2 (after the CLI/tray refactors from PLAN-improvements steps 7–8):** A3–A4, C41–C50. Effort:
+  the refactors are M each, the tests are S.
+- **Phase 3 (windows-latest, main and tags only):** D51–D65. Effort: S each, D64 is M.
+- **Phase 4 (only when PLAN-G11a step 3 has one green run):** E66–E74 and F77. Not plannable in
+  detail before that. Effort: M each.
+- **Success criterion for this plan:** phases 1–3 green and the coverage floor (A2) met. Phase 4 is
+  tracked by the harness plan, not by this one.
+- Every item names runner · file · pass condition. "File" is the test file, new or existing.
+
 ## Steps
 
 ### A. Test infrastructure (Linux)
-1. Add coverlet collector + `dotnet test --collect:"XPlat Code Coverage"`. publish the summary to the
-   job summary (no artifact). Pass: a coverage number in every CI run.
-2. Coverage floor on `NetPaw.Core/Ipc` and `Planning` at the current value. fail below it.
+1. Linux · `tests/NetPaw.Core.Tests/NetPaw.Core.Tests.csproj` + `ci.yml` build job: coverlet collector,
+   `dotnet test --collect:"XPlat Code Coverage"`, `reportgenerator` summary appended to
+   `$GITHUB_STEP_SUMMARY` (no artifact). Pass: the summary shows line coverage as a percentage for
+   `NetPaw.Core` on every CI run.
+2. Linux · `ci.yml`: coverage floor per namespace (`NetPaw.Ipc`, `NetPaw.Planning`) at the value
+   measured by item 1 minus 1 point. The job fails below it. Pass: a PR that deletes one Ipc test fails.
 3. `tests/NetPaw.Cli.Tests` project. CLI refactored to `Run(argv, IO)` (improvement step 7).
 4. `tests/NetPaw.Service.Tests` project (Windows-only tests marked `[WindowsFact]`, skipped elsewhere).
 5. Shared fixtures: one `Fx` builder per model type, delete per-file copies (Fixtures.cs comment says
@@ -44,7 +59,8 @@ Six layers, each with its own runner, listed in the order they can land. Items 1
 8. xunit analyzers at warning-as-error for the test project (3 warnings exist today).
 
 ### B. Core unit gaps (Linux)
-9. ServiceProtocol: oversized line (> MaxLine) refused with a reason. exact boundary.
+9. Linux · `ServiceProtocolTests.cs`: a 65 537-byte line is refused with an error that contains
+   "too long". A 65 536-byte line parses.
 10. ServiceProtocol: `kind` as integer refused. unknown kind refused. v=2 refused with "protocol".
 11. ServiceProtocol: every `ServiceStatus` field round-trips, null `Tier`/`LastApply` readable.
 12. ProfileGuard: adapter names with each refused character. 256-byte boundary. Unicode homoglyphs.
@@ -81,8 +97,9 @@ Six layers, each with its own runner, listed in the order they can land. Items 1
 36. Presets: data test. every preset IP is valid, unique per vendor, note length bounded.
 37. Repos/PackSigner: tampered pack (one byte) fails. expired key id fails. signature over the
     canonical form only.
-38. Updates/MsiAuthenticode: a CMS with 1000 certificates finishes under 2 s (CVE-2026-84008 guard,
-    Pkcs ≥ 10.0.13).
+38. Linux · `UpdateVerifyTests.cs`: a CMS with 1 000 embedded certificates is verified in under
+    2 000 ms on the CI runner (the quadratic case of CVE-2026-84008, measured on 2026-10-17 from
+    `gh api /advisories/GHSA-846f-f764-76mx`, fixed in Pkcs 10.0.13, which main carries since #94).
 39. Updates/UpdateTrust: pinned-root mismatch, intermediate missing, timestamp missing. each refused
     with its own reason.
 40. Telemetry client: payload has no adapter names or MACs unless opt-in. schema snapshot test.
@@ -103,11 +120,15 @@ Six layers, each with its own runner, listed in the order they can land. Items 1
 51. Pipe ACL readback equals the exact allow/deny set (exists. keep as a named test, not a step).
 52. Squat after start denied with UnauthorizedAccessException (exists. named).
 53. SMB loopback refused by the computer-name check for user and admin (exists. named).
-54. Filtered-token admin (UAC) is StandardUser: run `netpaw-cli` from a non-elevated admin shell and
-    assert `tier StandardUser`.
+54. windows-latest · `ci.yml` verify-windows: start `netpaw-cli service status` with a filtered token
+    (`schtasks /create /RL LIMITED /RU runneradmin`, then `/run`, output to a file. The hosted runner's
+    admin session is elevated, so this is the only non-elevated path there) and assert
+    `tier StandardUser`. Pass: the line is present, and the elevated call in the same job says `tier Admin`.
 55. Junction in `profiles.d` → MachineStore moves the folder aside and logs it.
 56. Oversized JSON (70 KB) over the pipe → refused in < 1 s, service still answers Status.
-57. 9 concurrent clients → all answered, the 9th waits, none refused (MaxConcurrent = 8).
+57. windows-latest · `ci.yml` verify-windows: 9 clients open the pipe and hold their request for 3 s
+    (no elevation needed, clients run as the runner user). All 9 get an answer, the 9th at least
+    2 s later than the 8th, none refused.
 58. Service token line after restart: `SeChangeNotifyPrivilege` only (exists. named).
 59. A standard user cannot write `policy.cache.json` or `last-apply.json` (ACL test).
 60. Unknown `PolicySchemaVersion` → defaults + Event Log reason (exists. named).
@@ -129,8 +150,12 @@ Six layers, each with its own runner, listed in the order they can land. Items 1
 74. Kill -9 the harness driver after `qm clone` → next run's sweep destroys the orphan.
 
 ### F. CI meta-tests
-75. A push to `release/**` uploads zero artifacts (query the run's artifacts API in the job itself).
-76. A tag push builds the tag's commit (`github.sha` equals the tag target. assert in the build job).
+75. ubuntu · `ci.yml` build job, `if: startsWith(github.ref, 'refs/heads/release/')`: after the
+    build, `gh api repos/$R/actions/runs/$GITHUB_RUN_ID/artifacts --jq .total_count` must print 0.
+    Needs `permissions: actions: read` on the job (the default token has it for the own run, the same
+    call worked in `verify-windows` for v0.14.0's run 38814800372).
+76. ubuntu · `ci.yml` build job on tags: `git rev-parse "$GITHUB_REF_NAME^{commit}"` equals
+    `$GITHUB_SHA`. Measured true for v0.14.0 (2388025) on 2026-10-17.
 77. Weekly scheduled run of the full suite on main with the flake tracker, no artifacts.
 
 ## Verification
@@ -143,3 +168,14 @@ Six layers, each with its own runner, listed in the order they can land. Items 1
   one function each, verify-windows covers the end-to-end.
 - Hosted-runner time grows: group D runs only on main and tags, not on every PR.
 - The harness slips: group E waits. A–D do not.
+
+## Review reconciliation
+
+- Round 1 (nano): prioritization adopted (Order, effort and the success criterion: four phases, success
+  = phases 1–3 green + coverage floor, phase 4 belongs to the harness plan). File names and crisp pass
+  conditions adopted for the vague items (1, 2, 9, 38, 54, 57, 75, 76). The other items name the test
+  file by group heading (group B = the existing `*Tests.cs` named in each item, group D = `ci.yml`
+  verify-windows). Hidden refactor scope: rebutted as hidden, it is PLAN-improvements steps 7–8, now
+  cited in phase 2. Item 38's CVE: rebutted, it was measured on 2026-10-17 (advisory id and the #94
+  bump are on main). Item 54: adopted the `/RL LIMITED` method, the only non-elevated path on the
+  hosted runner. Item 57 needs no elevation: rebutted. Item 75: adopted the permission note.
