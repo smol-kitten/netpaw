@@ -36,6 +36,8 @@
       <string id="AllowUpdateCheck">Allow the daily update check (GitHub releases API)</string>
       <string id="AllowIntentWatch">Allow the intent watcher (unanswered connections → profile advice)</string>
       <string id="AllowIntentWatch_Help">Disabled: NetPaw never reads the local TCP table to spot programs waiting on an unreachable address, and never recommends a profile for it. The watcher sends nothing; it only reads the table on this machine.</string>
+      <string id="AllowCatWingetUpdate">Allow "Update from CatWinget" (the NetPaw service installs a verified update)</string>
+      <string id="AllowCatWingetUpdate_Help">Disabled: the NetPaw service refuses every InstallUpdate request, the tray button and the CLI command say so, and nothing is downloaded. Enabled or not configured: an administrator (or the tier set by "Minimum tier to install an update") can have the service resolve the newest NetPaw from https://winget.goes.moe, verify the manifest's SHA-256 and the Authenticode signature against the root built into NetPaw, and install it with msiexec. The service never accepts a URL or a file from the caller.</string>
       <string id="AllowUpdateCheck_Help">Disabled: NetPaw never contacts api.github.com to look for a newer release. Managed fleets that ship NetPaw through Intune/GPO should disable this.</string>
       <string id="TierItem_StandardUser">Standard user</string>
       <string id="TierItem_NetworkConfigOperators">Network Configuration Operators</string>
@@ -62,6 +64,8 @@
       <string id="Tier_SetMtu_Help">Lowest caller tier allowed to set an adapter MTU through the NetPaw service. Not configured: the default (NetworkConfigOperators).</string>
       <string id="Tier_VirtualUnlock">Minimum tier to target a virtual (non-host-facing) adapter</string>
       <string id="Tier_VirtualUnlock_Help">Lowest caller tier allowed to target a virtual (non-host-facing) adapter through the NetPaw service. Not configured: the default (NetworkConfigOperators). The floor for this action is Network Configuration Operators; a lower setting is raised to it.</string>
+      <string id="Tier_InstallUpdate">Minimum tier to install an update from CatWinget</string>
+      <string id="Tier_InstallUpdate_Help">Lowest caller tier allowed to have the NetPaw service install a verified update from CatWinget. Not configured: the default (Admin). Network Configuration Operators is the floor: a policy cannot open installs to standard users.</string>
     </stringTable>
     <presentationTable>
       <presentation id="WorkAdapter"><textBox refId="WorkAdapter"><label>Adapter name:</label></textBox></presentation>
@@ -77,6 +81,7 @@
       <presentation id="Tier_Release"><dropdownList refId="Tier_Release">Minimum tier:</dropdownList></presentation>
       <presentation id="Tier_Prefer"><dropdownList refId="Tier_Prefer">Minimum tier:</dropdownList></presentation>
       <presentation id="Tier_SetMtu"><dropdownList refId="Tier_SetMtu">Minimum tier:</dropdownList></presentation>
+      <presentation id="Tier_InstallUpdate"><dropdownList refId="Tier_InstallUpdate">Minimum tier:</dropdownList></presentation>
       <presentation id="Tier_VirtualUnlock"><dropdownList refId="Tier_VirtualUnlock">Minimum tier:</dropdownList></presentation>
     </presentationTable>
   </resources>
