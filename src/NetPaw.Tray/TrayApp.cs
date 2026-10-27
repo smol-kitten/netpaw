@@ -718,6 +718,13 @@ sealed class TrayApp : ApplicationContext
         if (ChangeMode == ChannelMode.Service && ServiceChange.LastStatus?.LastApply is { } lastApply)
             _menu.Items.Add(new ToolStripMenuItem("Revert last apply", Icons.Dot(Theme.Temp), (_, _) => RevertLastApply()) { ToolTipText = "Undo: " + lastApply + " (as of the last service check; restores DHCP/addresses/gateway/DNS, not metrics, VLAN, routes or IPv6)", Enabled = canApply });
 
+        // 0.17: the service resolves, verifies and installs a NetPaw update from the CatWinget source (admin tier by default).
+        if (ChangeMode == ChannelMode.Service && _svc.Allowed(Capability.CatWingetUpdate))
+        {
+            _menu.Items.Add(new ToolStripMenuItem(CatWingetLabel(), Icons.Dot(Theme.Accent), async (_, _) => await UpdateFromCatWinget()) { ToolTipText = "The NetPaw service checks https://winget.goes.moe, verifies the installer's SHA-256 and signature and installs it. Needs the Admin tier (policy: Tier.InstallUpdate)." });
+            _ = RefreshCatWingetAvailable();   // the label names the version once the source has answered (throttled)
+        }
+
         _menu.Items.Add(new ToolStripSeparator());
         var adapters = new ToolStripMenuItem("Work adapter");
         foreach (var a in _adapters.Where(a => a.HostFacing || a.Up))
@@ -820,6 +827,70 @@ sealed class TrayApp : ApplicationContext
             var (_, outcome) = _svc.Reach(d, w, dryRun: false, replace);
             return outcome!;
         }, d.Explanation);
+    }
+
+    static readonly HttpClient CatWingetHttp = new(new SocketsHttpHandler { AllowAutoRedirect = false }) { Timeout = TimeSpan.FromSeconds(15) };
+    Updates.CatWingetResolve? _catwinget; DateTimeOffset _catwingetAt;
+
+    /// <summary>The button/menu text says what a click does: "Update to 0.15.0 from CatWinget (verified signature)", with the
+    /// channel named when it is prerelease; before the source has answered, or when nothing is available, a plain label.</summary>
+    public string CatWingetLabel()
+    {
+        var pre = _svc.Settings.UpdatePrerelease;
+        if (_catwinget is { Ok: true, Update: { } u }) return $"Update to {u.Version.ToString(3)}{(pre ? " (prerelease)" : "")} from CatWinget (verified signature)";
+        return pre ? "Update from CatWinget (prerelease channel, verified signature)…" : "Update from CatWinget (verified signature)…";
+    }
+
+    /// <summary>Resolves installed vs available read-only, at most once per 10 minutes, and rebuilds the menu label.</summary>
+    async Task RefreshCatWingetAvailable()
+    {
+        if (DateTimeOffset.Now - _catwingetAt < TimeSpan.FromMinutes(10)) return;
+        _catwingetAt = DateTimeOffset.Now;
+        try { _catwinget = await ResolveCatWinget(); if (_catwinget is { Ok: true }) RefreshState(); }
+        catch (Exception ex) { _svc.Store.Log("catwinget: " + ex.Message); }
+    }
+
+    async Task<Updates.CatWingetResolve> ResolveCatWinget()
+    {
+        var channel = _svc.Settings.UpdatePrerelease ? Updates.CatWingetSource.PrereleaseChannel : Updates.CatWingetSource.StableChannel;
+        var current = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version is { } v ? new Version(v.Major, Math.Max(0, v.Minor), Math.Max(0, v.Build)) : new Version(0, 0, 0);
+        var manifest = await Updates.CatWingetSource.Download(Updates.CatWingetSource.ManifestUrl(Updates.CatWingetSource.PackageId), async (url, ct) =>
+        {
+            using var req = new HttpRequestMessage(HttpMethod.Get, url);
+            using var resp = await CatWingetHttp.SendAsync(req, ct);
+            var status = (int)resp.StatusCode;
+            return new Updates.HttpAnswer(status, resp.Headers.Location?.ToString(), status == 200 ? await resp.Content.ReadAsByteArrayAsync(ct) : []);
+        }, 4 * 1024 * 1024);
+        if (manifest.Result is null) return new(null, "source unreachable: " + manifest.Reason);
+        return Updates.CatWingetSource.Resolve(System.Text.Encoding.UTF8.GetString(manifest.Result.Body), current, channel);
+    }
+
+    /// <summary>
+    /// "Update from CatWinget": shows current vs available (resolved read-only in this process, same rules as the
+    /// service) and asks; on Yes the SERVICE resolves, downloads, verifies twice and installs. This process never
+    /// runs an installer here and sends no URL or path: only the channel, and the version it showed, so the service
+    /// refuses if the source changed in between.
+    /// </summary>
+    public async Task UpdateFromCatWinget()
+    {
+        if (ChangeMode != ChannelMode.Service) { Notify("Update from CatWinget", "This needs the NetPaw service (install the MSI). Use \"Check now\" for the GitHub path.", ToolTipIcon.Warning, force: true); return; }
+        if (!_svc.Allowed(Capability.CatWingetUpdate)) { Denied(Capability.CatWingetUpdate); return; }
+        var channel = _svc.Settings.UpdatePrerelease ? Updates.CatWingetSource.PrereleaseChannel : Updates.CatWingetSource.StableChannel;
+        var current = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version is { } v ? new Version(v.Major, Math.Max(0, v.Minor), Math.Max(0, v.Build)) : new Version(0, 0, 0);
+        try
+        {
+            var r = _catwinget = await ResolveCatWinget(); _catwingetAt = DateTimeOffset.Now;
+            if (!r.Ok) { Notify("Update from CatWinget", r.Reason, ToolTipIcon.Info, force: true); return; }
+            var u = r.Update!;
+            var answer = MessageBox.Show($"Installed: {current.ToString(3)}\nAvailable ({channel}): {u.Version.ToString(3)}\n\nRelease notes: {u.ReleaseNotesUrl}\n\nThe NetPaw service will download the installer, verify its SHA-256 against the CatWinget manifest and its signature against the root built into NetPaw, then install it silently. NetPaw restarts afterwards.\n\nInstall now?",
+                "Update from CatWinget", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
+            if (answer != DialogResult.Yes) return;
+            var plan = new ApplyPlan { Title = $"update to {u.Version.ToString(3)} from CatWinget" };
+            RunInBackground($"Updating to {u.Version.ToString(3)}", () => _channel.Run(ServiceChange.InstallUpdate(u.Version.ToString(3), channel), plan,
+                () => throw new InvalidOperationException("Update from CatWinget needs the NetPaw service.")), $"Installer started; NetPaw {u.Version.ToString(3)} installs in the background");
+            TelemetryHost.Event("updates", "catwinget-install");
+        }
+        catch (Exception ex) { _svc.Store.Error("update", ex.Message); Notify("Update from CatWinget failed", ex.Message, ToolTipIcon.Warning, force: true); }
     }
 
     public void RevertLastApply()

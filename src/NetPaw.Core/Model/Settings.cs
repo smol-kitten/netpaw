@@ -115,6 +115,8 @@ public sealed class Settings
     public bool UpdateCheckAsked { get; set; }
     public DateTimeOffset? UpdateLastCheck { get; set; }
     public string? UpdateLastVersionSeen { get; set; }
+    /// <summary>"Update from CatWinget" follows the prerelease channel instead of stable (opt-in).</summary>
+    public bool UpdatePrerelease { get; set; }
     /// <summary>Telemetry build only: OTLP/HTTP and syslog export to servers the user configures.</summary>
     public Telemetry.LogExportSettings LogExport { get; set; } = new();
     /// <summary>Hidden-try intent for "start with Windows": null until the checkbox is touched once, then the last saved value. Used to repair a task that the installer (or an elevated login) dropped.</summary>

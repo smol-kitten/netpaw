@@ -46,6 +46,9 @@ const string Usage = """
       netpaw-cli where                            print the config directory (profiles.json etc.)
       netpaw-cli update verify <msi> [SIGNATURES.md] [--root <crt>]
                                                   verify an installer the way the tray does (pinned root unless --root)
+      netpaw-cli update --source catwinget [--check] [--channel prerelease] [--allow-downgrade]
+                                                  the NetPaw service installs the newest NetPaw from https://winget.goes.moe
+                                                  (verified twice); --check only shows current vs available
       netpaw-cli --version                        print the version
       netpaw-cli export <file> [--managed]        write profiles as JSON (--managed: only for a profiles.d deployment file)
       netpaw-cli import <file>                    add profiles from a JSON file (same name = replace)
@@ -73,6 +76,10 @@ var dryRun = Flag("-n", "--dry-run");
 var replace = Flag("--replace");
 var adapterName = Opt("-a", "--adapter");
 var timeoutOpt = Opt("--timeout");
+var source = Opt("--source");
+var channelOpt = Opt("--channel");
+var checkOnly = Flag("--check");
+var allowDowngrade = Flag("--allow-downgrade");
 if (argv.Count == 0 || argv[0] is "-h" or "--help" or "help") { Console.WriteLine(Usage); return 0; }
 if (argv[0] is "--version" or "version")
 {
@@ -498,6 +505,28 @@ try
             if (items.Count == 0) { Console.WriteLine(svc.Settings.Repair.IncidentLog ? "no incidents recorded" : "incident log is off (Settings → Incident log)"); return 0; }
             foreach (var i in items) Console.WriteLine(i);
             return 0;
+        }
+        case "update" when source is not null:
+        {
+            if (!string.Equals(source, "catwinget", StringComparison.OrdinalIgnoreCase)) return Fail("the only update source is catwinget");
+            var channel = string.Equals(channelOpt, "prerelease", StringComparison.OrdinalIgnoreCase) ? NetPaw.Updates.CatWingetSource.PrereleaseChannel : NetPaw.Updates.CatWingetSource.StableChannel;
+            var current = typeof(Program).Assembly.GetName().Version is { } cv ? new Version(cv.Major, Math.Max(0, cv.Minor), Math.Max(0, cv.Build)) : new Version(0, 0, 0);
+            using var http = new HttpClient(new SocketsHttpHandler { AllowAutoRedirect = false }) { Timeout = TimeSpan.FromSeconds(15) };
+            var manifest = NetPaw.Updates.CatWingetSource.Download(NetPaw.Updates.CatWingetSource.ManifestUrl(NetPaw.Updates.CatWingetSource.PackageId), async (url, ct) =>
+            {
+                using var resp = await http.GetAsync(url, ct);
+                var status = (int)resp.StatusCode;
+                return new NetPaw.Updates.HttpAnswer(status, resp.Headers.Location?.ToString(), status == 200 ? await resp.Content.ReadAsByteArrayAsync(ct) : []);
+            }, 4 * 1024 * 1024).GetAwaiter().GetResult();
+            if (manifest.Result is null) return Fail("source unreachable: " + manifest.Reason);
+            var r = NetPaw.Updates.CatWingetSource.Resolve(System.Text.Encoding.UTF8.GetString(manifest.Result.Body), current, channel, allowDowngrade);
+            Console.WriteLine($"installed  {current.ToString(3)}");
+            if (!r.Ok) { Console.WriteLine($"available  none ({r.Reason})"); return checkOnly ? 0 : 3; }
+            Console.WriteLine($"available  {r.Update!.Version.ToString(3)} ({channel})  {r.Update.ReleaseNotesUrl}");
+            if (checkOnly) return 0;
+            if (!(OperatingSystem.IsWindows() && ServiceChange.ServiceAnswers())) return Fail("installing needs the NetPaw service (install the MSI); the service resolves, verifies and installs the file itself");
+            Console.Error.WriteLine("asking the NetPaw service to install (it downloads and verifies the file itself; this process sends only the channel and the version shown)…");
+            return ReportChange(ServiceChange.Send(ServiceChange.InstallUpdate(r.Update.Version.ToString(3), channel, allowDowngrade), 30_000));
         }
         case "update" when argv.Count >= 3 && argv[1] == "verify":
         {

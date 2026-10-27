@@ -48,6 +48,13 @@ sealed class SettingsForm : Form
         updateNow.Click += async (_, _) => { updateNow.Enabled = false; try { await app.CheckForUpdates(manual: true); } finally { updateNow.Enabled = true; } };
         var updatesRow = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = Padding.Empty };
         updatesRow.Controls.Add(updates); updatesRow.Controls.Add(updateNow);
+        // 0.17: the service installs a verified update from the CatWinget source; the channel is an opt-in setting.
+        var prerelease = new CheckBox { Text = "follow the prerelease channel for \"Update from CatWinget\"", Checked = s.UpdatePrerelease, AutoSize = true };
+        var catwinget = new Button { Text = app.CatWingetLabel(), AutoSize = true, Height = 24, Margin = new Padding(8, 0, 0, 0) };
+        prerelease.CheckedChanged += (_, _) => catwinget.Text = (prerelease.Checked ? "Update from CatWinget (prerelease channel, verified signature)…" : app.CatWingetLabel());
+        catwinget.Click += async (_, _) => { catwinget.Enabled = false; try { await app.UpdateFromCatWinget(); } finally { catwinget.Enabled = true; } };
+        var catwingetRow = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = Padding.Empty };
+        catwingetRow.Controls.Add(prerelease); catwingetRow.Controls.Add(catwinget);
 
         Row("Work adapter", adapter); adapter.Enabled = !pol.IsSet("WorkAdapter");
         Row("Panel hotkey", hotkey); hotkey.Enabled = !pol.IsSet("PanelHotkey");
@@ -56,6 +63,9 @@ sealed class SettingsForm : Form
         if (pol.Any) Row("Policy", new Label { Text = "Greyed values are set by your organisation.", AutoSize = true, ForeColor = Theme.Temp, Font = Theme.Small });
         Row("Notifications", notify);
         Row("Updates", updatesRow); updates.Enabled = updateNow.Enabled = app.Service.Allowed(Capability.UpdateCheck);
+        Row("CatWinget", catwingetRow); prerelease.Enabled = catwinget.Enabled = app.Service.Allowed(Capability.CatWingetUpdate) && app.ChangeMode == NetPaw.Ipc.ChannelMode.Service;
+        if (!app.Service.Allowed(Capability.CatWingetUpdate)) prerelease.Text += "  (disabled by policy)";
+        else if (app.ChangeMode != NetPaw.Ipc.ChannelMode.Service) prerelease.Text += "  (needs the NetPaw service)";
         var trayClick = new Theme.DarkComboBox { Width = 160 }; trayClick.Items.AddRange(["quick panel", "main window"]); trayClick.SelectedIndex = s.TrayClick == "main" ? 1 : 0;
         var trayRow = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = Padding.Empty };
         trayRow.Controls.Add(trayClick); trayRow.Controls.Add(new Label { Text = "what a click on the tray icon opens (double-click always opens the window)", AutoSize = true, ForeColor = Theme.Muted, Font = Theme.Small, Margin = new Padding(6, 6, 0, 0) });
@@ -227,6 +237,7 @@ sealed class SettingsForm : Form
             if (!pol.IsSet("PanelHotkey")) s.PanelHotkey = hk.ToString();
             if (!pol.IsSet("ConfirmBeforeApply")) s.ConfirmBeforeApply = confirm.Checked;
             s.UpdateCheck = updates.Checked;
+            s.UpdatePrerelease = prerelease.Checked;
             s.TrayClick = trayClick.SelectedIndex == 1 ? "main" : "panel";
             s.LogLevel = (LogLevel)logLevel.SelectedIndex; app.Service.Store.MinLevel = s.LogLevel;
             s.ShowNotifications = notify.Checked;
