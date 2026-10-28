@@ -36,6 +36,10 @@ try:
 except Exception: pass' 2>/dev/null | head -1); [[ -n "$ip" ]] && ssh -o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=no -i "$SSHKEY" harness@"$ip" 'hostname' >/dev/null 2>&1 && break; sleep 15; done
   [[ -n "$ip" ]] || { say "install|$VMID|FAILED no ssh after 60 min"; exit 1; }
   say "install|$VMID|ssh up at $ip after $((i*15)) s"; echo "$ip" > /root/netpaw-tpl.ip
+  # The filled unattend ISO holds the local admin password in clear text: gone from pve as soon as setup is done (m-8466).
+  qm set $VMID --delete ide0 >/dev/null 2>&1 || true
+  rm -f /var/lib/vz/template/iso/netpaw-harness-unattend.iso
+  say "install|unattend-iso|detached and deleted from local:iso $([[ -e /var/lib/vz/template/iso/netpaw-harness-unattend.iso ]] && echo FAILED || echo ok)"
 fi
 if [[ $phase == evidence || $phase == all ]]; then
   ip=$(cat /root/netpaw-tpl.ip); S="ssh -o BatchMode=yes -o StrictHostKeyChecking=no -i $SSHKEY harness@$ip"
@@ -45,6 +49,10 @@ if [[ $phase == evidence || $phase == all ]]; then
   say "evidence|sshd|$($S '(Get-Service sshd).Status, (Get-Service sshd).StartType' | tr -d '\r' | paste -sd,)"
   say "evidence|qemu-ga|$(qm agent $VMID ping >/dev/null 2>&1 && echo ok || echo absent)"
   say "evidence|prevent-device-encryption|$($S 'Get-ItemPropertyValue HKLM:\SYSTEM\CurrentControlSet\Control\BitLocker PreventDeviceEncryption' | tr -d '\r')"
+  say "evidence|sshd-password-auth|$($S 'Select-String -Path C:\ProgramData\ssh\sshd_config -Pattern "^PasswordAuthentication" | ForEach-Object Line' | tr -d '\r' | paste -sd,)  (must be: PasswordAuthentication no)"
+  say "evidence|sshd-authorized-keys|$($S '(Get-Content C:\ProgramData\ssh\administrators_authorized_keys | Measure-Object -Line).Lines' | tr -d '\r') key line(s) for Administrators; no per-user authorized_keys"
+  say "evidence|autologon|AutoAdminLogon=$($S 'Get-ItemPropertyValue "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" AutoAdminLogon' | tr -d '\r') DefaultPassword=$($S 'if (Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" -Name DefaultPassword -ErrorAction SilentlyContinue) { "PRESENT" } else { "absent" }' | tr -d '\r')  (must be: 0 / absent)"
+  say "evidence|unattend-iso-gone|$([[ -e /var/lib/vz/template/iso/netpaw-harness-unattend.iso ]] && echo NO || echo yes)"
 fi
 if [[ $phase == template || $phase == all ]]; then
   ip=$(cat /root/netpaw-tpl.ip); S="ssh -o BatchMode=yes -o StrictHostKeyChecking=no -i $SSHKEY harness@$ip"
