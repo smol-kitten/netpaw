@@ -82,6 +82,20 @@ Chosen: **B**. A is the fallback for the spike's own measurements only, inside t
   file `/run/lock/pawcheck-vm150.lock` is held; `thinpool` — local-lvm data above 85 % (`lvs pve/data
   -o data_percent`); `vzdump` — a vzdump task is running on pve. No clone is created before all pass. Each refusal prints `RESULT|gate|refused:<reason>` and exits 3.
 
+## Step 3 artifacts (template 9160)
+
+`tools/harness/`: `autounattend.xml` (clean Win11 Pro from the pve ISO, local admin `harness`, OpenSSH
+server with the driver's key, BitLocker device encryption prevented in the specialize pass, one
+autologon for the first-logon commands only), `clone-unattend.xml` (the sysprep pass every clone boots
+through: new SID, random name, no OOBE, no autologon, sshd on), `make-unattend-iso.sh` (fills the two
+placeholders from the vault keys `pve.harness_vm_password` and `pve.harness_ssh_pub` in a private temp
+dir, builds `netpaw-harness-unattend.iso`, uploads it to pve), `build-template.sh` (on pve: phases
+`create` → `install` → `evidence` → `template`; mirrors VM 150's hardware, waits for ssh, prints
+`RESULT|evidence|…` incl. `Get-BitLockerVolume`, then `sysprep /generalize /oobe /shutdown` with
+`clone-unattend.xml`, detaches the ISOs, `qm template 9160`). The driver's ssh key pair is
+`pve.harness_ssh_key` / `pve.harness_ssh_pub` in the vault. No secret is in git; nothing runs before
+step 2 is applied.
+
 ## Spike questions (Step 0, measured before G11 code)
 
 | question | how to measure |
