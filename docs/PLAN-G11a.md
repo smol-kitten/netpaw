@@ -62,7 +62,7 @@ Chosen: **B**. A is the fallback for the spike's own measurements only, inside t
   self-contained build). Generalised with sysprep `/generalize /oobe` + an unattend file, so each clone
   gets its own SID and hostname. Converted with `qm template 9160`.
 - **Clone** per run: `qm clone 9160 <id> --name netpaw-h-<run> --pool netpaw-harness` (linked clone on
-  local-lvm), VMID range 9161–9169. The pool is excluded from vzdump.
+  local-lvm), VMID range 9161–9168 (9169 is the peer LXC). The pool is excluded from vzdump.
 - **NICs** per clone: net0 on `vmbr0` with VLAN tag of the management net (n4 reaches it by ssh);
   net1 on a new bridge `vmbr-nptest` with no uplink.
 - **Test bridge peer**: an LXC `netpaw-peer` (Debian, ~256 MiB) on `vmbr-nptest` only. It runs dnsmasq
@@ -95,6 +95,26 @@ dir, builds `netpaw-harness-unattend.iso`, uploads it to pve), `build-template.s
 `clone-unattend.xml`, detaches the ISOs, `qm template 9160`). The driver's ssh key pair is
 `pve.harness_ssh_key` / `pve.harness_ssh_pub` in the vault. No secret is in git; nothing runs before
 step 2 is applied.
+## Step 2 commands (reviewed before they run)
+
+`tools/pve-harness-setup.sh` holds every pve change of step 2 as code. It runs on pve as root, dry-run
+by default (prints `PLAN| <command>` for each change), `--apply` executes. Every step checks first and
+prints `RESULT|<step>|exists|created`, so a rerun changes nothing. The same gates as the driver run
+first (`load`, `thinpool`, `vzdump`, VMIDs free). It never touches VM 150, VM 9150 or an existing bridge.
+
+| change | command | note |
+|---|---|---|
+| bridge `vmbr-nptest` | `/etc/network/interfaces` stanza, `bridge-ports none`, `ifreload -a` | isolated L2, no uplink |
+| pool `netpaw-harness` | `pvesh create /pools` | template 9160, peer 9169, clones 9161–9168 |
+| roles | `NetPawHarness` = VM.Clone, VM.Allocate, VM.PowerMgmt, VM.Audit, VM.Monitor, VM.Console; `NetPawHarnessStorage` = Datastore.AllocateSpace, Datastore.Audit | no VM.Config.*, no Sys.*, no root path |
+| user + token | `harness@pve`, token `n4` (`privsep 0`) | the value is printed once and stored on n4 as vault key `pve.harness_token`; never logged |
+| ACLs | `/pool/netpaw-harness` and `/vms/9160` → NetPawHarness; `/storage/local-lvm` → NetPawHarnessStorage | the ACL dump is `RESULT|acl|…` |
+| peer LXC 9169 | `pct create` Debian 12, 256 MiB, rootfs 2 GiB, `eth0` on `vmbr-nptest` 10.99.0.1/24, unprivileged, onboot 0, in the pool | dnsmasq DHCP 10.99.0.100–200 + DNS + gateway, smbclient; stopped after setup |
+| vzdump | `pvesh set /cluster/backup/<job> --exclude …` for every job | the pool ids are never backed up |
+
+VMID split: 9160 template, 9161–9168 clones (the driver's range), 9169 the peer. The script's dry run on
+pve (2026-10-28, load 7.6, thin pool 61.3 %) printed the plan above and changed nothing; the output is in
+the step-2 PR.
 
 ## Spike questions (Step 0, measured before G11 code)
 
@@ -181,8 +201,8 @@ step 2 is applied.
      rule (m-7805): 00:30–02:30 is PawCheck's. "PawCheck slot not running" means: no VM 9150 exists
      and no `pawcheck-*` process holds the pve lock file the PawCheck driver writes. Defined above.
   4. *Linked-clone churn on local-lvm can affect VM 150's thin pool and vzdump.* Adopted as gates:
-     `thinpool` (local-lvm data above 85 %, measured 87 % on 2026-10-26, so no clone before the
-     fstrim and snapshot cleanup on/after 10-28, orchestrator m-8087) and `vzdump` (a backup task is
+     `thinpool` (local-lvm data above 85 %; measured 87 % on 2026-10-26 and 61.3 % on 2026-10-28 after
+     the cleanup, orchestrator m-8454, so the gate now passes) and `vzdump` (a backup task is
      running). The clone pool is excluded from vzdump, and Step 0 measures local-lvm free space before
      and after a clone cycle (`RESULT|lvm|free-before/after`).
      A full clone on another datastore is not available (local-lvm is the only VM store on pve).
@@ -212,3 +232,16 @@ step 2 is applied.
   the sweep matches by prefix `netpaw-h-`, so nothing is orphaned. Step 0 includes the kill -9 test the
   review asked for (`RESULT|sweep|orphan-destroyed`).
 - Operator q-6364 answered: approved after the thin-pool cleanup (Operator questions, 2).
+- Second model, round 6: 1 (net0 L2) is decided, not reinterpreted: the operator approved the change set
+  without a management bridge (q-6364) and requirement 2 is read as it was written for VM 150's rule,
+  "NetPaw never touches net0"; the guard enforces it. 2 (role/ACL evidence): adopted and now concrete,
+  the exact `pveum` commands are in `tools/pve-harness-setup.sh` and the Step 2 table (roles
+  `NetPawHarness` on `/pool/netpaw-harness` and `/vms/9160`, `NetPawHarnessStorage` on
+  `/storage/local-lvm`); the peer LXC lives in the pool, so VM.PowerMgmt on the pool starts and stops
+  it; the dry run on pve printed them. 3 (thin pool): the cleanup is done, local-lvm is at 61.3 %, so
+  the during-vzdump measurement is no longer gated and runs in Step 0 as written. 4 (sweep): the sweep
+  keys on the VM name prefix `netpaw-h-` in the pool, not on run files; a run file without a VMID, or no
+  run file at all, leaves nothing the sweep cannot see. The operator and the orchestrator approved the
+  plan; later rounds restate these four points.
+
+Further rounds stop here
