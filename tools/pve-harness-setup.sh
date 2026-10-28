@@ -27,12 +27,23 @@ done
 say "gate|ok|load=$load1 thinpool=${thin}%"
 
 # ---- 1. bridge with no uplink (isolated L2 for the test NIC) ---------------------------------------------------------
+# Network safety (orchestrator m-8459): never `ifreload -a` on the fleet's host. Back up the file, validate the
+# whole config with ifupdown2's syntax check, bring up ONLY the new bridge; on any failure restore and stop.
 if ip link show "$BRIDGE" >/dev/null 2>&1; then say "bridge|$BRIDGE|exists"; else
+  stamp=$(date +%Y%m%d-%H%M%S); bak="/etc/network/interfaces.bak-$stamp"
   if ! grep -q "^iface $BRIDGE " /etc/network/interfaces; then
+    run cp -a /etc/network/interfaces "$bak"
     run bash -c "printf '\nauto %s\niface %s inet manual\n\tbridge-ports none\n\tbridge-stp off\n\tbridge-fd 0\n\t# NetPaw harness test network (PLAN-G11a): no uplink, peer LXC %s + disposable clones only\n' '$BRIDGE' '$BRIDGE' '$PEER' >> /etc/network/interfaces"
+    if (( APPLY )); then
+      if ! ifquery -a --syntax-check >/dev/null 2>&1; then cp -a "$bak" /etc/network/interfaces; say "bridge|$BRIDGE|FAILED syntax check; /etc/network/interfaces restored from $bak"; exit 1; fi
+      say "bridge|syntax-check|ok (backup $bak)"
+    else echo "PLAN| ifquery -a --syntax-check   (restore $bak and stop on failure)"; fi
   fi
-  run ifreload -a
-  (( APPLY )) && { ip link show "$BRIDGE" >/dev/null && say "bridge|$BRIDGE|created" || { say "bridge|$BRIDGE|FAILED"; exit 1; }; } || say "bridge|$BRIDGE|would create"
+  run ifup "$BRIDGE"
+  if (( APPLY )); then
+    if ip link show "$BRIDGE" >/dev/null 2>&1; then say "bridge|$BRIDGE|created (only this interface was brought up)"
+    else cp -a "$bak" /etc/network/interfaces 2>/dev/null; say "bridge|$BRIDGE|FAILED ifup; file restored from $bak"; exit 1; fi
+  else say "bridge|$BRIDGE|would create"; fi
 fi
 
 # ---- 2. pool ------------------------------------------------------------------------------------------------------------
@@ -58,13 +69,11 @@ fi
 run pveum acl modify "/pool/$POOL" -user "$USER_" -role "$ROLE"
 run pveum acl modify "/vms/$TPL" -user "$USER_" -role "$ROLE"
 run pveum acl modify "/storage/local-lvm" -user "$USER_" -role "$STOROLE"
-if pveum user token list "$USER_" --output-format json 2>/dev/null | grep -q "\"tokenid\":\"$TOKEN\""; then say "token|$USER_!$TOKEN|exists (value not shown again)"; else
-  if (( APPLY )); then
-    echo "RUN | pveum user token add $USER_ $TOKEN -privsep 0 -comment 'n4 harness driver'"
-    secret=$(pveum user token add "$USER_" "$TOKEN" -privsep 0 -comment "n4 harness driver" --output-format json | python3 -c 'import json,sys; print(json.load(sys.stdin)["value"])')
-    say "token|$USER_!$TOKEN|created|store it on n4 as vault key pve.harness_token (shown ONCE below, not logged)"
-    echo "TOKEN-VALUE-ONCE: $secret"
-  else echo "PLAN| pveum user token add $USER_ $TOKEN -privsep 0  (value printed once, goes to the n4 vault as pve.harness_token)"; say "token|$USER_!$TOKEN|would create"; fi
+# The token VALUE never reaches stdout or a transcript (orchestrator m-8459): tools/pve-harness-token.sh, run from the
+# claude box, creates it over ssh and pipes the value straight into the fleet vault (key pve.harness_token).
+if pveum user token list "$USER_" --output-format json 2>/dev/null | grep -q "\"tokenid\":\"$TOKEN\""; then say "token|$USER_!$TOKEN|exists"; else
+  echo "PLAN| (from the claude box) tools/pve-harness-token.sh  ->  pveum user token add $USER_ $TOKEN -privsep 0 | vault set pve.harness_token --stdin"
+  say "token|$USER_!$TOKEN|not created here; run tools/pve-harness-token.sh from the claude box"
 fi
 
 # ---- 4. peer LXC on the test bridge only: DHCP + DNS + gateway address + smbclient --------------------------------
@@ -82,14 +91,20 @@ if pct status "$PEER" >/dev/null 2>&1; then say "peer|$PEER|exists"; else
 fi
 
 # ---- 5. backups: the pool is never backed up -------------------------------------------------------------------------
-for job in $(pvesh get /cluster/backup --output-format json | python3 -c 'import json,sys; [print(j["id"]) for j in json.load(sys.stdin)]'); do
-  ex=$(pvesh get "/cluster/backup/$job" --output-format json | python3 -c 'import json,sys; print(json.load(sys.stdin).get("exclude",""))')
-  want="$TPL,$PEER,${CLONES// /,}"
+# Only jobs that select ALL guests can ever pick up the pool ids; a job pinned to specific VMIDs cannot. Each edited
+# job's full config is saved first; the new ids are MERGED into the existing exclude list (q-6364 allows exactly this edit).
+jobdir="/root/pve-backup-jobs-$(date +%Y%m%d)"; want="$TPL,$PEER,${CLONES// /,}"
+for job in $(pvesh get /cluster/backup --output-format json | python3 -c 'import json,sys; [print(j["id"]) for j in json.load(sys.stdin) if j.get("all")==1]'); do
+  cfg=$(pvesh get "/cluster/backup/$job" --output-format json)
+  ex=$(printf '%s' "$cfg" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("exclude",""))')
   if [[ ",$ex," == *",$TPL,"* ]]; then say "vzdump|$job|already excludes the pool ids"; else
+    run mkdir -p "$jobdir"
+    if (( APPLY )); then printf '%s\n' "$cfg" > "$jobdir/$job.json"; say "vzdump|$job|config saved to $jobdir/$job.json"; else echo "PLAN| save $job config to $jobdir/$job.json"; fi
     run pvesh set "/cluster/backup/$job" --exclude "${ex:+$ex,}$want"
-    say "vzdump|$job|$([[ $APPLY == 1 ]] && echo 'excluded' || echo 'would exclude') $want"
+    say "vzdump|$job|$([[ $APPLY == 1 ]] && echo 'excluded' || echo 'would exclude') $want (merged with: ${ex:-none})"
   fi
 done
+for job in $(pvesh get /cluster/backup --output-format json | python3 -c 'import json,sys; [print(j["id"]) for j in json.load(sys.stdin) if j.get("all")!=1]'); do say "vzdump|$job|untouched (pinned to specific guests, cannot select the pool)"; done
 
 # ---- 6. measurements the plan's Step 0 asks for ------------------------------------------------------------------------
 say "acl|$(pveum acl list --output-format json 2>/dev/null | python3 -c 'import json,sys; print("; ".join(f"{a[\"path\"]}={a[\"roleid\"]}" for a in json.load(sys.stdin) if a.get("ugid","").startswith("harness")))' 2>/dev/null || echo n/a)"
