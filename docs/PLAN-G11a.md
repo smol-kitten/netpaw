@@ -62,7 +62,7 @@ Chosen: **B**. A is the fallback for the spike's own measurements only, inside t
   self-contained build). Generalised with sysprep `/generalize /oobe` + an unattend file, so each clone
   gets its own SID and hostname. Converted with `qm template 9160`.
 - **Clone** per run: `qm clone 9160 <id> --name netpaw-h-<run> --pool netpaw-harness` (linked clone on
-  local-lvm), VMID range 9161–9169. The pool is excluded from vzdump.
+  local-lvm), VMID range 9161–9168 (9169 is the peer LXC). The pool is excluded from vzdump.
 - **NICs** per clone: net0 on `vmbr0` with VLAN tag of the management net (n4 reaches it by ssh);
   net1 on a new bridge `vmbr-nptest` with no uplink.
 - **Test bridge peer**: an LXC `netpaw-peer` (Debian, ~256 MiB) on `vmbr-nptest` only. It runs dnsmasq
@@ -81,6 +81,27 @@ Chosen: **B**. A is the fallback for the spike's own measurements only, inside t
   `load` — pve load1 ≥ 20; `vm150` — VM 150 running; `pawcheck` — VM 9150 exists or PawCheck's lock
   file `/run/lock/pawcheck-vm150.lock` is held; `thinpool` — local-lvm data above 85 % (`lvs pve/data
   -o data_percent`); `vzdump` — a vzdump task is running on pve. No clone is created before all pass. Each refusal prints `RESULT|gate|refused:<reason>` and exits 3.
+
+## Step 2 commands (reviewed before they run)
+
+`tools/pve-harness-setup.sh` holds every pve change of step 2 as code. It runs on pve as root, dry-run
+by default (prints `PLAN| <command>` for each change), `--apply` executes. Every step checks first and
+prints `RESULT|<step>|exists|created`, so a rerun changes nothing. The same gates as the driver run
+first (`load`, `thinpool`, `vzdump`, VMIDs free). It never touches VM 150, VM 9150 or an existing bridge.
+
+| change | command | note |
+|---|---|---|
+| bridge `vmbr-nptest` | `/etc/network/interfaces` stanza, `bridge-ports none`, `ifreload -a` | isolated L2, no uplink |
+| pool `netpaw-harness` | `pvesh create /pools` | template 9160, peer 9169, clones 9161–9168 |
+| roles | `NetPawHarness` = VM.Clone, VM.Allocate, VM.PowerMgmt, VM.Audit, VM.Monitor, VM.Console; `NetPawHarnessStorage` = Datastore.AllocateSpace, Datastore.Audit | no VM.Config.*, no Sys.*, no root path |
+| user + token | `harness@pve`, token `n4` (`privsep 0`) | the value is printed once and stored on n4 as vault key `pve.harness_token`; never logged |
+| ACLs | `/pool/netpaw-harness` and `/vms/9160` → NetPawHarness; `/storage/local-lvm` → NetPawHarnessStorage | the ACL dump is `RESULT|acl|…` |
+| peer LXC 9169 | `pct create` Debian 12, 256 MiB, rootfs 2 GiB, `eth0` on `vmbr-nptest` 10.99.0.1/24, unprivileged, onboot 0, in the pool | dnsmasq DHCP 10.99.0.100–200 + DNS + gateway, smbclient; stopped after setup |
+| vzdump | `pvesh set /cluster/backup/<job> --exclude …` for every job | the pool ids are never backed up |
+
+VMID split: 9160 template, 9161–9168 clones (the driver's range), 9169 the peer. The script's dry run on
+pve (2026-10-28, load 7.6, thin pool 61.3 %) printed the plan above and changed nothing; the output is in
+the step-2 PR.
 
 ## Spike questions (Step 0, measured before G11 code)
 
