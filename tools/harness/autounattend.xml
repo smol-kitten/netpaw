@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- NetPaw harness template 9160 (PLAN-G11a step 3). Built into netpaw-harness-unattend.iso by make-unattend-iso.sh,
+     which replaces @@PASSWORD@@ and @@SSH_PUB@@ from the fleet vault (pve.harness_vm_password, pve.harness_ssh_pub).
+     Differences from a plain install: local admin "harness", OpenSSH server with key login, BitLocker device
+     encryption prevented in the specialize pass (pawcheck fleet note), no OOBE questions, no Microsoft account. -->
+<unattend xmlns="urn:schemas-microsoft-com:unattend">
+  <settings pass="windowsPE">
+    <component name="Microsoft-Windows-International-Core-WinPE" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">
+      <SetupUILanguage><UILanguage>de-DE</UILanguage></SetupUILanguage>
+      <InputLocale>0407:00000407</InputLocale><SystemLocale>de-DE</SystemLocale><UILanguage>de-DE</UILanguage><UILanguageFallback>de-DE</UILanguageFallback><UserLocale>de-DE</UserLocale>
+    </component>
+    <component name="Microsoft-Windows-Setup" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">
+      <DiskConfiguration>
+        <WillShowUI>OnError</WillShowUI>
+        <Disk wcm:action="add" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">
+          <DiskID>0</DiskID><WillWipeDisk>true</WillWipeDisk>
+          <CreatePartitions>
+            <CreatePartition wcm:action="add"><Order>1</Order><Type>EFI</Type><Size>300</Size></CreatePartition>
+            <CreatePartition wcm:action="add"><Order>2</Order><Type>MSR</Type><Size>16</Size></CreatePartition>
+            <CreatePartition wcm:action="add"><Order>3</Order><Type>Primary</Type><Extend>true</Extend></CreatePartition>
+          </CreatePartitions>
+          <ModifyPartitions>
+            <ModifyPartition wcm:action="add"><Order>1</Order><PartitionID>1</PartitionID><Label>System</Label><Format>FAT32</Format></ModifyPartition>
+            <ModifyPartition wcm:action="add"><Order>2</Order><PartitionID>2</PartitionID></ModifyPartition>
+            <ModifyPartition wcm:action="add"><Order>3</Order><PartitionID>3</PartitionID><Label>Windows</Label><Letter>C</Letter><Format>NTFS</Format></ModifyPartition>
+          </ModifyPartitions>
+        </Disk>
+      </DiskConfiguration>
+      <ImageInstall><OSImage>
+        <InstallFrom><MetaData wcm:action="add" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State"><Key>/IMAGE/NAME</Key><Value>Windows 11 Pro</Value></MetaData></InstallFrom>
+        <InstallTo><DiskID>0</DiskID><PartitionID>3</PartitionID></InstallTo><WillShowUI>OnError</WillShowUI>
+      </OSImage></ImageInstall>
+      <UserData>
+        <!-- generic Pro KMS client key: installs unactivated; the operator approved unactivated clones (q-ef7c) -->
+        <ProductKey><Key>W269N-WFGWX-YVC9B-4J6C9-T83GX</Key><WillShowUI>OnError</WillShowUI></ProductKey>
+        <AcceptEula>true</AcceptEula><FullName>harness</FullName><Organization>NetPaw harness</Organization>
+      </UserData>
+    </component>
+  </settings>
+  <settings pass="specialize">
+    <component name="Microsoft-Windows-Shell-Setup" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">
+      <ComputerName>NETPAW-TPL</ComputerName><RegisteredOwner>harness</RegisteredOwner><RegisteredOrganization>NetPaw harness</RegisteredOrganization><TimeZone>W. Europe Standard Time</TimeZone>
+    </component>
+    <component name="Microsoft-Windows-Deployment" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">
+      <RunSynchronous>
+        <!-- pawcheck fleet note (m-8106): a clean 24H2 install with vTPM + Secure Boot auto-encrypts; pve could not read the disks -->
+        <RunSynchronousCommand wcm:action="add" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State"><Order>1</Order><Description>Prevent BitLocker device encryption</Description>
+          <Path>reg add HKLM\SYSTEM\CurrentControlSet\Control\BitLocker /v PreventDeviceEncryption /t REG_DWORD /d 1 /f</Path></RunSynchronousCommand>
+      </RunSynchronous>
+    </component>
+  </settings>
+  <settings pass="oobeSystem">
+    <component name="Microsoft-Windows-International-Core" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">
+      <InputLocale>0407:00000407</InputLocale><SystemLocale>de-DE</SystemLocale><UILanguage>de-DE</UILanguage><UILanguageFallback>de-DE</UILanguageFallback><UserLocale>de-DE</UserLocale>
+    </component>
+    <component name="Microsoft-Windows-Shell-Setup" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS">
+      <OOBE><HideEULAPage>true</HideEULAPage><HideLocalAccountScreen>true</HideLocalAccountScreen><HideOnlineAccountScreens>true</HideOnlineAccountScreens><HideWirelessSetupInOOBE>true</HideWirelessSetupInOOBE><NetworkLocation>Work</NetworkLocation><ProtectYourPC>3</ProtectYourPC></OOBE>
+      <UserAccounts><LocalAccounts>
+        <LocalAccount wcm:action="add" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State"><Name>harness</Name><DisplayName>harness</DisplayName><Group>Administrators</Group><Password><Value>@@PASSWORD@@</Value><PlainText>true</PlainText></Password></LocalAccount>
+      </LocalAccounts></UserAccounts>
+      <!-- one autologon only, to run the first-logon commands; clones never autologon -->
+      <AutoLogon><Enabled>true</Enabled><Username>harness</Username><LogonCount>1</LogonCount><Password><Value>@@PASSWORD@@</Value><PlainText>true</PlainText></Password></AutoLogon>
+      <FirstLogonCommands>
+        <SynchronousCommand wcm:action="add" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State"><Order>1</Order><Description>OpenSSH server</Description>
+          <CommandLine>powershell -NoProfile -ExecutionPolicy Bypass -Command "Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0; Set-Service sshd -StartupType Automatic; Start-Service sshd"</CommandLine></SynchronousCommand>
+        <SynchronousCommand wcm:action="add" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State"><Order>2</Order><Description>Driver key for administrators</Description>
+          <CommandLine>powershell -NoProfile -ExecutionPolicy Bypass -Command "$p='C:\ProgramData\ssh\administrators_authorized_keys'; Set-Content -Path $p -Value '@@SSH_PUB@@' -Encoding ascii; icacls $p /inheritance:r /grant 'Administrators:F' /grant 'SYSTEM:F' | Out-Null; Set-ItemProperty -Path 'HKLM:\SOFTWARE\OpenSSH' -Name DefaultShell -Value 'C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe' -Force; $c='C:\ProgramData\ssh\sshd_config'; $t=(Get-Content $c) -replace '^#?PasswordAuthentication .*','PasswordAuthentication no' -replace '^#?PubkeyAuthentication .*','PubkeyAuthentication yes' -replace '^#?PermitEmptyPasswords .*','PermitEmptyPasswords no'; if ($t -notmatch '^PasswordAuthentication no') { $t += 'PasswordAuthentication no' }; Set-Content $c $t; Restart-Service sshd"</CommandLine></SynchronousCommand>
+        <SynchronousCommand wcm:action="add" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State"><Order>3</Order><Description>Firewall: ssh on every profile</Description>
+          <CommandLine>powershell -NoProfile -ExecutionPolicy Bypass -Command "New-NetFirewallRule -Name sshd -DisplayName 'OpenSSH Server' -Enabled True -Direction Inbound -Protocol TCP -Action Allow -LocalPort 22 -Profile Any"</CommandLine></SynchronousCommand>
+        <SynchronousCommand wcm:action="add" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State"><Order>5</Order><Description>Remove the autologon credentials (count was 1; the values must not survive)</Description>
+          <CommandLine>cmd /c reg delete "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" /v DefaultPassword /f &amp; reg add "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" /v AutoAdminLogon /t REG_SZ /d 0 /f &amp; reg delete "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" /v AutoLogonCount /f</CommandLine></SynchronousCommand>
+        <SynchronousCommand wcm:action="add" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State"><Order>4</Order><Description>Evidence: BitLocker off, QEMU agent</Description>
+          <CommandLine>powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-BitLockerVolume | Select-Object MountPoint,ProtectionStatus | Out-File C:\harness-bitlocker.txt; if (Test-Path 'E:\guest-agent\qemu-ga-x86_64.msi') { Start-Process msiexec -ArgumentList '/i E:\guest-agent\qemu-ga-x86_64.msi /qn' -Wait }"</CommandLine></SynchronousCommand>
+      </FirstLogonCommands>
+    </component>
+  </settings>
+</unattend>
