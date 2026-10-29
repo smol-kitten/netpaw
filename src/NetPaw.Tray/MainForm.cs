@@ -196,6 +196,8 @@ sealed class MainForm : Form
             Row("Route table", () => main.ShowMapTab(3), "Live IPv4 routes with interface names; delete a stale manual route.");
             Row("Find routers", () => main.ShowMapTab(1), "Borrows a temporary address per common subnet and ARPs the usual gateway addresses.");
             Row("Trace route", () => Trace(app, traceHost.Text.Trim()), "Where does the path stop? Three ICMP probes per hop, results below.", traceHost);
+            var diagTarget = new TextBox { Width = 220, PlaceholderText = "192.168.0.20[:445]" };
+            Row("Why can't I reach…?", () => app.ShowDiagnose(diagTarget.Text.Trim().Length == 0 ? null : diagTarget.Text.Trim()), "Per source address: route → gateway → hop 1 → far side → target. Names the layer that stops each address (PC, cable/VLAN, router interface, router policy, target's return path).", diagTarget);
             Row("Check a TCP port", () => Check(app, port.Text.Trim()), "One connect: open / refused / timeout. Nothing is scanned.", port);
             Row("Wake-on-LAN", () => { if (WakeOnLan.TryParseMac(mac.Text, out _)) _ = app.Wake(mac.Text.Trim(), app.Work?.RealAddress); else Say($"'{mac.Text}' is not a MAC address"); }, "Magic packet to a MAC on this segment (global + subnet broadcast).", mac);
             Row("Scan for a working profile", app.ShowScan, "Tries DHCP and your profiles on this port, keeps the one that works.");
