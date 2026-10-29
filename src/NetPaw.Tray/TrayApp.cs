@@ -576,6 +576,14 @@ sealed class TrayApp : ApplicationContext
     }
 
     /// <summary>Traceroute window; the probe is the same one the monitor uses.</summary>
+    /// <summary>Reachability diagnosis window on the work adapter (or the first adapter with an address).</summary>
+    public void ShowDiagnose(string? target = null)
+    {
+        var a = Work ?? _adapters.FirstOrDefault(x => x.HasRealAddress);
+        if (a is null) { Notify("Diagnose", "No adapter with an IPv4 address.", ToolTipIcon.Warning); return; }
+        var f = new DiagnoseForm(this, a, target); f.Show(); Native.ForceForeground(f.Handle);
+    }
+
     public void ShowTrace(string host) { var f = new TraceForm(Probe, host); f.Show(); Native.ForceForeground(f.Handle); }
 
     MainForm? _main;
@@ -754,6 +762,7 @@ sealed class TrayApp : ApplicationContext
         tools.DropDownItems.Add(new ToolStripMenuItem("Find routers on this cable…", null, (_, _) => ShowMap(1)) { Enabled = _svc.Allowed(Capability.Scan) });
         tools.DropDownItems.Add(new ToolStripSeparator());
         tools.DropDownItems.Add(new ToolStripMenuItem("Trace route…", null, (_, _) => AskTrace()));
+        tools.DropDownItems.Add(new ToolStripMenuItem("Why can't I reach…? (per-address diagnosis)", null, (_, _) => ShowDiagnose()));
         tools.DropDownItems.Add(new ToolStripMenuItem("Check a TCP port…", null, (_, _) => AskCheckPort()));
         tools.DropDownItems.Add(new ToolStripMenuItem("Wake-on-LAN…", null, (_, _) => AskWake()));
         tools.DropDownItems.Add(new ToolStripSeparator());
