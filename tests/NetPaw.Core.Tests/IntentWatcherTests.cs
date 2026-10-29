@@ -12,7 +12,7 @@ namespace NetPaw.Tests;
 public class IntentWatcherTests
 {
     static readonly DateTimeOffset T0 = new(2026, 9, 16, 14, 0, 0, TimeSpan.Zero);
-    static IntentWatcher W() => new(ownPid: 999, pid => pid == 4242 ? "msedge" : null);
+    static IntentWatcher W() => new(ownPid: 999, pid => pid == 4242 ? "msedge" : null) { MinSamples = 2 };   // the pre-0.17 behaviour; the default (3) has its own test
     static int _lp = 50000;
     static TcpEndpoint E(string remote, int port = 80, int pid = 4242, int localPort = 0) => new(remote, port, pid, "198.51.100.50", localPort == 0 ? ++_lp : localPort);
 
@@ -26,6 +26,22 @@ public class IntentWatcherTests
         var stuck = w.Sample([cf], T0.AddSeconds(4));                                       // same socket seen twice: stuck
         var (e, since) = Assert.Single(stuck);
         Assert.Equal("1.1.1.1", e.Remote); Assert.Equal(T0.AddSeconds(2), since);
+    }
+
+    [Fact]
+    public void DefaultNeedsThreeSamplesAndIgnoreListsSilenceTargetsAndPrograms()
+    {
+        // 0.14 report: an updater that retries for a few seconds toasted "cannot reach" every time. Default = 3 samples.
+        var w = new IntentWatcher(999, _ => null); Assert.Equal(3, w.MinSamples); var cf = E("1.1.1.1", 443);
+        Assert.Empty(w.Sample([cf], T0)); Assert.Empty(w.Sample([cf], T0.AddSeconds(2)));
+        Assert.Single(w.Sample([cf], T0.AddSeconds(4)));
+        var w2 = W(); w2.MinSamples = 2; w2.IgnoreTargets = ["203.0.113.0/24", "1.1.1.1"];
+        Assert.Empty(w2.Sample([cf, E("203.0.113.9", 80)], T0)); Assert.Empty(w2.Sample([cf, E("203.0.113.9", 80)], T0.AddSeconds(2)));
+        var w3 = new IntentWatcher(1, pid => pid == 42 ? "SomeUpdater" : "other") { MinSamples = 2, IgnoreProcesses = ["someupdater.exe"] };
+        var upd = new TcpEndpoint("8.8.8.8", 443, 42, "198.51.100.50", 5000); var other = new TcpEndpoint("8.8.4.4", 443, 7, "198.51.100.50", 5001);
+        Assert.Empty(w3.Sample([upd, other], T0));
+        var stuck = w3.Sample([upd, other], T0.AddSeconds(2));
+        var (e, _) = Assert.Single(stuck); Assert.Equal("8.8.4.4", e.Remote);
     }
 
     [Fact]

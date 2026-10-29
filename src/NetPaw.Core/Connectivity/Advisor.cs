@@ -216,6 +216,12 @@ public sealed class RepairSettings
     public bool DiscoverSwitchOnLinkUp { get; set; }
     /// <summary>Watch the TCP table for connections nobody answers and recommend the profile that covers the target. Local only; nothing is sent.</summary>
     public bool IntentWatch { get; set; } = true;
+    /// <summary>Consecutive samples a connection must stay unanswered before the intent watcher reports it (2 = at once on the second sight; 3 = default, skips a few-second retry burst).</summary>
+    public int IntentMinSamples { get; set; } = 3;
+    /// <summary>Addresses or networks the intent watcher never reports ("10.0.0.5", "10.0.0.0/24"): known-flaky update servers, health checks.</summary>
+    public List<string> IntentIgnoreTargets { get; set; } = [];
+    /// <summary>Process names the intent watcher never reports (without .exe): updaters that retry on their own.</summary>
+    public List<string> IntentIgnoreProcesses { get; set; } = [];
     public int DiscoverSeconds { get; set; } = 35;
 }
 

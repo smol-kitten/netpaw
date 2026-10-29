@@ -155,6 +155,7 @@ sealed class TrayApp : ApplicationContext
             var now = DateTimeOffset.Now;
             _intentAdvisories.RemoveAll(x => now - x.At >= IntentWatcher.Cooldown);
             var rows = await Task.Run(_tcpTable.SynSent);
+            var rp = _svc.Settings.Repair; _intent.MinSamples = rp.IntentMinSamples; _intent.IgnoreTargets = rp.IntentIgnoreTargets; _intent.IgnoreProcesses = rp.IntentIgnoreProcesses;
             var stuck = _intent.Sample(rows, now);
             if (rows.Count > 0) _svc.Store.Verbose("intent", $"sample at {now:HH:mm:ss.fff}: {rows.Count} syn_sent [{string.Join(" ", rows.Select(r => $"{r.Remote}:{r.Port}/{r.LocalPort}#{r.Pid}"))}] stuck={stuck.Count}");
             if (stuck.Count == 0) return;
