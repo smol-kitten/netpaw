@@ -25,9 +25,10 @@ public static class ServiceFolder
         return sec;
     }
 
-    public static string Ensure(string root, Action<string> log)
+    /// <summary>Ensures <c>root\name</c> exists with the service ACL. <c>service</c> is the store; <c>capture</c> holds pktmon ETL/pcapng files.</summary>
+    public static string Ensure(string root, Action<string> log, string name = "service")
     {
-        var dir = new DirectoryInfo(Path.Combine(root, "service"));
+        var dir = new DirectoryInfo(Path.Combine(root, name));
         if (dir.Exists && dir.Attributes.HasFlag(FileAttributes.ReparsePoint))
         {
             // A user could pre-create service\ as a junction to an admin-owned folder; the owner check would then

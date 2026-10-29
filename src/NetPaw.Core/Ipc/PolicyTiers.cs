@@ -4,7 +4,7 @@ namespace NetPaw.Ipc;
 
 /// <summary>The gated units policy tiers apply to. Most map 1:1 to <see cref="RequestKind"/>; VirtualUnlock is the
 /// extra gate for targeting a non-host-facing adapter (not a request kind of its own).</summary>
-public enum PolicyIntent { Status, ApplyProfile, Dhcp, Reach, Renew, ClearTemp, DeleteRoute, ResetAdapter, Release, Prefer, SetMtu, VirtualUnlock, RevertLastApply, InstallUpdate }
+public enum PolicyIntent { Status, ApplyProfile, Dhcp, Reach, Renew, ClearTemp, DeleteRoute, ResetAdapter, Release, Prefer, SetMtu, VirtualUnlock, RevertLastApply, InstallUpdate, Capture }
 
 /// <summary>One tier decision, for the audit line and the caller.</summary>
 public sealed record PolicyDecision(PolicyIntent Intent, Tier Required, Tier Caller, bool Allowed, string Via);
@@ -44,6 +44,7 @@ public sealed class PolicyTiers
         [PolicyIntent.ApplyProfile] = Tier.StandardUser,
         [PolicyIntent.Dhcp] = Tier.StandardUser,
         [PolicyIntent.Reach] = Tier.StandardUser,
+        [PolicyIntent.Capture] = Tier.StandardUser,   // passive LLDP/CDP listen with a fixed filter; capability AllowCapture still gates it
         [PolicyIntent.Renew] = Tier.StandardUser,
         [PolicyIntent.ClearTemp] = Tier.NetworkConfigOperators,
         [PolicyIntent.DeleteRoute] = Tier.Admin,   // operator 2026-10-29: deleting a route by hand is admin work; routes inside a profile apply stay with ApplyProfile (StandardUser)

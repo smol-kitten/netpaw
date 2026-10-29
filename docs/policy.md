@@ -21,6 +21,7 @@ UAC-filtered admin reads as StandardUser), never from the request.
 | SetMtu | NetworkConfigOperators | set an adapter MTU |
 | VirtualUnlock | NetworkConfigOperators | target a virtual (non-host-facing) adapter via `appliesTo` |
 | InstallUpdate | Admin (floor NetworkConfigOperators) | update from CatWinget: the service resolves, downloads, verifies (sha256 and Authenticode) and installs its own file (0.17); capability `AllowCatWingetUpdate` turns the feature off for everyone |
+| Capture | StandardUser | passive LLDP/CDP listen on behalf of the unelevated tray/CLI (0.17): fixed filter (ethertype 0x88CC + the LLDP/CDP multicast MACs), 10–120 s, nothing sent; capability `AllowCapture` still gates it |
 | RevertLastApply | StandardUser | put the adapter of the last apply back to the state the service snapshotted just before it (0.16). Restores DHCP on/off, IPv4 addresses, the first gateway and DNS only — not metrics, DNS suffix, VLAN, routes, IPv6 or a "DHCP address + static DNS" mix. A non-host-facing adapter needs the `VirtualUnlock` tier; a static pre-state needs `AllowUserProfiles` |
 
 `Status` is not tier-gated (it only reports that the service is present). Capability policies

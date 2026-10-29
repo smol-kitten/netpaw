@@ -8,7 +8,8 @@ namespace NetPaw.Discovery;
 /// Listens for LLDP/CDP with Windows' built-in `pktmon` (10 2004+ / 11 / Server 2019+): filter on the LLDP
 /// ethertype and the two multicast MACs, capture to ETL for N seconds, convert to pcapng, decode. Passive —
 /// nothing is sent. Needs elevation. All process work is asynchronous with real timeouts; one capture at a
-/// time per machine (pktmon state is global). The converter verb differs per Windows build (`pcapng` on
+/// time per machine (pktmon state is global). Through the service (<see cref="Options.Shared"/>) it looks before it
+/// touches: a running capture or foreign filters mean "busy", and files go to a service-owned folder. The converter verb differs per Windows build (`pcapng` on
 /// Windows 10, `etl2pcap` on Windows 11), so it is discovered from `pktmon help` once, not guessed.
 /// </summary>
 public sealed class PktmonCapture
@@ -76,12 +77,53 @@ public sealed class PktmonCapture
         AgentEnabled.Add(adapterName);
     }
 
+    /// <summary>How a capture runs. <see cref="Shared"/> is the service path on behalf of an unelevated caller: pktmon
+    /// state is machine-wide, so a running capture or filters that are not ours mean "busy" and nothing is touched
+    /// (an admin's capture must not be killed by a standard user). <see cref="WorkDir"/> is where the ETL/pcapng go;
+    /// the shared path requires one that the service owns (SYSTEM + Administrators ACL) — never the temp folder,
+    /// where a user can pre-create <c>netpaw</c> as a junction and turn the delete into an arbitrary SYSTEM delete.</summary>
+    public sealed record Options(bool Shared = false, string? WorkDir = null);
+
+    /// <summary>Why pktmon must not be touched right now, or null. <paramref name="status"/> is <c>pktmon status</c>,
+    /// <paramref name="filters"/> is <c>pktmon filter list</c>. Running capture or any filter not named NetPaw* = busy.</summary>
+    public static string? BusyReason(string status, string filters)
+    {
+        if (!status.Contains("not running", StringComparison.OrdinalIgnoreCase)) return "pktmon is busy: a capture is running (" + (status.Trim().Split('\n').FirstOrDefault()?.Trim() ?? "?") + ")";
+        if (filters.Contains("no filters", StringComparison.OrdinalIgnoreCase)) return null;
+        foreach (var raw in filters.Split('\n'))
+        {
+            var t = raw.Trim();
+            if (t.Length == 0 || t[0] == '#' || t.All(c => c == '-' || c == ' ')) continue;
+            if (!t.Contains("NetPaw", StringComparison.OrdinalIgnoreCase)) return "pktmon is busy: filters not set by NetPaw are present (" + t + ")";
+        }
+        return null;
+    }
+
+    /// <summary>Why <paramref name="dir"/> is not a safe capture folder, or null: it must exist and neither it nor its
+    /// parent may be a reparse point (junction/symlink), or the files we create and delete land somewhere a user chose.</summary>
+    public static string? WorkDirProblem(string dir)
+    {
+        var di = new DirectoryInfo(dir);
+        if (!di.Exists) return $"capture folder {dir} does not exist";
+        if (di.Attributes.HasFlag(FileAttributes.ReparsePoint)) return $"capture folder {dir} is a reparse point; refused";
+        if (di.Parent is { } parent && parent.Attributes.HasFlag(FileAttributes.ReparsePoint)) return $"parent of capture folder {dir} is a reparse point; refused";
+        return null;
+    }
+
     /// <summary>Capture for <paramref name="seconds"/> and return decoded neighbours. Errors come back as the string; an empty list with null error = nothing announced.</summary>
-    public async Task<(List<SwitchNeighbor> Neighbors, string? Error)> Listen(string? adapterName, string? adapterMac, int seconds, IProgress<int>? progress = null, Action<string>? log = null, CancellationToken ct = default)
+    public async Task<(List<SwitchNeighbor> Neighbors, string? Error)> Listen(string? adapterName, string? adapterMac, int seconds, IProgress<int>? progress = null, Action<string>? log = null, CancellationToken ct = default, Options? options = null)
     {
         if (!Available) return ([], "pktmon is not available on this Windows version (needs Windows 10 2004+ / 11)");
+        options ??= new();
+        string dir;
+        if (options.Shared)
+        {
+            if (options.WorkDir is null) return ([], "no service-owned capture folder is configured; refused");
+            if (WorkDirProblem(options.WorkDir) is { } bad) return ([], bad);
+            dir = options.WorkDir;
+        }
+        else { dir = options.WorkDir ?? Path.Combine(Path.GetTempPath(), "netpaw"); Directory.CreateDirectory(dir); }
         if (!await OneAtATime.WaitAsync(0, ct).ConfigureAwait(false)) return ([], "a capture is already running (link-up discovery or another Listen) — wait for it to finish");
-        var dir = Path.Combine(Path.GetTempPath(), "netpaw"); Directory.CreateDirectory(dir);
         var stem = Path.Combine(dir, "lldp-" + Path.GetRandomFileName().Replace(".", ""));
         var etl = stem + ".etl"; var pcap = stem + ".pcapng";
         try
@@ -90,7 +132,14 @@ public sealed class PktmonCapture
             if (verb is null) return ([], "this pktmon has no ETL→pcapng converter (pktmon help lists neither etl2pcap nor pcapng)");
             if (adapterName is not null) await EnableLldpAgent(adapterName, ct).ConfigureAwait(false);
             var comp = adapterMac is null ? null : await ComponentId(adapterMac, ct).ConfigureAwait(false);
-            await Pktmon("stop", ct: ct).ConfigureAwait(false); await Pktmon("filter remove", ct: ct).ConfigureAwait(false);
+            if (options.Shared)
+            {
+                // Look before touching: another capture or foreign filters belong to someone else (an admin, a tool).
+                var (_, st) = await Pktmon("status", ct: ct).ConfigureAwait(false);
+                var (_, fl) = await Pktmon("filter list", ct: ct).ConfigureAwait(false);
+                if (BusyReason(st, fl) is { } busy) { log?.Invoke("listen refused: " + busy); return ([], busy); }
+            }
+            else { await Pktmon("stop", ct: ct).ConfigureAwait(false); await Pktmon("filter remove", ct: ct).ConfigureAwait(false); }
             // LLDP by ethertype (catches unicast-addressed LLDP too); CDP is LLC/SNAP, so by its multicast MAC.
             await Pktmon("filter add NetPawLLDP -d 0x88CC", ct: ct).ConfigureAwait(false);
             await Pktmon("filter add NetPawLLDPm -m 01-80-C2-00-00-0E", ct: ct).ConfigureAwait(false);

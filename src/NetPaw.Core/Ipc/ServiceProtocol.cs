@@ -61,7 +61,7 @@ public static class ServiceProtocol
     }
 }
 
-public enum RequestKind { None, Status, ApplyProfile, Dhcp, Reach, ClearTemp, DeleteRoute, ResetAdapter, Renew, Release, Prefer, SetMtu, RevertLastApply, InstallUpdate }
+public enum RequestKind { None, Status, ApplyProfile, Dhcp, Reach, ClearTemp, DeleteRoute, ResetAdapter, Renew, Release, Prefer, SetMtu, RevertLastApply, InstallUpdate, Listen }
 
 /// <summary>One request: what the caller wants, never how. The service resolves the adapter against the live
 /// list, checks every value (<see cref="ProfileGuard"/>) and builds the commands itself.</summary>
@@ -87,12 +87,16 @@ public sealed record ServiceRequest(int V, RequestKind Kind)
     public string? Channel { get; init; }
     /// <summary>InstallUpdate: allow a version that is not newer than the running one (CLI flag only).</summary>
     public bool? AllowDowngrade { get; init; }
+    /// <summary>Listen: seconds to capture LLDP/CDP (10..120). The filter is fixed in the service; nothing else is captured.</summary>
+    public int? Seconds { get; init; }
 }
 
 public sealed record ServiceResponse(int V, bool Ok, string? Error = null, ServiceStatus? Status = null)
 {
     /// <summary>What a change request did: every step with its result, warnings and the verify diff.</summary>
     public ApplyReport? Apply { get; init; }
+    /// <summary>Listen: the switch announcements the service decoded (empty = nothing announced in the window).</summary>
+    public List<Discovery.SwitchNeighbor>? Neighbors { get; init; }
     /// <summary>A failed response with the reason and no report.</summary>
     public static ServiceResponse Fail(string error) => new(ServiceProtocol.Version, false, error);
 }
@@ -200,6 +204,8 @@ public static class ServiceChange
     public static ServiceRequest Reach(string target, string? adapter = null, bool? replacePrimary = null) => new(ServiceProtocol.Version, RequestKind.Reach) { Target = target, Adapter = adapter, ReplacePrimary = replacePrimary };
     /// <summary>ClearTemp request: remove every temporary address.</summary>
     public static ServiceRequest ClearTemp() => new(ServiceProtocol.Version, RequestKind.ClearTemp);
+    /// <summary>Listen for LLDP/CDP on the adapter through the service (the tray and the CLI run unelevated; pktmon needs SYSTEM).</summary>
+    public static ServiceRequest Listen(string adapter, int seconds) => new(ServiceProtocol.Version, RequestKind.Listen) { Adapter = adapter, Seconds = seconds };
     /// <summary>DeleteRoute request for a prefix and optional next hop.</summary>
     public static ServiceRequest DeleteRoute(string prefix, string? gateway, string? adapter = null) => new(ServiceProtocol.Version, RequestKind.DeleteRoute) { RoutePrefix = prefix, RouteGateway = gateway, Adapter = adapter };
     /// <summary>ResetAdapter request (disable, enable).</summary>
