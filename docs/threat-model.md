@@ -21,6 +21,9 @@ what it trusts, and the decisions behind it.
   a reparse point stops the service; a root owned by anyone but SYSTEM/Administrators is taken over by SYSTEM
   and re-ACLed (SYSTEM/Administrators/service full control, Users read). Otherwise a user who owned the root
   could rename `service\` or `capture\` between the service's own folder check and its use.
+  **Rule:** the service touches only subfolders obtained from `ServiceFolder.Ensure` (today `service\` and
+  `capture\`), which moves aside anything foreign-owned or a reparse point, so planted contents are never read.
+  Any future subfolder must go through `Ensure` too; never `Path.Combine(root, …)` straight to disk.
 - **Captures on behalf of a user** (`Listen`) write only to `%ProgramData%\NetPaw\capture` (same ACL), never
   the temp folder, and refuse when pktmon is already running or carries filters NetPaw did not set.
 
