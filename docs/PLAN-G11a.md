@@ -104,15 +104,24 @@ first (`load`, `thinpool`, `vzdump`, VMIDs free). It never touches VM 150, VM 91
 
 | change | command | note |
 |---|---|---|
-| bridge `vmbr-nptest` | `/etc/network/interfaces` stanza, `bridge-ports none`, `ifreload -a` | isolated L2, no uplink |
+| bridge `vmbr-nptest` | `/etc/network/interfaces` stanza, `bridge-ports none`; backup, DIFFERENTIAL `ifup -a --syntax-check` (ifupdown2 3.3.0+pmx12 has no `ifquery --syntax-check`, and the existing file already warns on vmbr0 `bridge-fd 0`, so only NEW errors/warnings fail and restore), then `ifup vmbr-nptest` only | isolated L2, no uplink |
 | pool `netpaw-harness` | `pvesh create /pools` | template 9160, peer 9169, clones 9161–9168 |
-| roles | `NetPawHarness` = VM.Clone, VM.Allocate, VM.PowerMgmt, VM.Audit, VM.Monitor, VM.Console; `NetPawHarnessStorage` = Datastore.AllocateSpace, Datastore.Audit | no VM.Config.*, no Sys.*, no root path |
+| roles | `NetPawHarness` = VM.Clone, VM.Allocate, VM.PowerMgmt, VM.Audit, VM.GuestAgent.Audit, VM.Console, Pool.Audit (PVE 9.2 has no VM.Monitor; GuestAgent.Audit is the read-only IP discovery; Pool.Audit lets the sweep list the pool); `NetPawHarnessStorage` = Datastore.AllocateSpace, Datastore.Audit | no VM.Config.*, no Sys.*, no root path |
 | user + token | `harness@pve`, token `n4` (`privsep 0`) | the value is printed once and stored on n4 as vault key `pve.harness_token`; never logged |
 | ACLs | `/pool/netpaw-harness` and `/vms/9160` → NetPawHarness; `/storage/local-lvm` → NetPawHarnessStorage | the ACL dump is `RESULT|acl|…` |
-| peer LXC 9169 | `pct create` Debian 12, 256 MiB, rootfs 2 GiB, `eth0` on `vmbr-nptest` 10.99.0.1/24, unprivileged, onboot 0, in the pool | dnsmasq DHCP 10.99.0.100–200 + DNS + gateway, smbclient; stopped after setup |
+| peer LXC 9169 | `pct create` Debian 12, 256 MiB, rootfs 2 GiB, `eth0` on `vmbr-nptest` 10.99.0.1/24, unprivileged, onboot 0, in the pool; a TEMPORARY `net1` on vmbr0 (DHCP) only for the apt install, deleted after `pct stop` | dnsmasq DHCP 10.99.0.100–200 + DNS + gateway, smbclient; end state: on the test bridge only, stopped |
 | vzdump | `pvesh set /cluster/backup/<job> --exclude …` for every job | the pool ids are never backed up |
 
-VMID split: 9160 template, 9161–9168 clones (the driver's range), 9169 the peer. The script's dry run on
+VMID split: 9160 template, 9161–9168 clones (the driver's range), 9169 the peer.
+
+**Applied 2026-10-29 ~07:10 Berlin** by the orchestrator on the operator's direct word (the netpaw
+session's command was refused twice by the auto-mode classifier; operator grant q-cf74 recorded).
+Verified state: bridge up with no carrier, pool with member 9169, CT 9169 stopped on the test bridge
+only with dnsmasq configured, both roles and the three ACLs, token `harness@pve!n4` in the vault
+(`pve.harness_token`; /version 200, lxc/9169 200, qemu/150 403, pool list 200), the all-guests vzdump job
+excludes 9160–9169 merged with its prior list, config saved under `/root/pve-backup-jobs-20261029/`. Two
+network-file backups (`interfaces.bak-20261029-071046`, the failed first try, and `-071244`) stay until
+the first harness run passes. The three script defects found on apply are fixed in the repo. The script's dry run on
 pve (2026-10-28, load 7.6, thin pool 61.3 %) printed the plan above and changed nothing; the output is in
 the step-2 PR.
 
