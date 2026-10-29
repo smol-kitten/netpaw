@@ -150,6 +150,17 @@ the step-2 PR.
    `RESULT|bitlocker|<ProtectionStatus per volume>` and fails on anything but `Off`.
 4. Write `tools/vm-harness.sh` + `tools/vm-verify.ps1` with only the smoke checks (install, service
    running, pipe answers, one apply + revert on net1). PR.
+   **Written 2026-10-29** (`tools/vm-harness.sh`, `tools/harness/vm-verify.ps1`). Measured deviation from
+   "the driver talks to the API, not root ssh": the token has no `Sys.Audit` and no `VM.Audit` on VM 150
+   by design (measured: `/nodes/pve/status` 403, `/qemu/150` 403, `/nodes/pve/tasks` not listable), so the
+   four host-level gates (load, VM 150, PawCheck VM/lock, vzdump) are read over root ssh with read-only
+   commands. Every mutating call (clone, start, stop, destroy, peer start/stop) goes through the token.
+   Modes: default = check (gates + stale report, changes nothing), `--sweep`, `--run`, `--gates`. Self-test
+   2026-10-29 07:30 Berlin: live run → `refused:window 0729`; a copy with window+load relaxed (read-only
+   check mode) → `gate|ok … vm150=stopped pawcheck=-/nolock vzdump=0/0 thinpool=60% template=no`, and
+   `--run` → `refused:no-template`. The verify script fails the run on BitLocker On, service not running,
+   pipe not answering, apply not landing on the test NIC, the management NIC changing, or revert not
+   restoring DHCP; the NETWORK-deny ACE line is informational (t-1db04a is measured from the peer in G11).
 5. Measure the Step 0 table. Put the numbers here.
 6. G11 (t-d31af0): add the security cases as code (pipe DACL, squat, filtered-token admin, remote pipe,
    oversized JSON, junction in profiles.d) and the upgrade/rollback cases. Wire a nightly n4 job.
