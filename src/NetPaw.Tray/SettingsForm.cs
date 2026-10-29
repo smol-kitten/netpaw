@@ -12,6 +12,7 @@ sealed class SettingsForm : Form
 
     public SettingsForm(TrayApp app)
     {
+        AutoScaleMode = AutoScaleMode.Dpi; AutoScaleDimensions = new SizeF(96F, 96F);   // 0.14 report: pixel sizes below are 96-dpi values; WinForms scales them per monitor
         var s = app.Service.Settings; var pol = app.Service.Policy;
         Text = "NetPaw — settings"; StartPosition = FormStartPosition.CenterScreen; FormBorderStyle = FormBorderStyle.FixedDialog;
         MinimizeBox = false; MaximizeBox = false; ShowInTaskbar = false; ClientSize = new Size(700, 520);

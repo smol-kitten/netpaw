@@ -28,6 +28,7 @@ sealed class QuickPanel : Form
 
     public QuickPanel(TrayApp app)
     {
+        AutoScaleMode = AutoScaleMode.Dpi; AutoScaleDimensions = new SizeF(96F, 96F);   // 0.14 report: pixel sizes below are 96-dpi values; WinForms scales them per monitor
         _app = app;
         FormBorderStyle = FormBorderStyle.None; ShowInTaskbar = false; TopMost = true; StartPosition = FormStartPosition.Manual;
         ClientSize = new Size(520, 420); BackColor = Theme.Bg; ForeColor = Theme.Text; Font = Theme.Base; DoubleBuffered = true;

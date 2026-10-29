@@ -27,6 +27,7 @@ sealed class ScanForm : Form
 
     public ScanForm(TrayApp app, AdapterInfo adapter)
     {
+        AutoScaleMode = AutoScaleMode.Dpi; AutoScaleDimensions = new SizeF(96F, 96F);   // 0.14 report: pixel sizes below are 96-dpi values; WinForms scales them per monitor
         _app = app; _adapter = adapter;
         Text = $"NetPaw — scan for a working profile on {adapter.Name}"; StartPosition = FormStartPosition.CenterScreen; ClientSize = new Size(760, 460); MinimumSize = new Size(640, 360);
         _dhcp.Checked = app.Service.Settings.Repair.ScanIncludeDhcp && app.Service.Allowed(Capability.Dhcp);
