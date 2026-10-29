@@ -18,8 +18,11 @@ what it trusts, and the decisions behind it.
 - **Managed profiles** live in `%ProgramData%\NetPaw\profiles.d`. The folder must be SYSTEM/Administrators-
   owned and not a reparse point; each file's owner is checked on the open handle before it is read.
 - **The data root** `%ProgramData%\NetPaw` is checked at every service start (`ServiceFolder.EnsureRoot`):
-  a reparse point stops the service; a root owned by anyone but SYSTEM/Administrators is taken over by SYSTEM
-  and re-ACLed (SYSTEM/Administrators/service full control, Users read). Otherwise a user who owned the root
+  a reparse point is refused; a root owned by anyone but SYSTEM/Administrators is taken over by SYSTEM
+  and re-ACLed (SYSTEM/Administrators/service full control, Users read). The owner write needs WRITE_OWNER from
+  the DACL (the service token holds no SeTakeOwnershipPrivilege). On refusal, as on a reparse point, the service runs
+  without its store: Status still answers, every change request fails "not available", the Application log
+  (source NetPaw) says why. Otherwise a user who owned the root
   could rename `service\` or `capture\` between the service's own folder check and its use.
   **Rule:** the service touches only subfolders obtained from `ServiceFolder.Ensure` (today `service\` and
   `capture\`), which moves aside anything foreign-owned or a reparse point, so planted contents are never read.

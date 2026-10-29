@@ -36,10 +36,12 @@ public static class ServiceFolder
     }
 
     /// <summary>Makes the data root itself trustworthy before any subfolder is used. A reparse point is refused
-    /// (fail loud: the whole store would live where a user chose). A missing root is created with
+    /// (the whole store would live where a user chose; Program then runs the service without its store: Status
+    /// answers, every change request fails "not available", the error is in the Application log). A missing root is created with
     /// <see cref="RootAcl"/>. A root owned by someone other than SYSTEM/Administrators (pre-created by a user
     /// before install, or a build-path install that inherited ProgramData's open ACL) is taken over by SYSTEM
-    /// and re-ACLed — an owner can rewrite the DACL, so a protected DACL alone is not enough.</summary>
+    /// and re-ACLed — an owner can rewrite the DACL, so a protected DACL alone is not enough. Throws when the owner
+    /// write is refused; the service then runs without its store until an admin fixes the folder.</summary>
     public static string EnsureRoot(string root, Action<string> log)
     {
         var dir = new DirectoryInfo(root);
@@ -51,7 +53,10 @@ public static class ServiceFolder
         if (owner != System && owner != Admins)
         {
             var fixedSec = RootAcl(); fixedSec.SetOwner(System);
-            dir.SetAccessControl(fixedSec);     // LocalSystem holds SeTakeOwnershipPrivilege; .NET enables it for the owner write
+            // The service token keeps only SeChangeNotifyPrivilege (Program.Privileges), so this owner write succeeds
+            // through WRITE_OWNER from the DACL (the MSI grants SYSTEM full control), not through SeTakeOwnership.
+            // A root whose DACL excludes SYSTEM makes this throw: the service then runs without its store (logged).
+            dir.SetAccessControl(fixedSec);
             log($"{root} was owned by {owner?.Value ?? "?"}, not SYSTEM/Administrators; ownership taken by SYSTEM and ACL reset");
         }
         else if (!sec.AreAccessRulesProtected)
