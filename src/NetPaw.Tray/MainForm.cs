@@ -25,6 +25,7 @@ sealed class MainForm : Form
 
     public MainForm(TrayApp app)
     {
+        AutoScaleMode = AutoScaleMode.Dpi; AutoScaleDimensions = new SizeF(96F, 96F);   // 0.14 report: pixel sizes below are 96-dpi values; WinForms scales them per monitor
         _app = app;
         Text = "NetPaw"; MinimumSize = new Size(640, 400); StartPosition = FormStartPosition.Manual; KeyPreview = true; DoubleBuffered = true;
         var split = new SplitContainer { Dock = DockStyle.Fill, FixedPanel = FixedPanel.Panel1, SplitterDistance = 180, IsSplitterFixed = true, SplitterWidth = 1 };
@@ -257,10 +258,23 @@ sealed class MainForm : Form
             _log.BackColor = Theme.Panel; _log.ForeColor = Theme.Text;
             Controls.Add(_log); Controls.Add(bar); Controls.Add(Heading("Log"));
         }
+        const int EM_GETFIRSTVISIBLELINE = 0xCE, EM_LINESCROLL = 0xB6;
+        [System.Runtime.InteropServices.DllImport("user32.dll")] static extern nint SendMessage(nint hWnd, int msg, nint wParam, nint lParam);
+        int VisibleLines() => Math.Max(1, _log.ClientSize.Height / Math.Max(1, _log.Font.Height));
         public new void Refresh()
         {
             var file = _which.SelectedIndex == 1 ? _app.Service.Store.IncidentsFile : _app.Service.Store.LogFile;
-            try { var lines = File.Exists(file) ? File.ReadAllLines(file) : []; _log.Text = string.Join(Environment.NewLine, lines.TakeLast(200)); _log.SelectionStart = _log.TextLength; _log.ScrollToCaret(); }
+            try
+            {
+                // Keep the reader's place: a refresh while scrolled up stays there; at the end it follows the tail. The
+                // horizontal position is never touched (0.14 report: every refresh jumped to the bottom-right corner).
+                var firstLine = (int)SendMessage(_log.Handle, EM_GETFIRSTVISIBLELINE, 0, 0);
+                var wasAtEnd = _log.TextLength == 0 || firstLine + VisibleLines() >= _log.GetLineFromCharIndex(_log.TextLength - 1);
+                var lines = File.Exists(file) ? File.ReadAllLines(file) : [];
+                _log.Text = string.Join(Environment.NewLine, lines.TakeLast(200));
+                var target = wasAtEnd ? Math.Max(0, _log.GetLineFromCharIndex(Math.Max(0, _log.TextLength - 1)) - VisibleLines() + 1) : (int)firstLine;
+                SendMessage(_log.Handle, EM_LINESCROLL, 0, target);
+            }
             catch (IOException ex) { _log.Text = ex.Message; }
         }
     }

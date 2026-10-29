@@ -23,6 +23,7 @@ sealed class HelpForm : Form
 
     public HelpForm()
     {
+        AutoScaleMode = AutoScaleMode.Dpi; AutoScaleDimensions = new SizeF(96F, 96F);   // 0.14 report: pixel sizes below are 96-dpi values; WinForms scales them per monitor
         Text = "NetPaw — help (F1)"; StartPosition = FormStartPosition.CenterScreen; ClientSize = new Size(860, 600); MinimumSize = new Size(640, 400);
         var left = new Panel { Dock = DockStyle.Left, Width = 190, BackColor = Theme.Panel, Padding = new Padding(0, 6, 0, 0) };
         foreach (var t in Topics) _nav.Items.Add(t);

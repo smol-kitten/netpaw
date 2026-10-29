@@ -11,6 +11,7 @@ sealed class TraceForm : Form
 
     public TraceForm(IProbe probe, string host)
     {
+        AutoScaleMode = AutoScaleMode.Dpi; AutoScaleDimensions = new SizeF(96F, 96F);   // 0.14 report: pixel sizes below are 96-dpi values; WinForms scales them per monitor
         Text = $"NetPaw — trace to {host}"; ClientSize = new Size(520, 380); StartPosition = FormStartPosition.CenterScreen; MinimizeBox = false;
         _list.Columns.Add("#", 40); _list.Columns.Add("Hop", 170); _list.Columns.Add("Round-trips", 220); _list.Columns.Add("", 60);
         Controls.Add(_list); Controls.Add(_status);

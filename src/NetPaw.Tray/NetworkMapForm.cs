@@ -67,7 +67,7 @@ sealed class NetworkMapPanel : UserControl
         t4.Controls.Add(_routes); t4.Controls.Add(bar4);
         _routesRefresh.Click += (_, _) => LoadRoutes();
         _routes.SelectedIndexChanged += (_, _) => _routeDelete.Enabled = _routes.SelectedItems.Count == 1 && _routeRows.TryGetValue(_routes.SelectedItems[0], out var sel) && sel.Manual;
-        _routeDelete.Click += (_, _) => { if (_routes.SelectedItems.Count == 1 && _routeRows.TryGetValue(_routes.SelectedItems[0], out var r)) { _app.DeleteRoute(r); CloseRequested?.Invoke(); } };
+        _routeDelete.Click += (_, _) => { if (_routes.SelectedItems.Count == 1 && _routeRows.TryGetValue(_routes.SelectedItems[0], out var r)) { _app.DeleteRoute(r, after: () => { if (!IsDisposed) BeginInvoke(LoadRoutes); }); } };   // stays open: a refusal (user mode / tier) shows as a notification and the list simply reloads (0.14 report)
         _tabs.SelectedIndexChanged += (_, _) => { if (_tabs.SelectedTab == t4 && _routes.Items.Count == 0) LoadRoutes(); };
         // Wake-on-LAN from a neighbour row: right-click → Wake.
         var wake = new ContextMenuStrip { Renderer = new DarkMenuRenderer() };
@@ -213,6 +213,7 @@ sealed class NetworkMapForm : Form
 {
     public NetworkMapForm(TrayApp app, AdapterInfo adapter, int tab = 0)
     {
+        AutoScaleMode = AutoScaleMode.Dpi; AutoScaleDimensions = new SizeF(96F, 96F);   // 0.14 report: pixel sizes below are 96-dpi values; WinForms scales them per monitor
         Text = $"NetPaw — network map on {adapter.Name}"; StartPosition = FormStartPosition.CenterScreen; ClientSize = new Size(820, 520); MinimumSize = new Size(640, 400);
         var panel = new NetworkMapPanel(app, adapter, tab) { Dock = DockStyle.Fill };
         panel.CloseRequested += Close;

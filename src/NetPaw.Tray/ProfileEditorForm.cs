@@ -36,6 +36,7 @@ sealed class ProfileEditorForm : Form
 
     public ProfileEditorForm(TrayApp app)
     {
+        AutoScaleMode = AutoScaleMode.Dpi; AutoScaleDimensions = new SizeF(96F, 96F);   // 0.14 report: pixel sizes below are 96-dpi values; WinForms scales them per monitor
         _app = app;
         _adapters = app.Service.GetAdapters();
         Text = "NetPaw — profiles"; StartPosition = FormStartPosition.CenterScreen; ClientSize = new Size(940, 640); MinimumSize = new Size(780, 520);

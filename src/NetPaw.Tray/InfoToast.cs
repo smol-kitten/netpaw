@@ -22,6 +22,7 @@ sealed class InfoToast : Form
 
     public InfoToast(TrayApp app)
     {
+        AutoScaleMode = AutoScaleMode.Dpi; AutoScaleDimensions = new SizeF(96F, 96F);   // 0.14 report: pixel sizes below are 96-dpi values; WinForms scales them per monitor
         _app = app; _card = new InfoCardPanel(app) { Dock = DockStyle.Fill };
         FormBorderStyle = FormBorderStyle.None; ShowInTaskbar = false; TopMost = true; StartPosition = FormStartPosition.Manual;
         ClientSize = new Size(340, 200); BackColor = Theme.Panel; ForeColor = Theme.Text; Font = Theme.Base; DoubleBuffered = true;

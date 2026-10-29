@@ -568,11 +568,11 @@ sealed class TrayApp : ApplicationContext
 
     /// <summary>Route table for the map's Routes tab and the "delete this stale route" action.</summary>
     public IReadOnlyList<RouteEntry> ReadRoutes() { try { return OperatingSystem.IsWindows() ? RouteTable.ReadAll(_svc.Runner) : []; } catch (Exception ex) { _svc.Store.Log("routes: " + ex.Message); return []; } }
-    public void DeleteRoute(RouteEntry r)
+    public void DeleteRoute(RouteEntry r, Action? after = null)
     {
         var adapterName = _adapters.FirstOrDefault(a => a.Index == r.InterfaceIndex)?.Name ?? r.InterfaceName;
         Execute(ServiceChange.DeleteRoute(r.Prefix, r.Gateway, adapterName), ApplyPlanner.PlanDeleteRoute(r, adapterName),
-                subtitle: "Removes one route; the adapter's own routes come back with the next apply or renew.");
+                subtitle: "Removes one route; the adapter's own routes come back with the next apply or renew.", after: after);
     }
 
     /// <summary>Traceroute window; the probe is the same one the monitor uses.</summary>

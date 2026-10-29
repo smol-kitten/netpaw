@@ -7,6 +7,7 @@ sealed class PlanPreviewForm : Form
 {
     PlanPreviewForm(ApplyPlan plan, string? subtitle, bool canApply)
     {
+        AutoScaleMode = AutoScaleMode.Dpi; AutoScaleDimensions = new SizeF(96F, 96F);   // 0.14 report: pixel sizes below are 96-dpi values; WinForms scales them per monitor
         Text = $"NetPaw — apply '{plan.Title}' on {plan.Adapter}";
         StartPosition = FormStartPosition.CenterScreen; ClientSize = new Size(720, 380); MinimizeBox = false; ShowInTaskbar = false;
         FormBorderStyle = FormBorderStyle.Sizable; MinimumSize = new Size(520, 260);
