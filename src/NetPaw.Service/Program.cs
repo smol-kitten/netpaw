@@ -107,7 +107,7 @@ static class Startup
         NetPaw.Planning.SystemTool.Strict = true;
         // Environment.SystemDirectory redirects to SysWOW64 in a 32-bit process; the service is x64-only.
         if (!Environment.Is64BitProcess) throw new InvalidOperationException("the NetPaw service must run as a 64-bit process");
-        var root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "NetPaw");
+        var root = ServiceFolder.EnsureRoot(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "NetPaw"), log);
         var dir = ServiceFolder.Ensure(root, log);
         // PR 4 tiers: read HKLM policy, cache the last-known-good in the (SYSTEM/Admins-owned) service folder, audit to the log.
         var policy = new NetPaw.Ipc.PolicyTiers(new RegistryPolicySource(), Path.Combine(dir, "policy.cache.json"), log);
