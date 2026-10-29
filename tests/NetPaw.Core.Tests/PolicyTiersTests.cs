@@ -38,7 +38,7 @@ public class PolicyTiersTests
 
     // ---- golden: default table equals pre-PR4 behaviour ----
     static readonly PolicyIntent[] WasPrivilegedOnly =
-        [PolicyIntent.ClearTemp, PolicyIntent.DeleteRoute, PolicyIntent.ResetAdapter, PolicyIntent.Release, PolicyIntent.Prefer, PolicyIntent.SetMtu];
+        [PolicyIntent.ClearTemp, PolicyIntent.ResetAdapter, PolicyIntent.Release, PolicyIntent.Prefer, PolicyIntent.SetMtu];   // DeleteRoute moved to Admin (operator 2026-10-29)
 
     [Fact]
     public void Default_table_matches_today()
@@ -50,7 +50,7 @@ public class PolicyTiersTests
             var required = PolicyTiers.Required(intent, overrides);
             // today: the old PrivilegedOnly set needed NCO/Admin; VirtualUnlock was managed-or-privileged (NCO); all else StandardUser.
             // InstallUpdate (0.17, CatWinget) is the one Admin-by-default intent: the service installs software.
-            var expected = intent == PolicyIntent.InstallUpdate ? Tier.Admin
+            var expected = intent is PolicyIntent.InstallUpdate or PolicyIntent.DeleteRoute ? Tier.Admin
                 : WasPrivilegedOnly.Contains(intent) || intent == PolicyIntent.VirtualUnlock ? Tier.NetworkConfigOperators : Tier.StandardUser;
             Assert.Equal(expected, required);
             // a StandardUser is allowed exactly the StandardUser intents; an NCO is allowed everything below Admin.
@@ -63,12 +63,22 @@ public class PolicyTiersTests
     [Fact]
     public void An_override_tightens_or_loosens_within_the_floor()
     {
-        var o = new Dictionary<PolicyIntent, Tier> { [PolicyIntent.DeleteRoute] = Tier.Admin, [PolicyIntent.ClearTemp] = Tier.StandardUser };
+        var o = new Dictionary<PolicyIntent, Tier> { [PolicyIntent.ResetAdapter] = Tier.Admin, [PolicyIntent.ClearTemp] = Tier.StandardUser };
         var t = Make(new FakeSource(o, valid: true), out _);
         var ov = t.Resolve();
-        Assert.False(t.Decide(PolicyIntent.DeleteRoute, Tier.NetworkConfigOperators, ov).Allowed);  // tightened to Admin
-        Assert.True(t.Decide(PolicyIntent.DeleteRoute, Tier.Admin, ov).Allowed);
+        Assert.False(t.Decide(PolicyIntent.ResetAdapter, Tier.NetworkConfigOperators, ov).Allowed);  // tightened to Admin
+        Assert.True(t.Decide(PolicyIntent.ResetAdapter, Tier.Admin, ov).Allowed);
         Assert.True(t.Decide(PolicyIntent.ClearTemp, Tier.StandardUser, ov).Allowed);               // loosened to StandardUser
+    }
+
+    [Fact]
+    public void Manual_route_delete_is_admin_by_default_and_never_below_NCO_while_profiles_stay_standard()
+    {
+        var t = Make(new FakeSource(new Dictionary<PolicyIntent, Tier> { [PolicyIntent.DeleteRoute] = Tier.StandardUser }, valid: true), out _);
+        var ov = t.Resolve();
+        Assert.Equal(Tier.NetworkConfigOperators, PolicyTiers.Required(PolicyIntent.DeleteRoute, ov));   // a policy may open it to NCO, not further
+        Assert.Equal(Tier.Admin, PolicyTiers.DefaultFor(PolicyIntent.DeleteRoute));
+        Assert.Equal(Tier.StandardUser, PolicyTiers.DefaultFor(PolicyIntent.ApplyProfile));             // routes inside a profile ride on ApplyProfile
     }
 
     [Fact]
@@ -100,7 +110,7 @@ public class PolicyTiersTests
     {
         var t = Make(new FakeSource(new Dictionary<PolicyIntent, Tier>(), valid: false), out var audit);
         var ov = t.Resolve();                         // no cache -> defaults (empty overrides)
-        Assert.Equal(Tier.NetworkConfigOperators, PolicyTiers.Required(PolicyIntent.DeleteRoute, ov));
+        Assert.Equal(Tier.Admin, PolicyTiers.Required(PolicyIntent.DeleteRoute, ov));
         Assert.Equal(Tier.StandardUser, PolicyTiers.Required(PolicyIntent.Dhcp, ov));
         Assert.Contains(audit, l => l.Contains("no cache"));
     }

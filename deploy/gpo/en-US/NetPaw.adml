@@ -51,7 +51,7 @@
       <string id="Tier_Renew">Minimum tier to renew a DHCP lease</string>
       <string id="Tier_Renew_Help">Lowest caller tier allowed to renew a DHCP lease through the NetPaw service. Not configured: the default (StandardUser).</string>
       <string id="Tier_ClearTemp">Minimum tier to remove temporary addresses</string>
-      <string id="Tier_ClearTemp_Help">Lowest caller tier allowed to remove temporary addresses through the NetPaw service. Not configured: the default (NetworkConfigOperators).</string>
+      <string id="Tier_ClearTemp_Help">Lowest caller tier allowed to remove temporary addresses through the NetPaw service. Not configured: the default (Admin). NetworkConfigOperators is the lowest value accepted; routes inside a profile are governed by Tier.ApplyProfile instead.</string>
       <string id="Tier_DeleteRoute">Minimum tier to delete a route</string>
       <string id="Tier_DeleteRoute_Help">Lowest caller tier allowed to delete a route through the NetPaw service. Not configured: the default (NetworkConfigOperators).</string>
       <string id="Tier_ResetAdapter">Minimum tier to reset (disable/enable) an adapter</string>
