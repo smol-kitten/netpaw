@@ -7,6 +7,7 @@
 #   tools/vm-harness.sh --run [--build <dir>] [--msi <file>] [--keep]
 #                                       full cycle: gates → sweep → clone → start → ssh → verify → stop+destroy
 #   tools/vm-harness.sh --gates         gates only, exit 0/3
+#   tools/vm-harness.sh --selftest      destroy-guard self-test, no API/ssh (template/peer/out-of-range VMIDs must be refused)
 #
 # Authority split (measured 2026-10-29): the API token harness@pve!n4 (vault: pve.harness_token) sees only the pool,
 # the template, local-lvm and its own clones — every MUTATING call (clone/start/stop/destroy, peer start/stop) goes
@@ -20,6 +21,14 @@ RUNDIR=${RUNDIR:-/run/netpaw-harness}; VAULT=/home/claude/.claude-memory/vault.p
 LOAD_MAX=20; THINPOOL_MAX=85; SSH_WAIT_MIN=15
 here=$(cd "$(dirname "$0")" && pwd); VERIFY="$here/harness/vm-verify.ps1"
 mode=check; build=; msi=; keep=0
+if [[ ${1:-} == --selftest ]]; then   # no API, no ssh: the destroy guard against a fake pool listing (orchestrator m-8896)
+  RANGE_LO=9161; RANGE_HI=9168; TPL=9160; PEER=9169
+  destroyable() { [[ $1 =~ ^[0-9]+$ ]] && (( $1 >= RANGE_LO && $1 <= RANGE_HI && $1 != TPL && $1 != PEER )); }
+  ok=1; for c in "9160 refused" "9169 refused" "9161 ok" "9168 ok" "9159 refused" "9170 refused" "150 refused" "x refused"; do
+    set -- $c; if destroyable "$1"; then got=ok; else got=refused; fi
+    [[ $got == "$2" ]] && echo "RESULT|selftest|$1 $got" || { echo "RESULT|selftest|$1 FAILED got $got want $2"; ok=0; }; done
+  (( ok )) && exit 0 || exit 1
+fi
 while [[ $# -gt 0 ]]; do case $1 in
   --run) mode=run;; --sweep) mode=sweep;; --gates) mode=gates;; --build) build=$2; shift;; --msi) msi=$2; shift;;
   --keep) keep=1;; -h|--help) sed -n '2,13p' "$0"; exit 0;; *) echo "unknown flag $1" >&2; exit 2;; esac; shift; done
@@ -34,6 +43,9 @@ api() { # api <METHOD> <path> [curl --data-urlencode args...]; prints the body; 
   code=${out##*$'\n'}; out=${out%$'\n'*}
   [[ $code == 2* ]] && { printf '%s' "$out"; return 0; }; echo "api $m $p -> $code $out" >&2; return 1; }
 jqd() { jq -r "$@"; }
+# Defense in depth on the destroy path (orchestrator m-8896): the token holds VM.Allocate on the template and the pool
+# (the peer), so a name collision must never reach DELETE. Only VMIDs inside the clone range are ever destroyed.
+destroyable() { [[ $1 =~ ^[0-9]+$ ]] && (( $1 >= RANGE_LO && $1 <= RANGE_HI && $1 != TPL && $1 != PEER )); }
 
 # ---- gates: every refusal is its own RESULT line; no state changes before all pass ---------------------------------
 hm=$(TZ=Europe/Berlin date +%H%M); (( 10#$hm >= 30 && 10#$hm < 230 )) && refuse "pawcheck-window $hm Berlin"
@@ -61,6 +73,7 @@ while IFS=$'\t' read -r vmid name status; do
   run=${name#netpaw-h-}; f="${RUNDIR:?}/${run:?}.vmid"; age=$(( now - $(stat -c %Y "$f" 2>/dev/null || echo 0) ))
   if [[ -e $f && $age -lt $STALE_SECS && $(cat "$f") == "$vmid" ]]; then say "sweep|$vmid|$name live (run file ${age}s old)"; continue; fi
   if [[ $mode == check ]]; then say "sweep|$vmid|$name STALE (run file $([[ -e $f ]] && echo "${age}s old" || echo missing)); check mode: not destroyed"; continue; fi
+  destroyable "$vmid" || { say "sweep|$vmid|$name refused: outside clone range $RANGE_LO-$RANGE_HI (template $TPL / peer $PEER are never destroyed)"; continue; }
   [[ $status == running ]] && api POST "nodes/$PVE_NODE/qemu/$vmid/status/stop" >/dev/null && sleep 5
   api DELETE "nodes/$PVE_NODE/qemu/$vmid?purge=1&destroy-unreferenced-disks=1" >/dev/null && say "sweep|$vmid|$name destroyed (stale)" || say "sweep|$vmid|$name FAILED to destroy"
   rm -f "${RUNDIR:?}/${run:?}.vmid"
@@ -77,6 +90,7 @@ tmp=$(mktemp -d); chmod 700 "$tmp"; key="$tmp/key"; peer_started=0; cloned=0; rc
 cleanup() {
   local r=$?; set +e; trap - EXIT
   if (( cloned )) && (( keep )); then say "cleanup|$vmid|KEPT (--keep): destroy by hand or let the next sweep take it after 2 h"
+  elif (( cloned )) && ! destroyable "$vmid"; then say "cleanup|$vmid|refused: outside clone range $RANGE_LO-$RANGE_HI; NOT destroyed"; r=4
   elif (( cloned )); then
     api POST "nodes/$PVE_NODE/qemu/$vmid/status/stop" >/dev/null 2>&1; for i in $(seq 1 24); do [[ $(api GET "nodes/$PVE_NODE/qemu/$vmid/status/current" | jqd '.data.status') == stopped ]] && break; sleep 5; done
     if api DELETE "nodes/$PVE_NODE/qemu/$vmid?purge=1&destroy-unreferenced-disks=1" >/dev/null; then say "cleanup|$vmid|destroyed"; else say "cleanup|$vmid|FAILED destroy"; r=4; fi
