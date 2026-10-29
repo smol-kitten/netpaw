@@ -22,6 +22,14 @@ if ($bl -match 'On') { Bad 'bitlocker' ($bl -join ',') } else { R 'bitlocker' ($
 
 # --- install -----------------------------------------------------------------------------------------------------------
 $dir = 'C:\Program Files\NetPaw'
+$root = 'C:\ProgramData\NetPaw'
+if ($Msi -and -not (Test-Path $root)) {
+  # #135 case A: a user pre-created the data root before install. Owner = Users stands in for a standard user; the
+  # service must take it over at first start (owner SYSTEM, protected DACL) with its SeChangeNotify-only token.
+  New-Item -ItemType Directory $root | Out-Null
+  icacls $root /setowner '*S-1-5-32-545' /q | Out-Null
+  R 'root-planted' "owner=$((Get-Acl $root).Owner)"
+}
 if ($Msi) {
   $p = Start-Process msiexec.exe -ArgumentList "/i `"$Msi`" /qn /l*v C:\harness\install.log" -Wait -PassThru
   if ($p.ExitCode -ne 0) { Bad 'install' "msiexec exit $($p.ExitCode)" } else { R 'install' "msiexec exit 0" }
@@ -39,6 +47,8 @@ if (-not (Test-Path $cli)) { Bad 'cli' "missing $cli"; R 'summary' "fail=$fail";
 R 'version' ((& $cli --version 2>&1) -join ' ')
 $svc = Get-Service netpaw-svc -ErrorAction SilentlyContinue
 if ($svc -and $svc.Status -eq 'Running') { R 'service' "running start=$($svc.StartType)" } else { Bad 'service' "status=$($svc.Status)" }
+$rootAcl = Get-Acl $root -ErrorAction SilentlyContinue
+if ($rootAcl -and $rootAcl.Owner -eq 'NT AUTHORITY\SYSTEM' -and $rootAcl.AreAccessRulesProtected) { R 'root-owner' "SYSTEM, protected DACL" } else { Bad 'root-owner' "owner=$($rootAcl.Owner) protected=$($rootAcl.AreAccessRulesProtected)" }
 $privs = (sc.exe qprivs netpaw-svc) -join ' '
 if ($privs -match 'SeChangeNotifyPrivilege' -and $privs -notmatch 'SeDebugPrivilege') { R 'service-privs' 'SeChangeNotifyPrivilege only' } else { R 'service-privs' "unexpected: $privs" }
 $st = & $cli service status 2>&1; $rc = $LASTEXITCODE
@@ -68,6 +78,22 @@ Start-Sleep 5
 $dh = (Get-NetIPInterface -InterfaceAlias $TestNic -AddressFamily IPv4).Dhcp
 $after = Get-NetIPAddress -InterfaceAlias $TestNic -AddressFamily IPv4 | Select-Object -First 1 -ExpandProperty IPAddress
 if ($rc -eq 0 -and $dh -eq 'Enabled' -and $after -ne '10.99.0.42') { R 'revert' "rc=0 dhcp=$dh test NIC now $after" } else { Bad 'revert' "rc=$rc dhcp=$dh ip=$after: $($rv -join ' ')" }
+# --- #135 case B: the data root is a junction -> the service runs without its store, refuses changes, says why ----------
+if (Get-Service netpaw-svc -ErrorAction SilentlyContinue) {
+  sc.exe stop netpaw-svc | Out-Null; Start-Sleep 3
+  $aside = "$root.aside"; $planted = 'C:\harness\planted'
+  Rename-Item $root $aside; New-Item -ItemType Directory $planted -Force | Out-Null
+  New-Item -ItemType Junction -Path $root -Target $planted | Out-Null
+  sc.exe start netpaw-svc | Out-Null; Start-Sleep 5
+  $jst = (Get-Service netpaw-svc).Status
+  $ev = Get-WinEvent -FilterHashtable @{LogName='Application'; ProviderName='NetPaw'} -MaxEvents 20 -ErrorAction SilentlyContinue | Where-Object { $_.Message -match 'reparse point' } | Select-Object -First 1
+  $jr = & $cli dhcp -a $TestNic 2>&1; $jrc = $LASTEXITCODE
+  if ($jst -eq 'Running' -and $ev -and $jrc -ne 0 -and ($jr -join ' ') -match 'not available') { R 'root-junction' "refused: service up without store, change rc=$jrc, event: $($ev.Message.Split([char]10)[0])" } else { Bad 'root-junction' "status=$jst event=$(if ($ev) { 'found' } else { 'none' }) change rc=$jrc $($jr -join ' ')" }
+  sc.exe stop netpaw-svc 2>&1 | Out-Null; Start-Sleep 2
+  (Get-Item $root).Delete(); Rename-Item $aside $root
+  sc.exe start netpaw-svc | Out-Null; Start-Sleep 3
+  if ((Get-Service netpaw-svc).Status -eq 'Running') { R 'root-restored' 'service running again on the real root' } else { Bad 'root-restored' "status=$((Get-Service netpaw-svc).Status)" }
+}
 if ($Msi) {
   $p = Start-Process msiexec.exe -ArgumentList "/x `"$Msi`" /qn" -Wait -PassThru
   if ($p.ExitCode -eq 0 -and -not (Get-Service netpaw-svc -ErrorAction SilentlyContinue)) { R 'uninstall' 'msiexec exit 0, service gone' } else { Bad 'uninstall' "exit $($p.ExitCode) service=$((Get-Service netpaw-svc -ErrorAction SilentlyContinue).Status)" }
