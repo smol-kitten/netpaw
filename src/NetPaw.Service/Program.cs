@@ -113,7 +113,11 @@ static class Startup
         var policy = new NetPaw.Ipc.PolicyTiers(new RegistryPolicySource(), Path.Combine(dir, "policy.cache.json"), log);
         var current = CatWingetSourceVersion();
         var installer = new NetPaw.Updates.UpdateInstaller(new WindowsUpdateEnvironment(dir, log), current, log);
-        var handler = new IntentHandler(NetPaw.NetPawService.CreateDefault(dir), dir, log, policy: policy, installer: installer);
+        var handler = new IntentHandler(NetPaw.NetPawService.CreateDefault(dir), dir, log, policy: policy, installer: installer)
+        {
+            // Listen on behalf of a standard user: captures go to a SYSTEM/Admins-only folder, re-checked per request.
+            CaptureDirectory = () => ServiceFolder.Ensure(root, log, "capture"),
+        };
         handler.Interrupted();
         return handler;
     }

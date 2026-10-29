@@ -28,6 +28,14 @@ public sealed class IntentHandler(NetPawService svc, string journalDirectory, Ac
 
     public sealed record Journal(string Title, string Adapter, string Caller, DateTimeOffset At, IReadOnlyList<string> Commands);
 
+    /// <summary>Where Listen captures land: a folder the service owns (SYSTEM + Administrators ACL), created on demand
+    /// by the host. Null = no safe folder, and Listen refuses rather than fall back to the temp folder.</summary>
+    public Func<string>? CaptureDirectory { get; set; }
+    /// <summary>Per-caller gap between Listen requests, so one user cannot keep pktmon busy at 120 s on repeat.</summary>
+    public TimeSpan ListenCooldown { get; set; } = TimeSpan.FromSeconds(60);
+    public Func<DateTimeOffset> Clock { get; set; } = () => DateTimeOffset.UtcNow;
+    readonly Dictionary<string, DateTimeOffset> _lastListen = new(StringComparer.OrdinalIgnoreCase);
+
     /// <summary>A change that was running when the service stopped. The file is kept (renamed) for the admin.</summary>
     public Journal? Interrupted()
     {
@@ -53,9 +61,18 @@ public sealed class IntentHandler(NetPawService svc, string journalDirectory, Ac
             svc.Reload(); svc.Require(Capability.Capture);
             var adapter = Adapter(r);
             var seconds = Math.Clamp(r.Seconds ?? 35, 10, 120);
+            lock (_lastListen)
+            {
+                var now = Clock();
+                if (_lastListen.TryGetValue(caller, out var last) && now - last < ListenCooldown)
+                    return ServiceResponse.Fail($"listen cooldown: wait {(int)Math.Ceiling((ListenCooldown - (now - last)).TotalSeconds)} s before the next capture");
+                _lastListen[caller] = now;
+            }
+            var captureDir = CaptureDirectory?.Invoke();
+            if (captureDir is null) return ServiceResponse.Fail("no service-owned capture folder is configured; refused");
             if (!Discovery.PktmonCapture.Available) return ServiceResponse.Fail("pktmon is not available on this Windows version");
             log($"listen: {seconds} s on {adapter.Name} for {caller}");
-            var (found, err) = new Discovery.PktmonCapture().Listen(adapter.Name, adapter.Mac, seconds, null, log).GetAwaiter().GetResult();
+            var (found, err) = new Discovery.PktmonCapture().Listen(adapter.Name, adapter.Mac, seconds, null, log, options: new(Shared: true, WorkDir: captureDir)).GetAwaiter().GetResult();
             return err is not null ? ServiceResponse.Fail(err) : new ServiceResponse(ServiceProtocol.Version, true) { Neighbors = found };
         }
         catch (Rejected ex) { return ServiceResponse.Fail(ex.Message); }
