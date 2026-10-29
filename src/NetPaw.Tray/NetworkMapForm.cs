@@ -156,7 +156,7 @@ sealed class NetworkMapPanel : UserControl
         try
         {
             var prog = new Progress<int>(n => _status.Text = $"Listening for LLDP/CDP on {_adapter.Name}: {n}/{seconds} s…");
-            var (found, err) = await Task.Run(() => new NetPaw.Discovery.PktmonCapture().Listen(_adapter.Name, _adapter.Mac, seconds, prog, _app.Service.Store.Log, _cts.Token));
+            var (found, err) = await NetPaw.Discovery.SwitchListen.Run(_adapter.Name, _adapter.Mac, seconds, _app.Elevated, prog, _app.Service.Store.Log, _cts.Token);
             if (err is not null) { _status.Text = err; return; }
             _app.SetSwitchNeighbors(_adapter.Name, found);
             foreach (var n in found)

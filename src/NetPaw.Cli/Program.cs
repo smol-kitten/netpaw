@@ -466,10 +466,8 @@ try
             var secs = int.TryParse(Opt("--seconds"), out var sec) ? sec : 35;
             var adapter = svc.ResolveAdapter(adapterName);
             svc.Require(Capability.Capture);
-            if (!NetPaw.Discovery.PktmonCapture.Available) return Fail("pktmon is not available on this Windows version");
-            if (!IsElevated()) return Fail("pktmon needs an elevated prompt");
-            Console.Error.WriteLine($"listening for LLDP/CDP on {adapter.Name} for {secs} s…");
-            var (found, err) = new NetPaw.Discovery.PktmonCapture().Listen(adapter.Name, adapter.Mac, secs, null, svc.Store.Log).GetAwaiter().GetResult();
+            Console.Error.WriteLine($"listening for LLDP/CDP on {adapter.Name} for {secs} s{(IsElevated() ? "" : " (through the NetPaw service)")}…");
+            var (found, err) = NetPaw.Discovery.SwitchListen.Run(adapter.Name, adapter.Mac, secs, IsElevated(), null, svc.Store.Log).GetAwaiter().GetResult();
             if (err is not null) return Fail(err);
             if (found.Count == 0) { Console.WriteLine("no LLDP/CDP announcement seen"); return 1; }
             foreach (var n in found)

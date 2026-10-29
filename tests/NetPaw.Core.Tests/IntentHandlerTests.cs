@@ -506,4 +506,19 @@ public class RevertLastApplyTests
         Assert.True(dhcp.Ok, dhcp.Error);
         Assert.Equal("Ethernet 9", r.Handler.LastApply()!.Adapter);
     }
+
+    [Fact]
+    public void ListenGoesThroughTierGateAndCapturePolicyAndNeverHoldsTheChangeGate()
+    {
+        // Off Windows pktmon is absent: an allowed call fails with "not available", a refused one with the tier/policy reason.
+        var r = Make();
+        var ok = r.Handler.Handle(ServiceChange.Listen("Ethernet", 35), "a", Tier.StandardUser);
+        Assert.False(ok.Ok); Assert.Contains("pktmon is not available", ok.Error);
+        var denied = Make(storePolicy: new() { ["AllowCapture"] = 0 }).Handler.Handle(ServiceChange.Listen("Ethernet", 35), "a", Tier.Admin);
+        Assert.False(denied.Ok); Assert.Contains("denied by policy", denied.Error);
+        var tier = Make(tiers: new() { [PolicyIntent.Capture] = Tier.Admin }).Handler.Handle(ServiceChange.Listen("Ethernet", 35), "a", Tier.StandardUser);
+        Assert.False(tier.Ok); Assert.Contains("needs tier Admin", tier.Error);
+        var noAdapter = r.Handler.Handle(ServiceChange.Listen("Nope", 35), "a", Tier.StandardUser);
+        Assert.False(noAdapter.Ok); Assert.DoesNotContain("pktmon", noAdapter.Error);
+    }
 }

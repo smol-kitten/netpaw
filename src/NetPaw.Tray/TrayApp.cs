@@ -410,7 +410,7 @@ sealed class TrayApp : ApplicationContext
         try
         {
             var mac = _adapters.FirstOrDefault(a => a.Name == adapter)?.Mac;
-            var (found, err) = await Task.Run(() => new Discovery.PktmonCapture().Listen(adapter, mac, Math.Clamp(_svc.Settings.Repair.DiscoverSeconds, 10, 120), null, _svc.Store.Log));
+            var (found, err) = await Discovery.SwitchListen.Run(adapter, mac, Math.Clamp(_svc.Settings.Repair.DiscoverSeconds, 10, 120), Elevated, null, _svc.Store.Log);
             if (err is not null) { _svc.Store.Log("switch", err); return; }
             SetSwitchNeighbors(adapter, found);
             if (found.Count > 0)
@@ -945,6 +945,9 @@ sealed class TrayApp : ApplicationContext
         if (OperatingSystem.IsWindows() && ServiceChange.ServiceAnswers()) return ChannelMode.Service;
         return IsElevated() ? ChannelMode.Elevated : ChannelMode.User;
     }
+
+    /// <summary>True when this tray process runs elevated (pktmon and friends work in-process; otherwise the service does it).</summary>
+    public bool Elevated => IsElevated();
 
     static bool IsElevated()
     {

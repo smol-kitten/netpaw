@@ -40,6 +40,29 @@ public sealed class IntentHandler(NetPawService svc, string journalDirectory, Ac
         return j;
     }
 
+    /// <summary>Passive LLDP/CDP capture on behalf of an unelevated caller: same tier gate as every intent, the Capture
+    /// capability, a fixed filter (LLDP ethertype + the two multicast MACs) and a clamped window. Runs outside the change
+    /// gate; pktmon itself is one-at-a-time. Nothing is sent on the wire.</summary>
+    ServiceResponse Listen(ServiceRequest r, string caller, Tier callerTier)
+    {
+        try
+        {
+            var overrides = _policy.Resolve();
+            if (!_policy.Decide(PolicyIntent.Capture, callerTier, overrides, caller).Allowed)
+                throw new Rejected($"Listen needs tier {PolicyTiers.Required(PolicyIntent.Capture, overrides)} or higher; you are {callerTier}");
+            svc.Reload(); svc.Require(Capability.Capture);
+            var adapter = Adapter(r);
+            var seconds = Math.Clamp(r.Seconds ?? 35, 10, 120);
+            if (!Discovery.PktmonCapture.Available) return ServiceResponse.Fail("pktmon is not available on this Windows version");
+            log($"listen: {seconds} s on {adapter.Name} for {caller}");
+            var (found, err) = new Discovery.PktmonCapture().Listen(adapter.Name, adapter.Mac, seconds, null, log).GetAwaiter().GetResult();
+            return err is not null ? ServiceResponse.Fail(err) : new ServiceResponse(ServiceProtocol.Version, true) { Neighbors = found };
+        }
+        catch (Rejected ex) { return ServiceResponse.Fail(ex.Message); }
+        catch (DeniedByPolicyException ex) { return ServiceResponse.Fail("denied by policy: " + ex.Message); }
+        catch (InvalidOperationException ex) { return ServiceResponse.Fail(ex.Message); }
+    }
+
     /// <summary>Maps a change request to its policy intent (what the tier gate keys on).</summary>
     static PolicyIntent IntentFor(RequestKind k) => k switch
     {
@@ -55,6 +78,7 @@ public sealed class IntentHandler(NetPawService svc, string journalDirectory, Ac
         RequestKind.SetMtu => PolicyIntent.SetMtu,
         RequestKind.RevertLastApply => PolicyIntent.RevertLastApply,
         RequestKind.InstallUpdate => PolicyIntent.InstallUpdate,
+        RequestKind.Listen => PolicyIntent.Capture,
         _ => throw new Rejected($"{k} is not a change request"),
     };
 
@@ -67,6 +91,7 @@ public sealed class IntentHandler(NetPawService svc, string journalDirectory, Ac
     /// <summary>Handles one change request: tier gate, reload, dispatch by kind; every failure becomes a ServiceResponse, never an exception.</summary>
     public ServiceResponse Handle(ServiceRequest r, string caller, Tier callerTier)
     {
+        if (r.Kind == RequestKind.Listen) return Listen(r, caller, callerTier);   // read-only and long (10..120 s): must not hold the change gate
         lock (_gate)
         {
             try
