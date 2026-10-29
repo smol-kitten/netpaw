@@ -31,26 +31,36 @@ public sealed class IntentWatcher(int ownPid, Func<int, string?> processName)
     public static readonly TimeSpan Cooldown = TimeSpan.FromMinutes(10);
     public const int MaxReported = 3;
 
-    readonly Dictionary<string, (TcpEndpoint Endpoint, DateTimeOffset First)> _pending = [];
+    readonly Dictionary<string, (TcpEndpoint Endpoint, DateTimeOffset First, int Seen)> _pending = [];
     readonly Dictionary<string, DateTimeOffset> _reported = [];
 
-    /// <summary>Feeds one sample; returns the endpoints that were already pending on the previous sample and are not in cooldown.</summary>
+    /// <summary>How many consecutive samples (one per tick) a socket must sit in SYN_SENT before it is reported. 2 = the
+    /// original behaviour (seen twice). A flaky updater that retries for a few seconds never reaches 3–4.</summary>
+    public int MinSamples { get; set; } = 3;
+    /// <summary>Remote addresses or networks ("10.0.0.5", "10.0.0.0/24") that never produce a report.</summary>
+    public IReadOnlyList<string> IgnoreTargets { get; set; } = [];
+    /// <summary>Process names (without .exe, case-insensitive) that never produce a report.</summary>
+    public IReadOnlyList<string> IgnoreProcesses { get; set; } = [];
+
+    /// <summary>Feeds one sample; returns the endpoints that were pending for <see cref="MinSamples"/> consecutive samples and are not in cooldown.</summary>
     public List<(TcpEndpoint Endpoint, DateTimeOffset Since)> Sample(IReadOnlyList<TcpEndpoint> now, DateTimeOffset at)
     {
         var stuck = new List<(TcpEndpoint, DateTimeOffset)>();
         var seen = new HashSet<string>();
+        var min = Math.Max(2, MinSamples);
         foreach (var e in now.Where(Keep))
         {
             seen.Add(e.Key);
             if (_pending.TryGetValue(e.Key, out var p))
             {
-                if (!_reported.TryGetValue(e.Remote, out var last) || at - last >= Cooldown)
+                _pending[e.Key] = p = (p.Endpoint, p.First, p.Seen + 1);
+                if (p.Seen >= min && (!_reported.TryGetValue(e.Remote, out var last) || at - last >= Cooldown))
                 {
                     _reported[e.Remote] = at;
                     stuck.Add((e, p.First));
                 }
             }
-            else _pending[e.Key] = (e, at);
+            else _pending[e.Key] = (e, at, 1);
         }
         foreach (var k in _pending.Keys.Where(k => !seen.Contains(k)).ToList()) _pending.Remove(k);
         foreach (var k in _reported.Where(kv => at - kv.Value >= Cooldown).Select(kv => kv.Key).ToList()) _reported.Remove(k);
@@ -64,8 +74,12 @@ public sealed class IntentWatcher(int ownPid, Func<int, string?> processName)
         var r = e.Remote;
         if (r.StartsWith("127.") || r.StartsWith("169.254.") || r.StartsWith("0.")) return false;
         if (!int.TryParse(r.Split('.')[0], out var first) || first >= 224) return false;      // multicast, broadcast, reserved
+        if (IgnoreTargets.Any(t => Net.IpMath.TryParseCidr(t, out var c, 32) && Net.IpMath.Contains(c.Address, c.PrefixLength, r))) return false;
+        if (IgnoreProcesses.Count > 0 && processName(e.Pid) is { } name && IgnoreProcesses.Select(Normalise).Any(p => p.Length > 0 && p.Equals(name, StringComparison.OrdinalIgnoreCase))) return false;
         return true;
     }
+
+    static string Normalise(string process) { var p = process.Trim(); return p.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ? p[..^4] : p; }
 
     /// <summary>Why the target is unreachable: on-link but silent (ARP), off-subnet without a gateway, or unknown.</summary>
     public static StuckKind Classify(string remote, AdapterInfo? adapter, IReadOnlyList<ArpEntry> arp)
