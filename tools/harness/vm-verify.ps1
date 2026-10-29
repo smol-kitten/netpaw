@@ -93,6 +93,25 @@ if (Get-Service netpaw-svc -ErrorAction SilentlyContinue) {
   (Get-Item $root).Delete(); Rename-Item $aside $root
   sc.exe start netpaw-svc | Out-Null; Start-Sleep 3
   if ((Get-Service netpaw-svc).Status -eq 'Running') { R 'root-restored' 'service running again on the real root' } else { Bad 'root-restored' "status=$((Get-Service netpaw-svc).Status)" }
+  # --- #135 case C: after install a user owns the root and stripped SYSTEM from the DACL -> owner write refused ---------
+  # Expect status-only + Application-log entry; the store must never be used from a user-controlled folder.
+  sc.exe stop netpaw-svc | Out-Null; Start-Sleep 3
+  icacls $root /setowner '*S-1-5-32-545' /q | Out-Null
+  icacls $root /inheritance:r /remove 'SYSTEM' /grant '*S-1-5-32-545:(OI)(CI)F' /grant 'Administrators:(OI)(CI)F' /q | Out-Null
+  sc.exe start netpaw-svc | Out-Null; Start-Sleep 5
+  $cst = (Get-Service netpaw-svc).Status
+  $cev = Get-WinEvent -FilterHashtable @{LogName='Application'; ProviderName='NetPaw'} -MaxEvents 20 -ErrorAction SilentlyContinue | Where-Object { $_.Message -match 'service store unavailable' } | Select-Object -First 1
+  $cr = & $cli dhcp -a $TestNic 2>&1; $crc = $LASTEXITCODE
+  $cOwner = (Get-Acl $root).Owner
+  if ($cst -eq 'Running' -and $cev -and $crc -ne 0 -and ($cr -join ' ') -match 'not available' -and $cOwner -ne 'NT AUTHORITY\SYSTEM') { R 'root-nosystem' "status-only: owner still $cOwner, change rc=$crc, event: $($cev.Message.Split([char]10)[0])" }
+  elseif ($cst -eq 'Running' -and $cOwner -eq 'NT AUTHORITY\SYSTEM' -and $crc -eq 0) { R 'root-nosystem' "taken over anyway (owner=$cOwner): the token could write the owner without SYSTEM in the DACL — note for threat-model" }
+  else { Bad 'root-nosystem' "status=$cst owner=$cOwner event=$(if ($cev) { 'found' } else { 'none' }) change rc=$crc $($cr -join ' ')" }
+  sc.exe stop netpaw-svc 2>&1 | Out-Null; Start-Sleep 2
+  icacls $root /setowner 'SYSTEM' /q | Out-Null
+  icacls $root /inheritance:r /grant 'SYSTEM:(OI)(CI)F' /grant 'Administrators:(OI)(CI)F' /grant '*S-1-5-32-545:(OI)(CI)RX' /remove:g '*S-1-5-32-545' /q | Out-Null
+  icacls $root /grant '*S-1-5-32-545:(OI)(CI)RX' /q | Out-Null
+  sc.exe start netpaw-svc | Out-Null; Start-Sleep 3
+  if ((Get-Service netpaw-svc).Status -eq 'Running' -and ($(& $cli service status 2>&1; $LASTEXITCODE) -eq 0)) { R 'root-nosystem-restored' 'service running with the MSI ACL again' } else { Bad 'root-nosystem-restored' "status=$((Get-Service netpaw-svc).Status)" }
 }
 if ($Msi) {
   $p = Start-Process msiexec.exe -ArgumentList "/x `"$Msi`" /qn" -Wait -PassThru
