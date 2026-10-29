@@ -14,7 +14,7 @@ UAC-filtered admin reads as StandardUser), never from the request.
 | Reach | StandardUser | reach mode (temporary address) |
 | Renew | StandardUser | renew a DHCP lease |
 | ClearTemp | NetworkConfigOperators | remove temporary addresses |
-| DeleteRoute | NetworkConfigOperators | delete a route |
+| DeleteRoute | Admin (floor NetworkConfigOperators) | delete one route by hand (map tab / CLI). Routes that are part of a profile are applied and removed under ApplyProfile, so standard users keep their profiles |
 | ResetAdapter | NetworkConfigOperators | reset (disable/enable) an adapter |
 | Release | NetworkConfigOperators | release a DHCP lease |
 | Prefer | NetworkConfigOperators | prefer an adapter (interface metric) |

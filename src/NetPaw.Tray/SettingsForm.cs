@@ -136,6 +136,15 @@ sealed class SettingsForm : Form
         Row("VPN", vpnNotify);
         var intent = new CheckBox { Text = "intent watcher: when a program waits on an address nobody answers, name it and offer the profile that covers it (local only)", Checked = rp.IntentWatch, AutoSize = true, MaximumSize = new Size(520, 0) };
         Row("Intent watcher", intent); intent.Enabled = app.Service.Allowed(Capability.IntentWatch); if (!intent.Enabled) intent.Text += "  (disabled by policy)";
+        var intentMin = new NumericUpDown { Minimum = 2, Maximum = 20, Value = Math.Clamp(rp.IntentMinSamples, 2, 20), Width = 60 };
+        var intentMinRow = new FlowLayoutPanel { AutoSize = true, WrapContents = false };
+        intentMinRow.Controls.Add(intentMin); intentMinRow.Controls.Add(new Label { Text = "unanswered samples before it is reported (2 = at once; higher skips a few-second retry burst)", AutoSize = true, Padding = new Padding(6, 5, 0, 0), ForeColor = Theme.Muted, Font = Theme.Small });
+        Row("  report after", intentMinRow);
+        var intentIgnoreIps = new TextBox { Text = string.Join(", ", rp.IntentIgnoreTargets), Width = 520, PlaceholderText = "addresses or networks never reported, e.g. 10.0.0.5, 203.0.113.0/24" };
+        var intentIgnoreApps = new TextBox { Text = string.Join(", ", rp.IntentIgnoreProcesses), Width = 520, PlaceholderText = "process names never reported, e.g. SomeUpdater, msedge" };
+        Row("  ignore targets", intentIgnoreIps); Row("  ignore programs", intentIgnoreApps);
+        intent.CheckedChanged += (_, _) => intentMin.Enabled = intentIgnoreIps.Enabled = intentIgnoreApps.Enabled = intent.Checked;
+        intentMin.Enabled = intentIgnoreIps.Enabled = intentIgnoreApps.Enabled = intent.Checked && intent.Enabled;
         var discover = new CheckBox { Text = "discover the switch port after link-up (LLDP/CDP via pktmon, passive, ~35 s)", Checked = rp.DiscoverSwitchOnLinkUp, AutoSize = true, Enabled = NetPaw.Discovery.PktmonCapture.Available };
         Row("Switch", discover);
         Row("Auto-repair", autoRenew);
@@ -230,7 +239,7 @@ sealed class SettingsForm : Form
             ck.DnsCheckHost = dnsHost.Text.Trim(); ck.MonitorMode = monitor.Checked;
             card.AutoPin = (Visibility)pinMode.SelectedIndex; card.Rows.Clear();
             foreach (var (kind, def, _) in InfoCardSettings.Catalog) if ((Visibility)cardRows[kind].SelectedIndex != def) card.Rows[kind] = (Visibility)cardRows[kind].SelectedIndex;
-            rp.DhcpAdvisory = advisory.Checked; rp.IncidentLog = incidents.Checked; rp.VpnNotifications = vpnNotify.Checked; rp.DiscoverSwitchOnLinkUp = discover.Checked; rp.IntentWatch = intent.Checked; rp.AutoRenew = autoRenew.Checked; rp.AutoRenewIntervalSeconds = (int)renewInterval.Value; rp.AutoRenewMaxAttempts = (int)renewMax.Value;
+            rp.DhcpAdvisory = advisory.Checked; rp.IncidentLog = incidents.Checked; rp.VpnNotifications = vpnNotify.Checked; rp.DiscoverSwitchOnLinkUp = discover.Checked; rp.IntentMinSamples = (int)intentMin.Value; rp.IntentIgnoreTargets = intentIgnoreIps.Text.Split([',', ';', ' '], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList(); rp.IntentIgnoreProcesses = intentIgnoreApps.Text.Split([',', ';'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList(); rp.IntentWatch = intent.Checked; rp.AutoRenew = autoRenew.Checked; rp.AutoRenewIntervalSeconds = (int)renewInterval.Value; rp.AutoRenewMaxAttempts = (int)renewMax.Value;
             if (_saveExport?.Invoke() is { } exportErr) { err.Text = exportErr; return; }
             if (telemetry is not null) { s.TelemetryEnabled = telemetry.Checked; }
             TelemetryHost.Refresh(app.Service);

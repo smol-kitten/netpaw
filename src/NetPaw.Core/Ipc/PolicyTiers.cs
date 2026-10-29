@@ -47,7 +47,7 @@ public sealed class PolicyTiers
         [PolicyIntent.Capture] = Tier.StandardUser,   // passive LLDP/CDP listen with a fixed filter; capability AllowCapture still gates it
         [PolicyIntent.Renew] = Tier.StandardUser,
         [PolicyIntent.ClearTemp] = Tier.NetworkConfigOperators,
-        [PolicyIntent.DeleteRoute] = Tier.NetworkConfigOperators,
+        [PolicyIntent.DeleteRoute] = Tier.Admin,   // operator 2026-10-29: deleting a route by hand is admin work; routes inside a profile apply stay with ApplyProfile (StandardUser)
         [PolicyIntent.ResetAdapter] = Tier.NetworkConfigOperators,
         [PolicyIntent.Release] = Tier.NetworkConfigOperators,
         [PolicyIntent.Prefer] = Tier.NetworkConfigOperators,
@@ -63,6 +63,7 @@ public sealed class PolicyTiers
     {
         [PolicyIntent.VirtualUnlock] = Tier.NetworkConfigOperators,
         [PolicyIntent.InstallUpdate] = Tier.NetworkConfigOperators,   // a policy may not open installs to standard users
+        [PolicyIntent.DeleteRoute] = Tier.NetworkConfigOperators,     // nor manual route deletion
     };
 
     /// <summary>The policy schema this build understands. An optional <c>PolicySchemaVersion</c> value in the

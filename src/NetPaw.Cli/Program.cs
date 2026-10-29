@@ -33,6 +33,7 @@ const string Usage = """
       netpaw-cli wake <mac> [subnet/prefix]         Wake-on-LAN magic packet (global + subnet broadcast)
       netpaw-cli routes                             IPv4 route table with interface names
       netpaw-cli trace <host> [--max N]             traceroute (ICMP TTL, no elevation); rc 1 when the target never answers
+      netpaw-cli diagnose <ip[:port]> [-a X] [--via <router far-side ip>]   why can one address on this cable reach it and another not? route → gateway → hop 1 → far side → target, per source, with a verdict
       netpaw-cli check <host:port> [--timeout ms]   one TCP connect: open / refused / timeout (rc 0/1/2, 3 = unresolved)
                                               make <ip> reachable: pick a covering profile, else a preset,
                                               else add a temporary secondary in the assumed /24
@@ -227,6 +228,26 @@ try
             foreach (var r in NetPaw.Planning.RouteTable.ReadAll(svc.Runner).OrderBy(r => r.Prefix == "0.0.0.0/0" ? 0 : 1).ThenBy(r => r.Prefix))
                 Console.WriteLine($"{r.Prefix,-20} {r.Gateway ?? "on-link",-16} {all.FirstOrDefault(a => a.Index == r.InterfaceIndex)?.Name ?? r.InterfaceName,-24} {r.Metric,5}  {r.Type}");
             return 0;
+        }
+        case "diagnose":
+        {
+            if (argv.Count < 2) return Fail("diagnose needs an IPv4 target, e.g. 192.168.0.20 or 192.168.0.20:445");
+            var via = Opt("--via");
+            var spec = argv[1]; int? port = null; var host = spec;
+            if (NetPaw.Connectivity.PortCheck.TryParse(spec, out var h2, out var p2)) { host = h2; port = p2; }
+            if (!NetPaw.Net.IpMath.IsIPv4(host)) return Fail("diagnose takes an IPv4 address (resolve names first: the question is the path, not DNS)");
+            if (via is not null && !NetPaw.Net.IpMath.IsIPv4(via)) return Fail("--via takes the router's IPv4 address in the target's network");
+            var adapter = svc.ResolveAdapter(adapterName);
+            var sources = adapter.Addresses.Where(a => !a.Address.StartsWith("169.254.")).ToList();
+            if (sources.Count == 0) return Fail($"{adapter.Name} has no IPv4 address");
+            Console.Error.WriteLine($"diagnosing {host}{(port is { } pp ? ":" + pp : "")} from {sources.Count} address(es) on {adapter.Name}{(via is null ? " (no --via: router policy and target return path cannot be told apart)" : $", far side {via}")}…");
+            var routes = NetPaw.Planning.RouteTable.ReadAll(svc.Runner);
+            var prober = new NetPaw.Connectivity.WindowsSourceProber(new NetPaw.Arp.WindowsArpProvider());
+            var progress = new Progress<NetPaw.Connectivity.DiagStep>(st => Console.WriteLine($"{st.Source,-16} {st.Check,-13} {(st.Ok switch { true => "ok  ", false => "FAIL", _ => "-   " })} {st.Detail}"));
+            var rep = NetPaw.Connectivity.PathDiagnosis.Run(host, port, adapter, sources, routes, via, prober, progress: progress).GetAwaiter().GetResult();
+            Console.WriteLine();
+            foreach (var l in rep.Conclusions) Console.WriteLine(l);
+            return rep.AnyReachable && rep.Sources.All(x => x.Verdict is NetPaw.Connectivity.DiagVerdict.Reachable or NetPaw.Connectivity.DiagVerdict.IcmpFiltered) ? 0 : 1;
         }
         case "trace":
         {

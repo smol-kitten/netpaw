@@ -137,10 +137,10 @@ public class IntentHandlerTests
     public void Delete_route_needs_a_prefix_and_an_ipv4_gateway()
     {
         var r = Make();
-        Assert.True(r.Handler.Handle(Req(RequestKind.DeleteRoute) with { RoutePrefix = "10.0.0.0/8", RouteGateway = "192.168.1.254" }, "u", privileged: true).Ok);
+        Assert.True(r.Handler.Handle(Req(RequestKind.DeleteRoute) with { RoutePrefix = "10.0.0.0/8", RouteGateway = "192.168.1.254" }, "u", Tier.Admin).Ok);
         Assert.Contains(r.Runner.Ran, s => s.Arguments.Contains("delete route prefix=10.0.0.0/8 interface=7 nexthop=192.168.1.254"));
-        Assert.False(r.Handler.Handle(Req(RequestKind.DeleteRoute) with { RoutePrefix = "10.0.0.0" }, "u", privileged: true).Ok);
-        Assert.False(r.Handler.Handle(Req(RequestKind.DeleteRoute) with { RoutePrefix = "10.0.0.0/8", RouteGateway = "x y" }, "u", privileged: true).Ok);
+        Assert.False(r.Handler.Handle(Req(RequestKind.DeleteRoute) with { RoutePrefix = "10.0.0.0" }, "u", Tier.Admin).Ok);
+        Assert.False(r.Handler.Handle(Req(RequestKind.DeleteRoute) with { RoutePrefix = "10.0.0.0/8", RouteGateway = "x y" }, "u", Tier.Admin).Ok);
     }
 
     [Fact]
@@ -229,7 +229,8 @@ public class IntentHandlerTests
         var req = Req(kind) with { RoutePrefix = "203.0.113.0/24", RouteGateway = "192.168.1.254" };
         Assert.StartsWith(kind + " needs", r.Handler.Handle(req, "u", privileged: false).Error);
         Assert.Empty(r.Runner.Ran);
-        Assert.True(r.Handler.Handle(req, "u", privileged: true).Ok);
+        // DeleteRoute is Admin-only by default (operator 2026-10-29); the other three are NCO.
+        Assert.True(r.Handler.Handle(req, "u", kind == RequestKind.DeleteRoute ? Tier.Admin : Tier.NetworkConfigOperators).Ok);
     }
 
     [Fact]
@@ -361,8 +362,9 @@ public class IntentHandlerTests
         // Dhcp tightened to Admin: an NCO caller is now denied, an Admin caller is allowed.
         Assert.False(h.Handle(Req(RequestKind.Dhcp), "u", Tier.NetworkConfigOperators).Ok);
         Assert.True(h.Handle(Req(RequestKind.Dhcp), "a", Tier.Admin).Ok);
-        // DeleteRoute keeps its NCO default: a StandardUser is denied through the tier overload.
+        // DeleteRoute defaults to Admin (operator 2026-10-29): StandardUser and NCO are denied through the tier overload.
         Assert.False(h.Handle(Req(RequestKind.DeleteRoute) with { RoutePrefix = "10.0.0.0/8" }, "u", Tier.StandardUser).Ok);
+        Assert.Contains("needs tier Admin", h.Handle(Req(RequestKind.DeleteRoute) with { RoutePrefix = "10.0.0.0/8" }, "u", Tier.NetworkConfigOperators).Error);
     }
 }
 
