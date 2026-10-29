@@ -33,9 +33,14 @@ if ip link show "$BRIDGE" >/dev/null 2>&1; then say "bridge|$BRIDGE|exists"; els
   stamp=$(date +%Y%m%d-%H%M%S); bak="/etc/network/interfaces.bak-$stamp"
   if ! grep -q "^iface $BRIDGE " /etc/network/interfaces; then
     run cp -a /etc/network/interfaces "$bak"
+    # orchestrator 2026-10-29: this ifupdown2 (3.3.0+pmx12) has no 'ifquery --syntax-check', and 'ifup --syntax-check'
+    # already exits 1 on the existing file (vmbr0 bridge-fd 0 warning). So the check is DIFFERENTIAL: parse before and
+    # after; any NEW 'error:' line, or any new warning other than this bridge's bridge-fd range, fails and restores.
+    base_chk=$(ifup -a --syntax-check 2>&1 | sort || true)
     run bash -c "printf '\nauto %s\niface %s inet manual\n\tbridge-ports none\n\tbridge-stp off\n\tbridge-fd 0\n\t# NetPaw harness test network (PLAN-G11a): no uplink, peer LXC %s + disposable clones only\n' '$BRIDGE' '$BRIDGE' '$PEER' >> /etc/network/interfaces"
     if (( APPLY )); then
-      if ! ifquery -a --syntax-check >/dev/null 2>&1; then cp -a "$bak" /etc/network/interfaces; say "bridge|$BRIDGE|FAILED syntax check; /etc/network/interfaces restored from $bak"; exit 1; fi
+      new_lines=$(comm -13 <(printf '%s\n' "$base_chk") <(ifup -a --syntax-check 2>&1 | sort || true) | grep -v "^warning: $BRIDGE: bridge-fd: value of out range" || true)
+      if [[ -n "$new_lines" ]]; then cp -a "$bak" /etc/network/interfaces; say "bridge|$BRIDGE|FAILED syntax check ($new_lines); /etc/network/interfaces restored from $bak"; exit 1; fi
       say "bridge|syntax-check|ok (backup $bak)"
     else echo "PLAN| ifquery -a --syntax-check   (restore $bak and stop on failure)"; fi
   fi
@@ -54,7 +59,7 @@ fi
 
 # ---- 3. roles, user, token, ACLs (least privilege: pool-scoped VM rights + allocate on local-lvm only) --------------
 if pveum role list --output-format json | grep -q "\"roleid\":\"$ROLE\""; then say "role|$ROLE|exists"; else
-  run pveum role add "$ROLE" -privs "VM.Clone,VM.Allocate,VM.PowerMgmt,VM.Audit,VM.Monitor,VM.Console"
+  run pveum role add "$ROLE" -privs "VM.Clone,VM.Allocate,VM.PowerMgmt,VM.Audit,VM.GuestAgent.Audit,VM.Console,Pool.Audit"   # Pool.Audit: the stale-clone sweep lists the pool (GET /pools is 403 without it)
   say "role|$ROLE|$([[ $APPLY == 1 ]] && echo created || echo 'would create')"
 fi
 if pveum role list --output-format json | grep -q "\"roleid\":\"$STOROLE\""; then say "role|$STOROLE|exists"; else
@@ -82,10 +87,14 @@ if pct status "$PEER" >/dev/null 2>&1; then say "peer|$PEER|exists"; else
       --net0 "name=eth0,bridge=$BRIDGE,ip=$PEER_IP/24" --unprivileged 1 --features nesting=0 --onboot 0 --pool "$POOL" \
       --description "NetPaw harness peer (PLAN-G11a): dnsmasq DHCP+DNS on $PEER_NET, smbclient for the remote-pipe test. No uplink."
   if (( APPLY )); then
-    pct start "$PEER"; sleep 8
+    # orchestrator 2026-10-29: the test bridge has no uplink, so packages come over a TEMPORARY LAN NIC (net1),
+    # which is removed again once the peer is stopped. End state = peer on vmbr-nptest only, as planned.
+    pct set "$PEER" --net1 "name=eth1,bridge=vmbr0,ip=dhcp,firewall=1"
+    pct start "$PEER"; sleep 12
     pct exec "$PEER" -- bash -c "apt-get -qq update && DEBIAN_FRONTEND=noninteractive apt-get -qq install -y dnsmasq smbclient samba-common-bin >/dev/null"
     pct exec "$PEER" -- bash -c "printf 'interface=eth0\nbind-interfaces\ndhcp-range=$DHCP_RANGE\ndhcp-option=option:router,$PEER_IP\ndhcp-option=option:dns-server,$PEER_IP\naddress=/peer.nptest/$PEER_IP\nlog-dhcp\n' > /etc/dnsmasq.d/nptest.conf && systemctl restart dnsmasq && systemctl is-active dnsmasq"
     pct stop "$PEER"
+    pct set "$PEER" --delete net1
     say "peer|$PEER|created (dnsmasq on $PEER_NET, stopped; the driver starts and stops it per run)"
   else say "peer|$PEER|would create"; fi
 fi
