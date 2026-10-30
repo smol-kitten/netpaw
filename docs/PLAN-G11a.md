@@ -88,13 +88,21 @@ Chosen: **B**. A is the fallback for the spike's own measurements only, inside t
 server with the driver's key, BitLocker device encryption prevented in the specialize pass, one
 autologon for the first-logon commands only), `clone-unattend.xml` (the sysprep pass every clone boots
 through: new SID, random name, no OOBE, no autologon, sshd on), `make-unattend-iso.sh` (fills the two
-placeholders from the vault keys `pve.harness_vm_password` and `pve.harness_ssh_pub` in a private temp
-dir, builds `netpaw-harness-unattend.iso`, uploads it to pve), `build-template.sh` (on pve: phases
-`create` → `install` → `evidence` → `template`; mirrors VM 150's hardware, waits for ssh, prints
+placeholders from the vault keys `pve.harness_vm_password` and `pve.harness_ssh_pub` through
+`vault.py exec` → environment → `fill-unattend.py`, never argv and never `--reveal`, in a private temp
+dir, builds `netpaw-harness-unattend.iso`, uploads it to pve; `--selftest` proves the real values are
+used by comparing len/sha8 with the vault metadata and builds the ISO without uploading),
+`run-template-build.sh` (on the claude box: stages the driver's private key to `pve:/root/.ssh/netpaw-harness`
+from the vault via environment and verifies its sha8, stages `clone-unattend.xml` to
+`pve:/root/netpaw-harness/`, builds the ISO, runs `build-template.sh` over ssh; its trap removes the key from
+pve on any exit), `build-template.sh` (on pve: phases `create` → `install` → `evidence` → `template`;
+mirrors VM 150's hardware, waits for ssh, copies `clone-unattend.xml` to `C:\harness` by the ISO's volume
+label HARNESS (scp from pve as fallback) BEFORE the unattend ISO is detached and deleted, prints
 `RESULT|evidence|…` incl. `Get-BitLockerVolume`, then `sysprep /generalize /oobe /shutdown` with
-`clone-unattend.xml`, detaches the ISOs, `qm template 9160`). The driver's ssh key pair is
+`C:\harness\clone-unattend.xml`, detaches the ISOs, `qm template 9160`). The driver's ssh key pair is
 `pve.harness_ssh_key` / `pve.harness_ssh_pub` in the vault. No secret is in git; nothing runs before
-step 2 is applied.
+step 2 is applied. Run: `tools/harness/make-unattend-iso.sh --selftest` first, then
+`tools/harness/run-template-build.sh all` inside the window (needs `genisoimage` on the claude box).
 ## Step 2 commands (reviewed before they run)
 
 `tools/pve-harness-setup.sh` holds every pve change of step 2 as code. It runs on pve as root, dry-run
