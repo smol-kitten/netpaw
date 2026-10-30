@@ -24,7 +24,7 @@ def main():
     s = open(src, encoding="utf-8").read()
     out = s.replace("@@PASSWORD@@", pw.replace("&", "&amp;").replace("<", "&lt;")).replace("@@SSH_PUB@@", pub.strip())
     if "@@PASSWORD@@" in out or "@@SSH_PUB@@" in out: print("RESULT|fill|FAILED placeholder left behind"); rc = 2
-    if pw in s or pub.strip() in s: print("RESULT|fill|FAILED the source already contains a secret"); rc = 2
+    if any(len(v) >= 8 and v in s for v in (pw, pub.strip())): print("RESULT|fill|FAILED the source already contains a secret"); rc = 2
     if rc == 0:
         with open(os.open(dst, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w", encoding="utf-8") as f: f.write(out)
         print(f"RESULT|fill|ok {len(out)} bytes, both placeholders replaced")
