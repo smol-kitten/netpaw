@@ -103,6 +103,11 @@ label HARNESS (scp from pve as fallback) BEFORE the unattend ISO is detached and
 `pve.harness_ssh_key` / `pve.harness_ssh_pub` in the vault. No secret is in git; nothing runs before
 step 2 is applied. Run: `tools/harness/make-unattend-iso.sh --selftest` first, then
 `tools/harness/run-template-build.sh all` inside the window (needs `genisoimage` on the claude box).
+Recovery: the install phase waits up to 60 min over one ssh session from the claude box; an ssh drop or a
+claude-box restart kills `build-template.sh` mid-phase, and the VM keeps installing on its own. Rerun the phase
+that was running — `run-template-build.sh install` (or `evidence`, `template`) — which re-stages the key and
+resumes; `create` is idempotent (`exists`). The staged key is removed three ways: the driver's trap, the end of
+the template phase on pve, and a transient pve timer 6 h after staging (`netpaw-harness-key-rm`).
 ## Step 2 commands (reviewed before they run)
 
 `tools/pve-harness-setup.sh` holds every pve change of step 2 as code. It runs on pve as root, dry-run

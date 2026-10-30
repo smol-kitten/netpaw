@@ -17,6 +17,10 @@ exp=$(python3 "$V" get pve.harness_ssh_key | grep -o 'sha8=[0-9a-f]*' | head -1)
 python3 "$V" exec pve.harness_ssh_key:K -- sh -c 'printf "%s\n" "$K" | ssh -o BatchMode=yes "$0" "umask 077; mkdir -p /root/.ssh; cat > /root/.ssh/netpaw-harness"' "$PVE"
 got=$($S 'python3 -c "import hashlib,sys; print(hashlib.sha256(open(\"/root/.ssh/netpaw-harness\").read().rstrip(\"\\n\").encode()).hexdigest()[:8])"')
 [[ "sha8=$got" == "$exp" ]] && echo "RESULT|key|staged on pve, $exp matches the vault" || { echo "RESULT|key|FAILED staged key sha8=$got != vault $exp"; exit 2; }
+# Backstop for a dead claude box (hard kill, reboot, claude-service restart): a TRANSIENT pve-side timer removes the
+# key 6 h after staging whatever happened here. No persistent host config; a rerun re-stages and re-arms it.
+$S 'systemctl stop netpaw-harness-key-rm.timer 2>/dev/null; systemd-run --quiet --unit=netpaw-harness-key-rm --on-active=6h --timer-property=AccuracySec=1min rm -f /root/.ssh/netpaw-harness' \
+  && echo "RESULT|key|backstop: pve removes it in 6 h (transient unit netpaw-harness-key-rm)" || echo "RESULT|key|backstop timer not armed (systemd-run failed); the trap and the template phase still remove it"
 # 2. clone-unattend.xml for the scp fallback in the install phase
 $S 'mkdir -p /root/netpaw-harness'; scp -q -o BatchMode=yes "$here/clone-unattend.xml" "$PVE:/root/netpaw-harness/clone-unattend.xml"
 echo "RESULT|stage|clone-unattend.xml on pve:/root/netpaw-harness/"

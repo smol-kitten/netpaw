@@ -76,4 +76,7 @@ if [[ $phase == template || $phase == all ]]; then
   qm set $VMID --delete ide0 --delete ide2 --delete sata0 --boot order=scsi0 >/dev/null
   qm template $VMID
   say "template|$VMID|generalised and converted $(date -u +%T); $(lvs pve/data -o data_percent --noheadings | tr -d ' ')% thin pool"
+  # The driver's trap on the claude box removes the staged key too; this is the pve-side copy of that promise, so a
+  # dead claude box after a finished build does not leave the key here.
+  rm -f "$SSHKEY"; say "template|key|$([[ -e $SSHKEY ]] && echo "FAILED still at $SSHKEY" || echo "removed from pve")"
 fi
