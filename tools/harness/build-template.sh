@@ -8,7 +8,8 @@
 #   phase template : sysprep /generalize /oobe /shutdown with clone-unattend.xml, detach ISOs, qm template 9160
 set -euo pipefail
 VMID=9160; NAME=netpaw-win11-tpl; WIN_ISO=local:iso/Windows_11_02.11.2024.iso; VIRTIO_ISO=local:iso/virtio-win.iso; UNATTEND_ISO=local:iso/netpaw-harness-unattend.iso
-BRIDGE_MGMT=vmbr0; BRIDGE_TEST=vmbr-nptest; SSHKEY=${SSHKEY:-/root/.ssh/netpaw-harness}   # private key copied here from the vault for the run, removed after
+BRIDGE_MGMT=vmbr0; BRIDGE_TEST=vmbr-nptest; SSHKEY=${SSHKEY:-/root/.ssh/netpaw-harness}   # staged by run-template-build.sh (claude box) for the run; its trap removes it
+[[ -s "$SSHKEY" ]] || { echo "RESULT|gate|refused:no driver key at $SSHKEY (run tools/harness/run-template-build.sh from the claude box, it stages it)"; exit 3; }
 phase=${1:-all}
 say() { echo "RESULT|$*"; }
 load1=$(cut -d' ' -f1 /proc/loadavg); (( $(echo "$load1 >= 20" | bc -l) )) && { say "gate|refused:load $load1"; exit 3; }
@@ -36,6 +37,16 @@ try:
 except Exception: pass' 2>/dev/null | head -1); [[ -n "$ip" ]] && ssh -o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=no -i "$SSHKEY" harness@"$ip" 'hostname' >/dev/null 2>&1 && break; sleep 15; done
   [[ -n "$ip" ]] || { say "install|$VMID|FAILED no ssh after 60 min"; exit 1; }
   say "install|$VMID|ssh up at $ip after $((i*15)) s"; echo "$ip" > /root/netpaw-tpl.ip
+  # clone-unattend.xml must be on C: BEFORE the unattend ISO goes away (the template phase needs it for sysprep).
+  # The CD letter is not fixed (ide2/ide0/sata0 order), so find it by the ISO's volume label; scp from pve as fallback.
+  S="ssh -o BatchMode=yes -o StrictHostKeyChecking=no -i $SSHKEY harness@$ip"
+  bytes=$($S 'New-Item -ItemType Directory -Force C:\harness | Out-Null; $d = (Get-Volume -FileSystemLabel HARNESS -ErrorAction SilentlyContinue).DriveLetter; if ($d) { Copy-Item "${d}:\clone-unattend.xml" C:\harness\clone-unattend.xml -Force }; if (Test-Path C:\harness\clone-unattend.xml) { (Get-Item C:\harness\clone-unattend.xml).Length } else { 0 }' | tr -d '\r' || echo 0)
+  if [[ ${bytes:-0} -eq 0 && -s /root/netpaw-harness/clone-unattend.xml ]]; then
+    scp -q -o BatchMode=yes -o StrictHostKeyChecking=no -i "$SSHKEY" /root/netpaw-harness/clone-unattend.xml "harness@$ip:C:/harness/clone-unattend.xml" && bytes=$($S '(Get-Item C:\harness\clone-unattend.xml).Length' | tr -d '\r' || echo 0)
+    say "install|clone-unattend|copied by scp from pve (no HARNESS volume seen in the guest)"
+  fi
+  [[ ${bytes:-0} -gt 0 ]] || { say "install|clone-unattend|FAILED not on C:\harness; unattend ISO left attached for a retry"; exit 1; }
+  say "install|clone-unattend|staged C:\harness\clone-unattend.xml bytes=$bytes"
   # The filled unattend ISO holds the local admin password in clear text: gone from pve as soon as setup is done (m-8466).
   qm set $VMID --delete ide0 >/dev/null 2>&1 || true
   rm -f /var/lib/vz/template/iso/netpaw-harness-unattend.iso
@@ -56,7 +67,9 @@ if [[ $phase == evidence || $phase == all ]]; then
 fi
 if [[ $phase == template || $phase == all ]]; then
   ip=$(cat /root/netpaw-tpl.ip); S="ssh -o BatchMode=yes -o StrictHostKeyChecking=no -i $SSHKEY harness@$ip"
-  $S 'New-Item -ItemType Directory -Force C:\harness | Out-Null; Copy-Item E:\clone-unattend.xml C:\harness\clone-unattend.xml -Force; Get-Item C:\harness\clone-unattend.xml | Select-Object -ExpandProperty Length' | tr -d '\r' | sed 's/^/RESULT|template|clone-unattend bytes=/'
+  bytes=$($S 'if (Test-Path C:\harness\clone-unattend.xml) { (Get-Item C:\harness\clone-unattend.xml).Length } else { 0 }' | tr -d '\r' || echo 0)
+  [[ ${bytes:-0} -gt 0 ]] || { say "template|clone-unattend|FAILED C:\harness\clone-unattend.xml missing (install phase stages it)"; exit 1; }
+  say "template|clone-unattend|bytes=$bytes"
   $S 'Start-Process C:\Windows\System32\Sysprep\sysprep.exe -ArgumentList "/generalize /oobe /shutdown /unattend:C:\harness\clone-unattend.xml"' || true
   for i in $(seq 1 80); do qm status $VMID | grep -q stopped && break; sleep 15; done
   qm status $VMID | grep -q stopped || { say "template|$VMID|FAILED sysprep did not shut down in 20 min"; exit 1; }
