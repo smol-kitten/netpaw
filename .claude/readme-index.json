@@ -8,7 +8,7 @@
  ],
  "type_confident": false,
  "type_override": null,
- "scanned_ts": 1793067182,
+ "scanned_ts": 1793325079,
  "sections": [
   {
    "title": "\u2728 Features",
@@ -81,5 +81,5 @@
    "msg": "`powershell` \u2014 not on PATH here (fine if users install it)"
   }
  ],
- "verified_ts": 1793067182
+ "verified_ts": 1793325079
 }
