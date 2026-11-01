@@ -111,7 +111,9 @@ the template phase on pve, and a transient pve timer 6 h after staging (`netpaw-
 Measured, slot 2 (2026-11-01 01:35Z, head 2929ea8): `make-unattend-iso.sh --selftest` PASSED — PW len=22,
 PUB len=102, both sha8 match the vault meta, fill 8994 B, ISO 385024 B. `run-template-build.sh all` did not start:
 the orchestrator's auto-mode classifier refused it (shared resources) and the protocol stops there; nothing was
-staged on pve. The driver needs a typed operator OK in the running session, which the next slot books in advance.
+staged on pve. The driver needs a typed operator OK in the running session, which the next slot books in advance. Slot 2 is
+void (grant expired 2026-11-01 06:01Z, nothing ran on pve). The next grant must name `run-template-build.sh`
+(the driver) as well as `make-unattend-iso.sh` and `build-template.sh`; the slot-2 grant named only the latter two.
 ## Step 2 commands (reviewed before they run)
 
 `tools/pve-harness-setup.sh` holds every pve change of step 2 as code. It runs on pve as root, dry-run
