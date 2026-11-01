@@ -108,6 +108,10 @@ claude-box restart kills `build-template.sh` mid-phase, and the VM keeps install
 that was running — `run-template-build.sh install` (or `evidence`, `template`) — which re-stages the key and
 resumes; `create` is idempotent (`exists`). The staged key is removed three ways: the driver's trap, the end of
 the template phase on pve, and a transient pve timer 6 h after staging (`netpaw-harness-key-rm`).
+Measured, slot 2 (2026-11-01 01:35Z, head 2929ea8): `make-unattend-iso.sh --selftest` PASSED — PW len=22,
+PUB len=102, both sha8 match the vault meta, fill 8994 B, ISO 385024 B. `run-template-build.sh all` did not start:
+the orchestrator's auto-mode classifier refused it (shared resources) and the protocol stops there; nothing was
+staged on pve. The driver needs a typed operator OK in the running session, which the next slot books in advance.
 ## Step 2 commands (reviewed before they run)
 
 `tools/pve-harness-setup.sh` holds every pve change of step 2 as code. It runs on pve as root, dry-run
