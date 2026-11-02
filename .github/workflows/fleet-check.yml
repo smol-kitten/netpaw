@@ -14,7 +14,7 @@ permissions:
 
 jobs:
   hygiene:
-    uses: workcollection/fleet-actions/.github/workflows/fleet-check.yml@v2.3.0
+    uses: workcollection/fleet-actions/.github/workflows/fleet-check.yml@v2.4.0
     with:
       runs-on: self-hosted
       strict: false
