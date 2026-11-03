@@ -56,3 +56,12 @@ intent, including Renew, up to Admin via policy; "never deny-all" is about the u
 promise that any intent stays available once policy raises it.)
 
 Every decision writes one audit line to the service log: caller user + tier, intent, required tier, allow/deny.
+The apply line names the adapter by alias and interface index (0.17, G5), the id is in the request and the
+journal, never on a command line:
+
+```
+corp-lab on Ethernet 2 (#7) for PC\anna (session 2): ok
+```
+
+A request without an adapter id (a client older than 0.17, or a name-only command) is marked in its own line:
+`adapter 'Ethernet 2' resolved by alias: the request carried no adapter id (…)`.

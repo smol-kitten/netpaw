@@ -62,6 +62,11 @@ netpaw-cli export 10-company-base.json --managed
 (schema: see README). Files load in name order, so `10-…` before `20-…`; a managed name wins over
 a user profile with the same name.
 
+**Adapter binding (0.17):** a managed profile binds by `adapterMac` and/or `adapter` (the alias). It
+carries no `adapterId`: that id (`NetCfgInstanceId`) differs on every machine, so a fleet file cannot
+know it; an `adapterId` in a managed file is ignored and logged. User profiles saved from the editor
+bind by id, which is why the editor's lint warns only on user profiles that name an alias alone.
+
 Deploy options:
 
 - **Intune platform script**: `deploy/intune/Deploy-NetPawProfiles.ps1` (run as SYSTEM). Paste the

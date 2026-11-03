@@ -39,6 +39,11 @@ minimum tier (`docs/policy.md`); a policy may raise or lower it within a hard fl
 ## Defended
 
 - A standard user cannot run anything as SYSTEM: there is no command-string path.
+- A renamed adapter cannot redirect a change (0.17): a request names the adapter by its persistent id
+  (`NetCfgInstanceId`) plus MAC, the service resolves the id against the live list and refuses when the
+  MAC differs or the id is absent; netsh steps address the interface by index, never by alias. The alias
+  is display only (preview, audit line). A 0.16 or older client speaks protocol v1, which the service
+  still answers for Status and refuses for every change ("upgrade the client").
 - A planted or user-owned managed profile is ignored (owner check on the handle, folder gate).
 - A squatter cannot pose as the service: the client checks the server PID against the Service Control
   Manager before it sends anything, so a foreign pipe is never talked to. The service also refuses to start
@@ -79,5 +84,3 @@ minimum tier (`docs/policy.md`); a policy may raise or lower it within a hard fl
   possible DNS leak on dual-stack networks). IPv6 support is on the 1.0 roadmap (`docs/PLAN-v1.0.md`).
 - No automatic rollback yet: if an apply cuts the connection the UI sits on, use *Reset adapter* or the
   previous profile. A commit-confirmed rollback is planned (0.17).
-- Adapters are addressed by name in requests. A Network Configuration Operator can rename an adapter;
-  persistent-ID targeting is planned (0.17).
