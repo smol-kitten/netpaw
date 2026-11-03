@@ -621,7 +621,8 @@ try
                     "WorkAdapter" => pol.WorkAdapter, "PanelHotkey" => pol.PanelHotkey, "ConfirmBeforeApply" => pol.ConfirmBeforeApply?.ToString(),
                     "RepoUrls" => string.Join(" ", pol.RepoUrls), "AllowUserProfiles" => pol.AllowUserProfiles.ToString(), "AllowUserRepos" => pol.AllowUserRepos.ToString(),
                     "AllowReach" => pol.AllowReach.ToString(), "AllowTempAddresses" => pol.AllowTempAddresses.ToString(), "AllowDhcp" => pol.AllowDhcp.ToString(), "AllowUnsignedRepos" => pol.AllowUnsignedRepos.ToString(),
-                    "AllowTelemetry" => pol.AllowTelemetry.ToString(), "AllowAutoSwitch" => pol.AllowAutoSwitch.ToString(), "AllowScan" => pol.AllowScan.ToString(), "AllowCapture" => pol.AllowCapture.ToString(), "AllowUpdateCheck" => pol.AllowUpdateCheck.ToString(), _ => pol.AllowIntentWatch.ToString(),
+                    "AllowTelemetry" => pol.AllowTelemetry.ToString(), "AllowAutoSwitch" => pol.AllowAutoSwitch.ToString(), "AllowScan" => pol.AllowScan.ToString(), "AllowCapture" => pol.AllowCapture.ToString(), "AllowUpdateCheck" => pol.AllowUpdateCheck.ToString(), "AllowCatWingetUpdate" => pol.AllowCatWingetUpdate.ToString(),
+                    "CommitConfirmMinSeconds" => pol.CommitConfirmMinSeconds?.ToString(), _ => pol.AllowIntentWatch.ToString(),
                 };
                 Console.WriteLine($"{k,-20} {v,-40} {(pol.IsSet(k) ? "(policy)" : "(default)")}");
             }

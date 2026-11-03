@@ -30,14 +30,15 @@ public sealed record Policy(
     bool AllowUpdateCheck,
     bool AllowIntentWatch,
     bool AllowCatWingetUpdate,
+    int? CommitConfirmMinSeconds,
     IReadOnlySet<string> SetKeys)
 {
-    public static readonly Policy None = new(null, null, null, [], true, true, true, true, true, true, true, true, true, true, true, true, true, new HashSet<string>());
+    public static readonly Policy None = new(null, null, null, [], true, true, true, true, true, true, true, true, true, true, true, true, true, null, new HashSet<string>());
     public bool IsSet(string key) => SetKeys.Contains(key);
     public bool Any => SetKeys.Count > 0;
 
     public const string KeyPath = @"SOFTWARE\Policies\NetPaw";
-    public static readonly string[] Keys = ["WorkAdapter", "PanelHotkey", "ConfirmBeforeApply", "RepoUrls", "AllowUserProfiles", "AllowUserRepos", "AllowReach", "AllowTempAddresses", "AllowDhcp", "AllowUnsignedRepos", "AllowTelemetry", "AllowAutoSwitch", "AllowScan", "AllowCapture", "AllowUpdateCheck", "AllowIntentWatch", "AllowCatWingetUpdate"];
+    public static readonly string[] Keys = ["WorkAdapter", "PanelHotkey", "ConfirmBeforeApply", "RepoUrls", "AllowUserProfiles", "AllowUserRepos", "AllowReach", "AllowTempAddresses", "AllowDhcp", "AllowUnsignedRepos", "AllowTelemetry", "AllowAutoSwitch", "AllowScan", "AllowCapture", "AllowUpdateCheck", "AllowIntentWatch", "AllowCatWingetUpdate", "CommitConfirmMinSeconds"];
 }
 
 public static class PolicyReader
@@ -48,9 +49,10 @@ public static class PolicyReader
         string? S(string k) { var v = src.GetString(k); if (v is not null) set.Add(k); return v; }
         bool? B(string k) { var v = src.GetInt(k); if (v is null) return null; set.Add(k); return v != 0; }
         bool Allow(string k) => B(k) ?? true;
+        int? I(string k) { var v = src.GetInt(k); if (v is not null) set.Add(k); return v; }
         var urls = src.GetMulti("RepoUrls"); if (urls is not null) set.Add("RepoUrls");
         return new Policy(S("WorkAdapter"), S("PanelHotkey"), B("ConfirmBeforeApply"), urls?.Where(u => !string.IsNullOrWhiteSpace(u)).ToList() ?? [],
-            Allow("AllowUserProfiles"), Allow("AllowUserRepos"), Allow("AllowReach"), Allow("AllowTempAddresses"), Allow("AllowDhcp"), Allow("AllowUnsignedRepos"), Allow("AllowTelemetry"), Allow("AllowAutoSwitch"), Allow("AllowScan"), Allow("AllowCapture"), Allow("AllowUpdateCheck"), Allow("AllowIntentWatch"), Allow("AllowCatWingetUpdate"), set);
+            Allow("AllowUserProfiles"), Allow("AllowUserRepos"), Allow("AllowReach"), Allow("AllowTempAddresses"), Allow("AllowDhcp"), Allow("AllowUnsignedRepos"), Allow("AllowTelemetry"), Allow("AllowAutoSwitch"), Allow("AllowScan"), Allow("AllowCapture"), Allow("AllowUpdateCheck"), Allow("AllowIntentWatch"), Allow("AllowCatWingetUpdate"), I("CommitConfirmMinSeconds"), set);
     }
 
     public static Policy ReadMachine() => OperatingSystem.IsWindows() ? Read(new RegistryPolicySource()) : Policy.None;

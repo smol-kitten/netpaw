@@ -67,7 +67,7 @@ public static class ServiceProtocol
     }
 }
 
-public enum RequestKind { None, Status, ApplyProfile, Dhcp, Reach, ClearTemp, DeleteRoute, ResetAdapter, Renew, Release, Prefer, SetMtu, RevertLastApply, InstallUpdate, Listen }
+public enum RequestKind { None, Status, ApplyProfile, Dhcp, Reach, ClearTemp, DeleteRoute, ResetAdapter, Renew, Release, Prefer, SetMtu, RevertLastApply, InstallUpdate, Listen, ConfirmApply }
 
 /// <summary>One request: what the caller wants, never how. The service resolves the adapter against the live
 /// list, checks every value (<see cref="ProfileGuard"/>) and builds the commands itself.</summary>
@@ -102,6 +102,10 @@ public sealed record ServiceRequest(int V, RequestKind Kind)
     public bool? AllowDowngrade { get; init; }
     /// <summary>Listen: seconds to capture LLDP/CDP (10..120). The filter is fixed in the service; nothing else is captured.</summary>
     public int? Seconds { get; init; }
+    /// <summary>G4 (v2): ApplyProfile, Dhcp, Reach, RevertLastApply — ask the service to put the adapter back by itself unless a
+    /// <see cref="RequestKind.ConfirmApply"/> arrives within this many seconds (5..600; 0 or null = off). The service reverts earlier
+    /// when the applied gateway and DNS stop answering. Policy <c>CommitConfirmMinSeconds</c> raises a smaller request.</summary>
+    public int? ConfirmSeconds { get; init; }
 }
 
 public sealed record ServiceResponse(int V, bool Ok, string? Error = null, ServiceStatus? Status = null)
@@ -121,6 +125,11 @@ public sealed record ApplyReport(string Title, string Adapter, bool Success, boo
 {
     /// <summary>Keeps answers well under <see cref="ServiceProtocol.MaxLine"/>: command output is cut per step.</summary>
     public const int MaxOutput = 1024;
+    /// <summary>G4: null when no window was requested; true when the service armed one; false when it was requested but not armed (see
+    /// <see cref="ConfirmNotArmed"/>) — a script must read this, not <see cref="Success"/>, to know whether the change reverts on its own.</summary>
+    public bool? ConfirmArmed { get; init; }
+    /// <summary>G4: why a requested window was not armed (the apply failed, or the window file could not be written). Null otherwise.</summary>
+    public string? ConfirmNotArmed { get; init; }
 
     /// <summary>Flattens a plan and its outcome into the report the client sees (steps, exit codes, verify diffs).</summary>
     public static ApplyReport From(Planning.ApplyPlan plan, Planning.ApplyOutcome? outcome) => new(
@@ -134,7 +143,11 @@ public sealed record ApplyReport(string Title, string Adapter, bool Success, boo
 /// there, which build it is, who the service thinks is calling and at which tier (G12: the effective tier, as the
 /// policy gate will see it). <paramref name="Tier"/> is null from a service older than 0.16.</summary>
 /// <param name="LastApply">G13: what a RevertLastApply would undo ("DHCP on Ethernet 2 at 00:58 by …"), null when nothing is recorded.</param>
-public sealed record ServiceStatus(string Version, int ProtocolVersion, string Caller, int CallerSession, string? Tier = null, string? LastApply = null);
+public sealed record ServiceStatus(string Version, int ProtocolVersion, string Caller, int CallerSession, string? Tier = null, string? LastApply = null, PendingConfirm? PendingConfirm = null);
+
+/// <summary>G4: an apply the service will undo on its own unless it is confirmed — for the tray's countdown + Keep button and the CLI.</summary>
+/// <param name="Reason">"policy" when the window came from <c>CommitConfirmMinSeconds</c> rather than the request.</param>
+public sealed record PendingConfirm(string Adapter, int SecondsLeft, string Caller, string? Reason = null);
 
 /// <summary>Client side of the pipe, used by the tray and the CLI.</summary>
 public static class ServiceClient
