@@ -12,6 +12,10 @@ public static class ApplyPlanner
 {
     static string Q(string adapter) => "\"" + adapter + "\"";
 
+    /// <summary>netsh's "already on DHCP" message in the locales measured so far (en, de); other locales still report
+    /// the step as failed until their text is added here.</summary>
+    public static readonly string[] DhcpAlreadyEnabled = ["already enabled", "bereits aktiviert"];
+
     public static ApplyPlan Plan(Profile p, AdapterInfo adapter, VlanInfo? vlan = null)
     {
         if (!Ipc.ProfileGuard.IsSafeAdapterName(adapter.Name)) throw new InvalidOperationException($"adapter name '{adapter.Name}' contains characters that are not allowed.");
@@ -22,8 +26,10 @@ public static class ApplyPlanner
         if (p.Dhcp)
         {
             // Always issued, even if the snapshot says "already DHCP": snapshots go stale (a scan may have
-            // applied a static profile in between) and the command is idempotent.
-            plan.Steps.Add(Step.Netsh("Switch to DHCP", $"interface ipv4 set address name={n} source=dhcp"));
+            // applied a static profile in between). netsh is NOT idempotent here: on an adapter already on DHCP it
+            // exits 1 with "DHCP is already enabled on this interface" (VM-measured 2026-10-16, German build:
+            // "DHCP ist an dieser Schnittstelle bereits aktiviert"), which is a no-op, not a failure (t-561758).
+            plan.Steps.Add(Step.Netsh("Switch to DHCP", $"interface ipv4 set address name={n} source=dhcp", noopOutput: DhcpAlreadyEnabled));
             plan.Steps.Add(Step.Netsh("DNS from DHCP", $"interface ipv4 set dnsservers name={n} source=dhcp"));
         }
         else

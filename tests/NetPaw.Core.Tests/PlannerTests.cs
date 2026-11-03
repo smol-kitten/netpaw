@@ -42,6 +42,35 @@ public class PlannerTests
         Assert.Empty(already.Warnings);
     }
 
+    /// <summary>t-561758: netsh exits 1 on an adapter that is already on DHCP; that is a no-op, not a failed apply.</summary>
+    [Theory]
+    [InlineData("DHCP is already enabled on this interface.")]
+    [InlineData("DHCP ist an dieser Schnittstelle bereits aktiviert.")]
+    public void DhcpOnAnAdapterAlreadyOnDhcpIsANoopNotAFailure(string netshOutput)
+    {
+        var plan = ApplyPlanner.PlanDhcp(Fx.Adapter(dhcp: true));
+        var switchStep = plan.Steps.First(s => s.Arguments.Contains("set address"));
+        var r = new StepResult(switchStep, 1, netshOutput);
+        Assert.True(r.Ok);
+        Assert.True(r.AlreadyDone);
+        // A real failure on the same step is still a failure, and a success is not "already done".
+        Assert.False(new StepResult(switchStep, 1, "Access is denied.").Ok);
+        Assert.False(new StepResult(switchStep, 0, "Ok.").AlreadyDone);
+        // The DNS step has no such exemption.
+        Assert.False(new StepResult(plan.Steps.First(s => s.Arguments.Contains("dnsservers")), 1, netshOutput).Ok);
+
+        var outcome = PlanExecutor.Execute(plan, new OutputRunner(a => a.Contains("set address") ? (1, netshOutput) : (0, "Ok.")));
+        Assert.True(outcome.Success);
+        Assert.False(outcome.Aborted);
+        Assert.Empty(outcome.Failures);
+        Assert.Equal(2, outcome.Results.Count);
+    }
+
+    sealed class OutputRunner(Func<string, (int Exit, string Output)> answer) : IStepRunner
+    {
+        public StepResult Run(Step step) { var (e, o) = answer(step.Arguments); return new StepResult(step, e, o); }
+    }
+
     [Fact]
     public void RoutesMetricSuffixAndVlan()
     {
