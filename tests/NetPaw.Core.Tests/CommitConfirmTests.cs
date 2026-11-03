@@ -28,6 +28,9 @@ public class CommitConfirmTests
         public readonly FakeLiveness Live = new();
         public readonly List<string> Log = [];
         public DateTimeOffset Now = new(2026, 11, 3, 8, 0, 0, TimeSpan.Zero);
+        /// <summary>The in-process clock (ms); Ticks advances both, a test that moves only Now simulates a wall-clock jump.</summary>
+        public long Mono = 1_000_000;
+        public Adapters Nics = null!;
         public IntentHandler Handler;
         public Rig(Dictionary<string, object>? storePolicy = null, Dictionary<PolicyIntent, Tier>? tiers = null) => Handler = NewHandler(settleMs: 0, storePolicy, tiers);
 
@@ -36,10 +39,11 @@ public class CommitConfirmTests
         {
             // the adapter is on DHCP before every apply, so the revert of a static profile is one DHCP plan: "set address ... source=dhcp"
             // plus the DNS step (#145: both are always issued); Reverts counts the address step, one per revert
-            var svc = new NetPawService(new JsonStore(Path.Combine(Dir, "service")), new Adapters(Fx.Adapter(dhcp: true, gw: "192.168.1.1")), new FakeVlan(false), Runner,
+            Nics ??= new Adapters(Fx.Adapter(dhcp: true, gw: "192.168.1.1"));
+            var svc = new NetPawService(new JsonStore(Path.Combine(Dir, "service")), Nics, new FakeVlan(false), Runner,
                 new MachineStore(Path.Combine(Dir, "profiles.d")), () => PolicyReader.Read(new DictionaryPolicySource(storePolicy ?? [])));
             var policy = tiers is null ? null : new PolicyTiers(new TierSource(tiers), Path.Combine(Dir, "service", "policy.cache.json"), Log.Add);
-            return new IntentHandler(svc, Path.Combine(Dir, "service"), Log.Add, settleMs: settleMs, policy: policy, liveness: Live) { Clock = () => Now };
+            return new IntentHandler(svc, Path.Combine(Dir, "service"), Log.Add, settleMs: settleMs, policy: policy, liveness: Live) { Clock = () => Now, Monotonic = () => Mono };
         }
 
         public ServiceResponse Apply(int? confirm = 30, Tier tier = Tier.StandardUser, string? gw = "192.168.1.1", bool dns = true, string caller = "PC\\anna (session 2)")
@@ -51,7 +55,9 @@ public class CommitConfirmTests
             Handler.Handle(new ServiceRequest(ServiceProtocol.Version, RequestKind.ConfirmApply) { AdapterId = id }, "PC\\bob (session 3)", tier);
         public int Reverts => Runner.Ran.Count(s => s.Arguments.Contains("set address") && s.Arguments.Contains("source=dhcp"));
         public bool Armed => File.Exists(Handler.PendingPath);
-        public void Ticks(int n, int stepSeconds = 2) { for (var i = 0; i < n; i++) { Now = Now.AddSeconds(stepSeconds); Handler.Tick(); } }
+        public void Ticks(int n, int stepSeconds = 2) { for (var i = 0; i < n; i++) { Now = Now.AddSeconds(stepSeconds); Mono += stepSeconds * 1000L; Handler.Tick(); } }
+        public ServiceResponse Send(RequestKind kind, Tier tier = Tier.StandardUser, int? confirm = null) =>
+            Handler.Handle(new ServiceRequest(ServiceProtocol.Version, kind) { Adapter = "Ethernet", ConfirmSeconds = confirm }, "PC\\carl (session 4)", tier);
     }
 
     [Fact]
@@ -60,6 +66,7 @@ public class CommitConfirmTests
         var r = new Rig();
         var resp = r.Apply(30);
         Assert.True(resp.Ok, resp.Error); Assert.True(r.Armed); Assert.Equal(0, r.Reverts);
+        Assert.True(resp.Apply!.ConfirmArmed); Assert.Null(resp.Apply.ConfirmNotArmed);
         Assert.Contains(r.Log, l => l.Contains("armed commit-confirm: 30 s on Ethernet (#7) for PC\\anna") && l.Contains("probes: gateway 192.168.1.1, dns 1.1.1.1"));
         var w = r.Handler.ArmedWindow()!;
         Assert.Equal(("Ethernet", 30, "PC\\anna (session 2)"), (w.Adapter, w.SecondsLeft, w.Caller)); Assert.Null(w.Reason);
@@ -120,7 +127,8 @@ public class CommitConfirmTests
     {
         var r = new Rig();
         Assert.True(r.Apply(30).Ok);
-        Assert.True(r.Apply(confirm: null).Ok);                 // the second apply carries no window
+        var plain = r.Apply(confirm: null);                     // the second apply carries no window
+        Assert.True(plain.Ok); Assert.Null(plain.Apply!.ConfirmArmed);
         Assert.False(r.Armed);
         Assert.Contains(r.Log, l => l.Contains("commit-confirm window on Ethernet ('lab' by PC\\anna (session 2)) cancelled by a new apply"));
         r.Ticks(20);
@@ -249,5 +257,158 @@ public class CommitConfirmTests
         r.Ticks(6);
         Assert.Contains(r.Runner.Ran, s => s.Arguments.Contains("source=static address=192.168.1.10"));
         Assert.False(r.Armed);
+    }
+
+    // ---- review of #153 ------------------------------------------------------------------------------------------
+
+    [Fact]
+    public void A_renew_on_the_armed_adapter_keeps_the_window_and_the_timeout_still_reverts()
+    {
+        // The case the feature exists for: a bad apply, the user clicks Renew to get the network back; the window and its snapshot must survive that.
+        var r = new Rig();
+        Assert.True(r.Apply(30).Ok);
+        foreach (var kind in new[] { RequestKind.Renew, RequestKind.Release, RequestKind.ResetAdapter, RequestKind.Prefer })
+        {
+            var resp = r.Send(kind, Tier.NetworkConfigOperators);
+            Assert.True(resp.Ok, $"{kind}: {resp.Error}"); Assert.True(r.Armed, kind.ToString());
+        }
+        Assert.DoesNotContain(r.Log, l => l.Contains("cancelled by"));
+        Assert.Equal(30, r.Handler.ArmedWindow()!.SecondsLeft);
+        r.Ticks(16);
+        Assert.Equal(1, r.Reverts); Assert.False(r.Armed);
+        Assert.Contains(r.Log, l => l.Contains("commit-confirm timeout: reverting 'lab'"));
+    }
+
+    [Fact]
+    public void A_lower_tier_intent_cannot_remove_a_window_its_caller_may_not_confirm()
+    {
+        var r = new Rig(tiers: new() { [PolicyIntent.ApplyProfile] = Tier.NetworkConfigOperators });
+        Assert.True(r.Apply(30, Tier.NetworkConfigOperators).Ok);
+        Assert.False(r.Confirm(Tier.StandardUser).Ok);
+        Assert.True(r.Send(RequestKind.Renew, Tier.StandardUser).Ok);   // Renew is StandardUser by default and runs; the window is not its to drop
+        Assert.True(r.Armed);
+        Assert.True(r.Send(RequestKind.Dhcp, Tier.NetworkConfigOperators).Ok);   // a kind that arms windows itself replaces it (new pre-state)
+        Assert.False(r.Armed);
+        Assert.Contains(r.Log, l => l.Contains("cancelled by a new apply ('DHCP'"));
+    }
+
+    [Fact]
+    public void A_half_written_pending_file_is_kept_aside_reported_once_and_does_not_stop_the_service()
+    {
+        var r = new Rig();
+        Directory.CreateDirectory(Path.GetDirectoryName(r.Handler.PendingPath)!);
+        File.WriteAllText(r.Handler.PendingPath, "[{\"Adapter\":\"Ethernet\",\"Id\":\"{0E");   // the power went while the old, non-atomic write ran
+        r.Handler = r.NewHandler();
+        Assert.Null(r.Handler.Interrupted());
+        Assert.Contains(r.Log, l => l.Contains("confirm-pending.json is unreadable") && l.Contains("kept as confirm-pending.unreadable-"));
+        Assert.False(File.Exists(r.Handler.PendingPath));
+        Assert.Single(Directory.GetFiles(Path.GetDirectoryName(r.Handler.PendingPath)!, "confirm-pending.unreadable-*.json"));
+        r.Ticks(3);
+        Assert.Equal(1, r.Log.Count(l => l.Contains("is unreadable")));   // reported once, not every tick
+        Assert.True(r.Apply(30).Ok); Assert.True(r.Armed);               // and the service arms again, atomically: no temp file left behind
+        Assert.False(File.Exists(r.Handler.PendingPath + ".tmp"));
+        Assert.NotNull(JsonSerializer.Deserialize<List<IntentHandler.Pending>>(File.ReadAllText(r.Handler.PendingPath), ServiceProtocol.Json));
+    }
+
+    [Fact]
+    public void A_revert_that_throws_is_retried_on_the_next_ticks_and_succeeds()
+    {
+        var r = new Rig();
+        Assert.True(r.Apply(30).Ok);
+        var throws = 0;
+        r.Runner.ThrowOn = s => s.Arguments.Contains("source=dhcp") && throws++ < 2 ? new IOException("the disk went away") : null;
+        r.Ticks(16);                                            // 32 s: attempt 1 throws, stays "reverting"
+        Assert.Equal(0, r.Reverts); Assert.True(File.Exists(r.Handler.PendingPath));
+        Assert.Contains(r.Log, l => l.Contains("FAILED (the disk went away); attempt 1 of 3, retried on the next tick"));
+        r.Ticks(1);                                             // attempt 2 throws
+        Assert.Contains(r.Log, l => l.Contains("attempt 2 of 3"));
+        r.Ticks(1);                                             // attempt 3 succeeds
+        Assert.Equal(1, r.Reverts); Assert.False(r.Armed); Assert.False(File.Exists(r.Handler.PendingPath));
+        Assert.Contains(r.Log, l => l.Contains("reverted ok"));
+        r.Ticks(5);
+        Assert.Equal(1, r.Reverts);
+    }
+
+    [Fact]
+    public void A_revert_that_keeps_throwing_is_given_up_after_three_attempts_and_never_re_armed()
+    {
+        var r = new Rig();
+        Assert.True(r.Apply(30).Ok);
+        r.Runner.ThrowOn = s => s.Arguments.Contains("source=dhcp") ? new System.ComponentModel.Win32Exception("netsh would not start") : null;
+        r.Ticks(18);                                            // 32 s + two retries
+        Assert.Equal(0, r.Reverts); Assert.False(r.Armed); Assert.False(File.Exists(r.Handler.PendingPath));
+        Assert.Contains(r.Log, l => l.Contains("given up after 3 attempts") && l.Contains("kept for RevertLastApply"));
+        var attempts = r.Log.Count(l => l.Contains("FAILED (netsh would not start)"));
+        r.Ticks(10); r.Handler.Interrupted();
+        Assert.Equal(attempts, r.Log.Count(l => l.Contains("FAILED (netsh would not start)")));   // nothing retries a given-up window
+        Assert.Equal(3, attempts);
+        var la = r.Handler.LastApply()!;                        // the manual revert is still possible and returns to the state before 'lab', not to 'lab'
+        Assert.True(la.Before.Dhcp); Assert.Equal("lab", la.Title);
+    }
+
+    [Fact]
+    public void A_revert_that_throws_at_start_up_does_not_stop_the_service_and_is_retried_by_the_ticks()
+    {
+        var r = new Rig();
+        Assert.True(r.Apply(30).Ok);
+        r.Now = r.Now.AddSeconds(45);
+        var throws = 0;
+        r.Runner.ThrowOn = s => s.Arguments.Contains("source=dhcp") && throws++ < 1 ? new IOException("NIC not enumerated yet") : null;
+        r.Handler = r.NewHandler();
+        Assert.Null(r.Handler.Interrupted());                   // OnStart would have failed before this fix
+        Assert.Equal(0, r.Reverts); Assert.Contains(r.Log, l => l.Contains("attempt 1 of 3"));
+        r.Ticks(1);
+        Assert.Equal(1, r.Reverts); Assert.False(r.Armed);
+    }
+
+    [Fact]
+    public void A_failed_apply_arms_nothing_and_says_so_in_the_report()
+    {
+        var r = new Rig();
+        r.Runner.FailContaining = "source=static";
+        var resp = r.Apply(30);
+        Assert.False(resp.Ok); Assert.False(r.Armed);
+        Assert.False(resp.Apply!.ConfirmArmed); Assert.Contains("the apply did not succeed, so nothing was armed", resp.Apply.ConfirmNotArmed);
+        Assert.Contains(resp.Apply.Warnings, w => w.StartsWith("commit-confirm was NOT armed: the apply did not succeed"));
+        Assert.NotNull(r.Handler.LastApply());                  // the snapshot for a manual revert was written before the first step
+    }
+
+    [Fact]
+    public void A_window_that_could_never_revert_is_refused_before_anything_runs()
+    {
+        // A static pre-state is an ad-hoc profile; with AllowUserProfiles=false the service itself could not restore it, so the window is refused up front.
+        var r = new Rig(storePolicy: new() { ["AllowUserProfiles"] = false });
+        r.Nics.Current = Fx.Adapter(dhcp: false, gw: "192.168.1.1");
+        var resp = r.Send(RequestKind.Dhcp, Tier.NetworkConfigOperators, confirm: 30);
+        Assert.False(resp.Ok); Assert.Contains("the pre-apply state of Ethernet is static and policy AllowUserProfiles=false forbids restoring it; nothing changed", resp.Error);
+        Assert.Empty(r.Runner.Ran); Assert.False(r.Armed);
+        Assert.True(r.Send(RequestKind.Dhcp, Tier.NetworkConfigOperators).Ok);   // without a window the same change is fine
+    }
+
+    [Fact]
+    public void The_deadline_runs_on_the_in_process_clock_so_a_wall_clock_jump_neither_reverts_early_nor_late()
+    {
+        var r = new Rig();
+        Assert.True(r.Apply(30).Ok);
+        r.Ticks(5);                                             // 10 s
+        r.Now = r.Now.AddHours(1); r.Handler.Tick();            // w32time jumps forward after connectivity came back
+        Assert.Equal(0, r.Reverts); Assert.True(r.Armed); Assert.Equal(20, r.Handler.ArmedWindow()!.SecondsLeft);
+        r.Now = r.Now.AddHours(-2); r.Ticks(9);                 // and backward; 28 s on the in-process clock
+        Assert.Equal(0, r.Reverts); Assert.True(r.Armed);
+        r.Ticks(2);                                             // 32 s
+        Assert.Equal(1, r.Reverts); Assert.False(r.Armed);
+    }
+
+    [Fact]
+    public void A_confirm_after_the_deadline_is_too_late()
+    {
+        var r = new Rig();
+        Assert.True(r.Apply(30).Ok);
+        r.Mono += 31_000; r.Now = r.Now.AddSeconds(31);         // past the deadline, before the next tick ran
+        var c = r.Confirm();
+        Assert.False(c.Ok); Assert.Contains("too late: the commit-confirm window on Ethernet has expired", c.Error);
+        Assert.True(r.Armed);
+        r.Handler.Tick();
+        Assert.Equal(1, r.Reverts); Assert.False(r.Armed);
     }
 }

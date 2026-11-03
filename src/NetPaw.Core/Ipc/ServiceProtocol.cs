@@ -125,6 +125,11 @@ public sealed record ApplyReport(string Title, string Adapter, bool Success, boo
 {
     /// <summary>Keeps answers well under <see cref="ServiceProtocol.MaxLine"/>: command output is cut per step.</summary>
     public const int MaxOutput = 1024;
+    /// <summary>G4: null when no window was requested; true when the service armed one; false when it was requested but not armed (see
+    /// <see cref="ConfirmNotArmed"/>) — a script must read this, not <see cref="Success"/>, to know whether the change reverts on its own.</summary>
+    public bool? ConfirmArmed { get; init; }
+    /// <summary>G4: why a requested window was not armed (the apply failed, or the window file could not be written). Null otherwise.</summary>
+    public string? ConfirmNotArmed { get; init; }
 
     /// <summary>Flattens a plan and its outcome into the report the client sees (steps, exit codes, verify diffs).</summary>
     public static ApplyReport From(Planning.ApplyPlan plan, Planning.ApplyOutcome? outcome) => new(

@@ -37,6 +37,9 @@ public sealed class IntentHandler(NetPawService svc, string journalDirectory, Ac
     /// <summary>Per-caller gap between Listen requests, so one user cannot keep pktmon busy at 120 s on repeat.</summary>
     public TimeSpan ListenCooldown { get; set; } = TimeSpan.FromSeconds(60);
     public Func<DateTimeOffset> Clock { get; set; } = () => DateTimeOffset.UtcNow;
+    /// <summary>G4: the in-process clock the deadline and the settle run on (ms, never jumps); the wall-clock deadline in the file is for restarts only,
+    /// because an apply that restores connectivity can trigger a w32time correction (review of #153, item 5).</summary>
+    public Func<long> Monotonic { get; set; } = () => Environment.TickCount64;
     readonly Dictionary<string, DateTimeOffset> _lastListen = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Start-up: reports a change that was running when the service stopped (the file is kept, renamed, for the admin) and
@@ -133,7 +136,7 @@ public sealed class IntentHandler(NetPawService svc, string journalDirectory, Ac
                 var report = r.Kind switch
                 {
                     RequestKind.ApplyProfile => ApplyProfile(r, caller, callerTier, overrides, confirm),
-                    RequestKind.Dhcp => Run(ApplyPlanner.PlanDhcp(Adapter(r)), caller, require: Capability.Dhcp, confirm: confirm),
+                    RequestKind.Dhcp => Run(ApplyPlanner.PlanDhcp(Adapter(r)), caller, require: Capability.Dhcp, confirm: confirm, replacesWindow: true),
                     RequestKind.Reach => Reach(r, caller, confirm),
                     RequestKind.ClearTemp => ClearTemp(),
                     RequestKind.DeleteRoute => DeleteRoute(r, caller),
@@ -224,7 +227,7 @@ public sealed class IntentHandler(NetPawService svc, string journalDirectory, Ac
                 throw new Rejected($"'{adapter.Name}' is a virtual adapter; only a managed profile or a caller at tier {PolicyTiers.Required(PolicyIntent.VirtualUnlock, overrides)} may target it (via appliesTo)");
         }
         var plan = svc.PlanProfile(p, adapter);
-        return Journaled(plan, caller, () => svc.ApplyAndVerify(plan, settleMs), confirm);
+        return Journaled(plan, caller, () => svc.ApplyAndVerify(plan, settleMs), confirm, replacesWindow: true);
     }
 
     /// <summary>Reach: validates the target, resolves the decision and applies the temporary address.</summary>
@@ -234,7 +237,7 @@ public sealed class IntentHandler(NetPawService svc, string journalDirectory, Ac
         var adapter = Adapter(r);
         var d = svc.ResolveReach(r.Target!, adapter);
         var (plan, _) = svc.Reach(d, adapter, dryRun: true, r.ReplacePrimary);
-        return Journaled(plan, caller, () => svc.Reach(d, adapter, dryRun: false, r.ReplacePrimary).Outcome, confirm);
+        return Journaled(plan, caller, () => svc.Reach(d, adapter, dryRun: false, r.ReplacePrimary).Outcome, confirm, replacesWindow: true);
     }
 
     /// <summary>ClearTemp: removes every temporary address the service tracks.</summary>
@@ -274,10 +277,10 @@ public sealed class IntentHandler(NetPawService svc, string journalDirectory, Ac
     }
 
     /// <summary>Runs a plan through the journal, after an optional capability check.</summary>
-    ApplyReport Run(ApplyPlan plan, string caller, Capability? require = null, ConfirmSpec? confirm = null)
+    ApplyReport Run(ApplyPlan plan, string caller, Capability? require = null, ConfirmSpec? confirm = null, bool replacesWindow = false)
     {
         if (require is { } c) svc.Require(c);
-        return Journaled(plan, caller, () => svc.Apply(plan), confirm);
+        return Journaled(plan, caller, () => svc.Apply(plan), confirm, replacesWindow);
     }
 
     // ---- G13: pre-apply snapshot + revert ------------------------------------------------------------------------
@@ -351,21 +354,26 @@ public sealed class IntentHandler(NetPawService svc, string journalDirectory, Ac
         if (pre.Before.Dhcp)
         {
             svc.Require(Capability.Dhcp);
-            return Journaled(ApplyPlanner.PlanDhcp(adapter), caller, () => svc.Apply(ApplyPlanner.PlanDhcp(adapter)), confirm);
+            return Journaled(ApplyPlanner.PlanDhcp(adapter), caller, () => svc.Apply(ApplyPlanner.PlanDhcp(adapter)), confirm, replacesWindow: true);
         }
         // A static pre-state is an ad-hoc profile: with AllowUserProfiles=false only a DHCP pre-state can be restored.
         svc.Require(Capability.UserProfiles);
         var plan = svc.PlanProfile(pre.Before, adapter);
-        return Journaled(plan, caller, () => svc.ApplyAndVerify(plan, settleMs), confirm);
+        return Journaled(plan, caller, () => svc.ApplyAndVerify(plan, settleMs), confirm, replacesWindow: true);
     }
 
     /// <summary>Writes the pre-state and inflight.json, runs the apply, removes inflight.json, logs the result; G4: arms the confirm window after a successful apply.</summary>
-    ApplyReport Journaled(ApplyPlan plan, string caller, Func<ApplyOutcome?> apply, ConfirmSpec? confirm = null)
+    /// <param name="replacesWindow">True for the kinds that can arm a window themselves (ApplyProfile, Dhcp, Reach, RevertLastApply): their snapshot is the new
+    /// pre-state, so an armed window on the adapter is cancelled. False for Renew, Release, ResetAdapter, SetMtu, Prefer and the rest: the armed window stays and
+    /// still reverts to the snapshot that predates them (review of #153: a Renew after a bad apply must not drop the safety net, and a lower-tier intent must
+    /// not be able to remove a window its caller may not confirm).</param>
+    ApplyReport Journaled(ApplyPlan plan, string caller, Func<ApplyOutcome?> apply, ConfirmSpec? confirm = null, bool replacesWindow = false)
     {
         if (plan.IsEmpty) return ApplyReport.From(plan, null);
         Directory.CreateDirectory(journalDirectory);
-        CancelPending(plan.AdapterId, $"a new apply ('{plan.Title}' by {caller})");   // G4: the snapshot taken next is the new pre-state, so the old window would restore the wrong one
+        if (replacesWindow) CancelPending(plan.AdapterId, $"a new apply ('{plan.Title}' by {caller})");   // G4: the snapshot taken next is the new pre-state, so the old window would restore the wrong one
         var pre = SavePreState(plan, caller);   // G13: written before the first command runs, so a revert is possible even after a half-done apply
+        if (confirm is not null) RefuseUnlessRevertible(plan, pre);   // G4: a window that could never revert is refused before anything changes
         File.WriteAllText(JournalPath, JsonSerializer.Serialize(new Journal(plan.Title, plan.Adapter, caller, DateTimeOffset.Now,
             plan.Steps.Select(s => s.CommandLine).ToList()), ServiceProtocol.Json));
         ApplyOutcome? outcome;
@@ -373,12 +381,20 @@ public sealed class IntentHandler(NetPawService svc, string journalDirectory, Ac
         finally { File.Delete(JournalPath); }
         var report = ApplyReport.From(plan, outcome);
         log($"{plan.Title} on {plan.AdapterLabel} for {caller}: {(report.Success ? "ok" : "FAILED")}{(report.VerifyDiffs.Count > 0 ? " (verify: " + string.Join("; ", report.VerifyDiffs) + ")" : "")}");
-        if (confirm is { } c && report.Success && !Arm(plan, pre, c, caller))
-        {
-            plan.Warnings.Add("commit-confirm was NOT armed: the service has no pre-apply snapshot to return to; revert by hand if needed.");
-            report = ApplyReport.From(plan, outcome);
-        }
-        return report;
+        if (confirm is not { } c) return report;
+        var notArmed = report.Success ? Arm(plan, pre!, c, caller) : "the apply did not succeed, so nothing was armed; the pre-apply snapshot is kept for RevertLastApply";
+        if (notArmed is null) return report with { ConfirmArmed = true };
+        plan.Warnings.Add("commit-confirm was NOT armed: " + notArmed);
+        return ApplyReport.From(plan, outcome) with { ConfirmArmed = false, ConfirmNotArmed = notArmed };
+    }
+
+    /// <summary>A requested window needs a snapshot the service can restore: one was written, and a static pre-state is not barred by
+    /// AllowUserProfiles=false (the revert runs as the service, but that capability gate still applies to an ad-hoc profile).</summary>
+    void RefuseUnlessRevertible(ApplyPlan plan, PreApply? pre)
+    {
+        if (pre?.Id is null) throw new Rejected($"commit-confirm refused for '{plan.Title}': no pre-apply snapshot could be taken, so the service could not revert; nothing changed (apply without a window, or fix the service store)");
+        if (!pre.Before.Dhcp && !svc.Allowed(Capability.UserProfiles))
+            throw new Rejected($"commit-confirm refused for '{plan.Title}': the pre-apply state of {pre.Adapter} is static and policy AllowUserProfiles=false forbids restoring it; nothing changed");
     }
 
     // ---- G4: commit-confirmed apply (docs/DESIGN-G4-commit-confirm.md) ---------------------------------------------
@@ -395,13 +411,26 @@ public sealed class IntentHandler(NetPawService svc, string journalDirectory, Ac
     /// <summary>One armed window as persisted: enough to revert without any other file (its own snapshot), what to probe, who may confirm.</summary>
     public sealed record Pending(string Adapter, string Id, string Mac, string Title, string Caller, DateTimeOffset ArmedAt, DateTimeOffset Deadline,
         string? Gateway, IReadOnlyList<string> Dns, [property: System.Text.Json.Serialization.JsonConverter(typeof(System.Text.Json.Serialization.JsonStringEnumConverter<Tier>))] Tier ConfirmTier,
-        PreApply Before, string State = Armed, string? Reason = null, int FailedTicks = 0, string? RevertReason = null)
+        PreApply Before, string State = Armed, string? Reason = null, int FailedTicks = 0, string? RevertReason = null, int RevertAttempts = 0)
     {
         public bool HasProbes => Gateway is { Length: > 0 } || Dns.Count > 0;
         public string Probes => HasProbes ? string.Join(", ", new[] { Gateway is { Length: > 0 } ? "gateway " + Gateway : null, Dns.Count > 0 ? "dns " + Dns[0] : null }.Where(x => x is not null)) : "none, timer only";
     }
 
     static bool SameNic(Pending p, string id) => string.Equals(p.Id, id, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Revert attempts before a window is given up (logged); an attempt fails on any exception, e.g. the adapter not enumerated yet at boot.</summary>
+    public const int MaxRevertAttempts = 3;
+
+    /// <summary>In-process deadlines on <see cref="Monotonic"/> per adapter id: when the window times out and until when probes do not count. Filled at
+    /// Arm and at Resume; a window the file knows but this dictionary does not (never, unless the file was edited) falls back to the wall clock.</summary>
+    sealed record Clocks(long DeadlineMs, long SettleUntilMs);
+    readonly Dictionary<string, Clocks> _clocks = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>Revert attempts per adapter id in memory too, so the limit holds even when the file cannot record them (a dead disk).</summary>
+    readonly Dictionary<string, int> _attempts = new(StringComparer.OrdinalIgnoreCase);
+    bool Due(Pending p, DateTimeOffset now) => _clocks.TryGetValue(p.Id, out var c) ? Monotonic() >= c.DeadlineMs : now >= p.Deadline;
+    bool Settling(Pending p, DateTimeOffset now) => _clocks.TryGetValue(p.Id, out var c) ? Monotonic() < c.SettleUntilMs : now < p.ArmedAt.AddMilliseconds(settleMs);
+    int SecondsLeft(Pending p) => Math.Max(0, (int)Math.Ceiling((_clocks.TryGetValue(p.Id, out var c) ? (c.DeadlineMs - Monotonic()) / 1000.0 : (p.Deadline - Clock()).TotalSeconds)));
 
     /// <summary>The client's ConfirmSeconds validated (0/null = off, else 5..600), raised to the policy minimum, on the four intents that
     /// can carry one. Null = no window.</summary>
@@ -424,29 +453,51 @@ public sealed class IntentHandler(NetPawService svc, string journalDirectory, Ac
     List<Pending> LoadPending()
     {
         try { return File.Exists(PendingPath) ? JsonSerializer.Deserialize<List<Pending>>(File.ReadAllText(PendingPath), ServiceProtocol.Json) ?? [] : []; }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException) { log("confirm-pending.json is unreadable, no window is armed: " + ex.Message); return []; }
+        catch (JsonException ex)
+        {
+            // Not written by SavePending (that write is atomic): kept aside for the admin, like an interrupted journal, so it is reported once, not every tick.
+            var keep = Path.Combine(journalDirectory, $"confirm-pending.unreadable-{DateTime.UtcNow:yyyyMMdd-HHmmss}.json");
+            try { File.Move(PendingPath, keep, overwrite: true); } catch (Exception mv) when (mv is IOException or UnauthorizedAccessException) { keep = "(could not be moved aside: " + mv.Message + ")"; }
+            log($"confirm-pending.json is unreadable, no window is armed: {ex.Message}; kept as {Path.GetFileName(keep)}");
+            return [];
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { log("confirm-pending.json is unreadable, no window is armed: " + ex.Message); return []; }
     }
 
+    /// <summary>Atomic: a temp file in the same folder, flushed to disk, then moved over the old one. A power cut mid-write (likely right after a change
+    /// broke connectivity) leaves either the previous list or the new one, never a half file that would lose the revert.</summary>
     void SavePending(List<Pending> list)
     {
         if (list.Count == 0) { File.Delete(PendingPath); return; }
         Directory.CreateDirectory(journalDirectory);
-        File.WriteAllText(PendingPath, JsonSerializer.Serialize(list, ServiceProtocol.Json));
+        var tmp = PendingPath + ".tmp";
+        using (var f = new FileStream(tmp, FileMode.Create, FileAccess.Write, FileShare.None))
+        {
+            f.Write(JsonSerializer.SerializeToUtf8Bytes(list, ServiceProtocol.Json));
+            f.Flush(flushToDisk: true);
+        }
+        File.Move(tmp, PendingPath, overwrite: true);
     }
 
-    /// <summary>Arms the window after a successful apply. False when it could not be armed (no snapshot, or the file could not be written) — the caller is told.</summary>
-    bool Arm(ApplyPlan plan, PreApply? pre, ConfirmSpec c, string caller)
+    /// <summary>Arms the window after a successful apply. Null when armed; otherwise the reason (the file could not be written) — the caller is told in
+    /// <see cref="ApplyReport.ConfirmNotArmed"/>. The snapshot itself was checked before the apply ran (<see cref="RefuseUnlessRevertible"/>).</summary>
+    string? Arm(ApplyPlan plan, PreApply pre, ConfirmSpec c, string caller)
     {
-        if (pre?.Id is null) { log($"commit-confirm not armed for '{plan.Title}': no pre-apply snapshot to return to"); return false; }
         var now = Clock();
-        var p = new Pending(pre.Adapter, pre.Id, pre.Mac, plan.Title, caller, now, now.AddSeconds(c.Seconds), plan.Profile?.Gateway, plan.Profile?.Dns ?? [], c.Tier, pre, Reason: c.Reason);
+        var p = new Pending(pre.Adapter, pre.Id!, pre.Mac, plan.Title, caller, now, now.AddSeconds(c.Seconds), plan.Profile?.Gateway, plan.Profile?.Dns ?? [], c.Tier, pre, Reason: c.Reason);
         try
         {
-            var list = LoadPending(); list.RemoveAll(x => SameNic(x, pre.Id)); list.Add(p); SavePending(list);
+            var list = LoadPending(); list.RemoveAll(x => SameNic(x, pre.Id!)); list.Add(p); SavePending(list);
+            var mono = Monotonic();
+            _clocks[p.Id] = new Clocks(mono + c.Seconds * 1000L, mono + settleMs);
             log($"armed commit-confirm: {c.Seconds} s on {plan.AdapterLabel} for {caller} ({c.Reason ?? "requested"}; confirm needs tier {c.Tier}; probes: {p.Probes})");
-            return true;
+            return null;
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { log($"commit-confirm not armed for '{plan.Title}': {ex.Message}"); return false; }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            var why = $"the window could not be written ({ex.Message}); the change is in place with no automatic revert, revert by hand (RevertLastApply) if needed";
+            log($"commit-confirm not armed for '{plan.Title}': {why}"); return why;
+        }
     }
 
     /// <summary>Drops the armed window on this adapter (a new apply or a manual revert replaces its pre-state). A window being reverted is left alone.</summary>
@@ -458,7 +509,7 @@ public sealed class IntentHandler(NetPawService svc, string journalDirectory, Ac
         if (gone.Count == 0) return;
         list.RemoveAll(gone.Contains);
         SavePending(list);
-        foreach (var p in gone) log($"commit-confirm window on {p.Adapter} ('{p.Title}' by {p.Caller}) cancelled by {why}");
+        foreach (var p in gone) { _clocks.Remove(p.Id); _attempts.Remove(p.Id); log($"commit-confirm window on {p.Adapter} ('{p.Title}' by {p.Caller}) cancelled by {why}"); }
     }
 
     /// <summary>ConfirmApply: the window on the named adapter (id, then MAC, then alias; the only one when none is named) is closed by a caller
@@ -479,8 +530,9 @@ public sealed class IntentHandler(NetPawService svc, string journalDirectory, Ac
               : armed.Count == 1 ? armed[0] : throw new Rejected("more than one commit-confirm window is armed: name the adapter");
         if (p is null) throw new Rejected($"no commit-confirm window is armed on adapter {r.AdapterId ?? r.AdapterMac ?? r.Adapter}");
         if (callerTier < p.ConfirmTier) throw new Rejected($"confirming '{p.Title}' on {p.Adapter} needs tier {p.ConfirmTier} or higher; you are {callerTier}");
-        list.Remove(p); SavePending(list);
-        var left = Math.Max(0, (int)(p.Deadline - Clock()).TotalSeconds);
+        if (Due(p, Clock())) throw new Rejected($"too late: the commit-confirm window on {p.Adapter} has expired; the service reverts '{p.Title}' on its next tick");
+        var left = SecondsLeft(p);
+        list.Remove(p); SavePending(list); _clocks.Remove(p.Id); _attempts.Remove(p.Id);
         log($"commit-confirm confirmed by {caller}: '{p.Title}' on {p.Adapter} stays (armed by {p.Caller}, {left} s were left)");
         return ApplyReport.From(new ApplyPlan { Title = $"confirm '{p.Title}'", Adapter = p.Adapter, AdapterId = p.Id }, null);
     }
@@ -488,8 +540,11 @@ public sealed class IntentHandler(NetPawService svc, string journalDirectory, Ac
     /// <summary>For Status: the armed window (alias, seconds left, who armed it, "policy" when the minimum did), or null.</summary>
     public PendingConfirm? ArmedWindow()
     {
-        var p = LoadPending().FirstOrDefault(x => x.State == Armed);
-        return p is null ? null : new PendingConfirm(p.Adapter, Math.Max(0, (int)Math.Ceiling((p.Deadline - Clock()).TotalSeconds)), p.Caller, p.Reason);
+        lock (_gate)   // never reads the file while a change or a tick writes it (a false "unreadable" otherwise)
+        {
+            var p = LoadPending().FirstOrDefault(x => x.State == Armed);
+            return p is null ? null : new PendingConfirm(p.Adapter, SecondsLeft(p), p.Caller, p.Reason);
+        }
     }
 
     /// <summary>The service timer's call (every 2 s; tests call it by hand with a fake clock): a window past its deadline is reverted
@@ -512,8 +567,8 @@ public sealed class IntentHandler(NetPawService svc, string journalDirectory, Ac
         foreach (var p in list.ToList())
         {
             if (p.State == Reverting) { Revert(list, p, p.RevertReason ?? "interrupted"); continue; }
-            if (now >= p.Deadline) { Revert(list, p, "timeout"); continue; }
-            if (!p.HasProbes || now < p.ArmedAt.AddMilliseconds(settleMs)) continue;   // R5 timer-only; settle: a lease or a link renegotiation is not a loss
+            if (Due(p, now)) { Revert(list, p, "timeout"); continue; }
+            if (!p.HasProbes || Settling(p, now)) continue;   // R5 timer-only; settle: a lease or a link renegotiation is not a loss
             var failed = Alive(p) ? 0 : p.FailedTicks + 1;
             if (failed == p.FailedTicks) continue;
             var updated = p with { FailedTicks = failed };
@@ -532,44 +587,67 @@ public sealed class IntentHandler(NetPawService svc, string journalDirectory, Ac
         return false;
     }
 
-    /// <summary>Marks the window "reverting" on disk, re-applies its snapshot as the service itself (tier Admin), removes the window. A service that
-    /// dies in between finds "reverting" at start and reverts once more (re-applying a snapshot is idempotent). A failed revert is logged and
-    /// the window removed; never re-armed (R6).</summary>
+    /// <summary>Marks the window "reverting" on disk (attempt counted), re-applies its snapshot as the service itself (tier Admin), removes the window.
+    /// A service that dies in between finds "reverting" at start and reverts once more (re-applying a snapshot is idempotent). An attempt that throws
+    /// — anything: the adapter not enumerated yet at boot, a journal write, a tool that would not start — leaves the window in "reverting" for the next
+    /// tick (2 s) or start; after <see cref="MaxRevertAttempts"/> it is given up and logged, never re-armed (R6). A revert whose steps ran but failed
+    /// is also final. Never throws.</summary>
     void Revert(List<Pending> list, Pending p, string reason)
     {
-        list[list.IndexOf(p)] = p with { State = Reverting, RevertReason = reason };
-        SavePending(list);
+        var attempt = Math.Max(p.RevertAttempts, _attempts.GetValueOrDefault(p.Id)) + 1;
+        _attempts[p.Id] = attempt;
+        list[list.IndexOf(p)] = p with { State = Reverting, RevertReason = reason, RevertAttempts = attempt };
         var caller = $"commit-confirm ({reason})";
-        log($"commit-confirm {reason}: reverting '{p.Title}' on {p.Adapter} (armed by {p.Caller} at {p.ArmedAt:HH:mm:ss}, deadline {p.Deadline:HH:mm:ss})");
+        try { SavePending(list); }   // the marker matters less than the revert: on a disk that will not take it, revert anyway
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { log($"commit-confirm: could not mark the window on {p.Adapter} as reverting ({ex.Message}); reverting anyway"); }
         try
         {
+            log($"commit-confirm {reason}: reverting '{p.Title}' on {p.Adapter} (armed by {p.Caller} at {p.ArmedAt:HH:mm:ss}, deadline {p.Deadline:HH:mm:ss}{(attempt > 1 ? $", attempt {attempt} of {MaxRevertAttempts}" : "")})");
             svc.Reload();
             var report = RevertTo(p.Before, caller, Tier.Admin, _policy.Resolve());
-            log($"commit-confirm {reason}: '{p.Title}' on {p.Adapter} reverted {(report.Success ? "ok" : "with FAILED steps")}");
+            log($"commit-confirm {reason}: '{p.Title}' on {p.Adapter} reverted {(report.Success ? "ok" : "with FAILED steps; the window is closed, nothing re-armed")}");
         }
-        catch (Exception ex) when (ex is Rejected or DeniedByPolicyException or InvalidOperationException)
-        { log($"commit-confirm {reason}: revert of '{p.Title}' on {p.Adapter} FAILED ({ex.Message}); the window is closed, nothing re-armed"); }
-        list.RemoveAll(x => SameNic(x, p.Id));
-        SavePending(list);
+        catch (Exception ex)
+        {
+            if (attempt < MaxRevertAttempts)
+            {
+                log($"commit-confirm {reason}: revert of '{p.Title}' on {p.Adapter} FAILED ({ex.Message}); attempt {attempt} of {MaxRevertAttempts}, retried on the next tick");
+                return;   // stays "reverting" on disk
+            }
+            log($"commit-confirm {reason}: revert of '{p.Title}' on {p.Adapter} FAILED ({ex.Message}); given up after {attempt} attempts, the window is closed, nothing re-armed; the pre-apply snapshot is kept for RevertLastApply");
+            // Each attempt went through Journaled, which snapshots the state before the revert (the bad change) into last-apply.json; put the
+            // window's own snapshot back so that a RevertLastApply by hand returns to the state before the confirmed apply, not to the bad change.
+            try { File.WriteAllText(PreApplyPath, JsonSerializer.Serialize(p.Before, ServiceProtocol.Json)); }
+            catch (Exception io) when (io is IOException or UnauthorizedAccessException) { log($"commit-confirm: could not restore last-apply.json ({io.Message})"); }
+        }
+        list.RemoveAll(x => SameNic(x, p.Id)); _clocks.Remove(p.Id); _attempts.Remove(p.Id);
+        try { SavePending(list); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { log($"commit-confirm: could not update confirm-pending.json after the revert ({ex.Message}); it is retried on the next tick"); }
     }
 
     /// <summary>Start-up (review decisions 3 + 4): a window in "reverting" is reverted once more; an armed window past its deadline is reverted now
     /// (timeout); every other window is re-armed with its remaining time and a fresh settle, because probes right after a boot are not evidence.</summary>
     void Resume()
     {
-        var list = LoadPending();
-        if (list.Count == 0) return;
-        var now = Clock();
-        foreach (var p in list.ToList())
+        try
         {
-            if (p.State == Reverting) Revert(list, p, p.RevertReason ?? "interrupted");
-            else if (now >= p.Deadline) Revert(list, p, "timeout");
-            else
+            var list = LoadPending();
+            if (list.Count == 0) return;
+            var now = Clock();
+            foreach (var p in list.ToList())
             {
-                list[list.IndexOf(p)] = p with { ArmedAt = now, FailedTicks = 0 };
-                log($"re-armed commit-confirm: {(int)(p.Deadline - now).TotalSeconds} s left on {p.Adapter} for {p.Caller} (service restarted inside the window; probes count after the settle)");
+                if (p.State == Reverting) Revert(list, p, p.RevertReason ?? "interrupted");
+                else if (now >= p.Deadline) Revert(list, p, "timeout");
+                else
+                {
+                    var leftMs = (long)(p.Deadline - now).TotalMilliseconds;
+                    _clocks[p.Id] = new Clocks(Monotonic() + leftMs, Monotonic() + settleMs);   // from here on the in-process clock decides
+                    list[list.IndexOf(p)] = p with { ArmedAt = now, FailedTicks = 0 };
+                    log($"re-armed commit-confirm: {leftMs / 1000} s left on {p.Adapter} for {p.Caller} (service restarted inside the window; probes count after the settle)");
+                }
             }
+            SavePending(list);
         }
-        SavePending(list);
+        catch (Exception ex) { log("commit-confirm resume failed, the next tick retries: " + ex.Message); }   // start-up must not take the service down
     }
 }

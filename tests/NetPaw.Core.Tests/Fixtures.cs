@@ -30,10 +30,15 @@ static class Fx
 sealed class FakeRunner(string? failContaining = null) : IStepRunner
 {
     public List<Step> Ran { get; } = [];
+    /// <summary>Steps whose arguments contain this exit 1 (settable after construction).</summary>
+    public string? FailContaining { get; set; } = failContaining;
+    /// <summary>When set and it returns an exception for a step, the runner throws it instead of running the step (a tool that would not start, a dead disk).</summary>
+    public Func<Step, Exception?>? ThrowOn { get; set; }
     public StepResult Run(Step step)
     {
+        if (ThrowOn?.Invoke(step) is { } ex) throw ex;
         Ran.Add(step);
-        var fail = failContaining is not null && step.Arguments.Contains(failContaining);
+        var fail = FailContaining is not null && step.Arguments.Contains(FailContaining);
         return new StepResult(step, fail ? 1 : 0, fail ? "The object already exists." : "Ok.");
     }
 }
