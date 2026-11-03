@@ -206,27 +206,28 @@ public sealed class NetPawService
     public AdapterInfo? WorkAdapter(IReadOnlyList<AdapterInfo>? adapters = null) =>
         AdapterSelector.Pick(adapters ?? GetAdapters(), Settings.WorkAdapter);
 
-    /// <summary>Profile → adapter: the remembered MAC wins (survives renames and dock port changes), then the name, then the work adapter.</summary>
+    /// <summary>Profile → adapter (G5): the stored id wins (a rename cannot redirect it; a MAC mismatch refuses), then the
+    /// remembered MAC (survives renames and dock port changes), then the name, then the work adapter.</summary>
     public AdapterInfo AdapterFor(Profile p, IReadOnlyList<AdapterInfo>? adapters = null)
     {
         adapters ??= GetAdapters();
-        // A Hyper-V host vEthernet shares the physical NIC's MAC: never resolve onto the address-less uplink.
-        if (p.AdapterMac is { Length: > 0 } mac && adapters.Where(a => !a.VSwitchUplink).OrderBy(a => a.HyperVVirtual ? 0 : 1)
-                .FirstOrDefault(a => string.Equals(a.Mac, mac, StringComparison.OrdinalIgnoreCase)) is { } byMac) return byMac;
-        if (p.Adapter is not null && adapters.Any(a => string.Equals(a.Name, p.Adapter, StringComparison.OrdinalIgnoreCase))) return ResolveAdapter(p.Adapter, adapters);
+        if (AdapterSelector.Resolve(p.AdapterId, p.AdapterMac, p.Adapter, adapters) is { } bound) return bound;
         if (p.Adapter is not null || p.AdapterMac is { Length: > 0 })
             throw new InvalidOperationException($"Adapter '{p.Adapter ?? p.AdapterMac}' for profile '{p.Name}' is not present (unplugged dock or USB NIC?). Pick another adapter in the editor or apply with -a.");
         return ResolveAdapter(null, adapters);
     }
 
-    public AdapterInfo ResolveAdapter(string? name, IReadOnlyList<AdapterInfo>? adapters = null)
+    /// <summary>Request → live adapter (G5, the service path). <paramref name="id"/> given: by id, MAC cross-checked, never the
+    /// alias. Else by MAC, then by <paramref name="name"/>; a name that is not present throws. Nothing bound = the work adapter.</summary>
+    public AdapterInfo ResolveAdapter(string? name, IReadOnlyList<AdapterInfo>? adapters = null, string? id = null, string? mac = null)
     {
         adapters ??= GetAdapters();
-        var picked = AdapterSelector.Pick(adapters, name ?? Settings.WorkAdapter);
-        if (picked is null) throw new InvalidOperationException("No usable network adapter found.");
-        if (name is not null && !string.Equals(picked.Name, name, StringComparison.OrdinalIgnoreCase))
+        if (AdapterSelector.Resolve(id, mac, name, adapters) is { } bound) return bound;
+        if (name is not null)
             throw new InvalidOperationException($"Adapter '{name}' not found. Available: {string.Join(", ", adapters.Select(a => a.Name))}");
-        return picked;
+        if (mac is { Length: > 0 })
+            throw new InvalidOperationException($"Adapter with MAC {mac} is not present (unplugged dock or USB NIC?).");
+        return AdapterSelector.Pick(adapters, Settings.WorkAdapter) ?? throw new InvalidOperationException("No usable network adapter found.");
     }
 
     public Profile? FindProfile(string nameOrId) =>
@@ -285,7 +286,9 @@ public sealed class NetPawService
 
     List<string> VerifyNow(ApplyPlan plan)
     {
-        var live = GetAdapters().FirstOrDefault(a => a.Name == plan.Adapter);
+        // G5: by the id the plan was built from, so a rename between apply and verify compares the right adapter.
+        var all = GetAdapters();
+        var live = plan.AdapterId is { Length: > 0 } ? all.FirstOrDefault(a => string.Equals(a.Id, plan.AdapterId, StringComparison.OrdinalIgnoreCase)) : all.FirstOrDefault(a => a.Name == plan.Adapter);
         if (live is null) return ["adapter disappeared"];
         var p = plan.Profile!;
         var (routes, metric) = !p.Dhcp && (p.Routes.Count > 0 || p.InterfaceMetric is not null) ? RouteReader(live.Index) : (null, null);
@@ -330,7 +333,7 @@ public sealed class NetPawService
                 else plan = ApplyPlanner.PlanAddSecondary(adapter, d.Address!, $"reach {d.Target}");
                 break;
             case ReachKind.AlreadyReachable:
-                return (new ApplyPlan { Title = "reach", Adapter = adapter.Name }, null);
+                return (ApplyPlan.For("reach", adapter), null);
             default:
                 throw new InvalidOperationException(d.Explanation);
         }
@@ -361,7 +364,7 @@ public sealed class NetPawService
     {
         adapter ??= ResolveAdapter(null);
         var d = ResolvePreset(preset, adapter);
-        if (d.Kind == ReachKind.AlreadyReachable) return (new ApplyPlan { Title = preset.ToString(), Adapter = adapter.Name }, null);
+        if (d.Kind == ReachKind.AlreadyReachable) return (ApplyPlan.For(preset.ToString(), adapter), null);
         return Reach(d, adapter, dryRun, replacePrimary);
     }
 
@@ -398,7 +401,7 @@ public sealed class NetPawService
             var plan = ApplyPlanner.PlanAddSecondary(live, addr, "borrow");
             if (plan.IsEmpty) return false;
             ok = Apply(plan).Success;
-            restore = () => Apply(ApplyPlanner.PlanRemoveAddresses(live.Name, [addr], "return"));
+            restore = () => Apply(ApplyPlanner.PlanRemoveAddresses(live, [addr], "return"));
         }
         if (ok) lock (_borrowed) _borrowed[key] = restore;
         return ok;
@@ -427,8 +430,15 @@ public sealed class NetPawService
         var temp = Store.LoadTemp();
         if (temp.Count == 0) return null;
         ApplyOutcome? last = null;
+        var live = GetAdapters();
         foreach (var g in temp.GroupBy(t => t.Adapter))
-            last = PlanExecutor.Execute(ApplyPlanner.PlanRemoveAddresses(g.Key, g.Select(t => t.Address), "clear temporary addresses"), Runner, Store.Log);
+        {
+            // The temp store keys by alias; address the live adapter by index when it is still there (G5), by alias otherwise.
+            var a = live.FirstOrDefault(x => string.Equals(x.Name, g.Key, StringComparison.OrdinalIgnoreCase));
+            var plan = a is null ? ApplyPlanner.PlanRemoveAddresses(g.Key, g.Select(t => t.Address), "clear temporary addresses")
+                                 : ApplyPlanner.PlanRemoveAddresses(a, g.Select(t => t.Address), "clear temporary addresses");
+            last = PlanExecutor.Execute(plan, Runner, Store.Log);
+        }
         Store.SaveTemp([]);
         return last;
     }
@@ -437,7 +447,7 @@ public sealed class NetPawService
     public Profile Capture(string name, AdapterInfo adapter)
     {
         Require(Capability.UserProfiles);
-        var p = new Profile { Name = name, Adapter = adapter.Name, AdapterMac = adapter.Mac, Dhcp = adapter.Dhcp };
+        var p = new Profile { Name = name, Adapter = adapter.Name, AdapterId = adapter.Id, AdapterMac = adapter.Mac, Dhcp = adapter.Dhcp };
         if (!adapter.Dhcp)
         {
             p.Addresses = [.. adapter.Addresses];

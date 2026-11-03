@@ -13,10 +13,10 @@ public class PlannerTests
         var plan = ApplyPlanner.Plan(p, Fx.Adapter(dhcp: true));
         var cmds = plan.Steps.Select(s => s.CommandLine).ToList();
         Assert.Equal([
-            "netsh interface ipv4 set address name=\"Ethernet\" source=static address=192.168.1.10 mask=255.255.255.0 gateway=192.168.1.1 gwmetric=1",
-            "netsh interface ipv4 add address name=\"Ethernet\" address=10.0.0.5 mask=255.0.0.0",
-            "netsh interface ipv4 set dnsservers name=\"Ethernet\" source=static address=1.1.1.1 register=primary validate=no",
-            "netsh interface ipv4 add dnsservers name=\"Ethernet\" address=9.9.9.9 index=2 validate=no",
+            "netsh interface ipv4 set address name=7 source=static address=192.168.1.10 mask=255.255.255.0 gateway=192.168.1.1 gwmetric=1",
+            "netsh interface ipv4 add address name=7 address=10.0.0.5 mask=255.0.0.0",
+            "netsh interface ipv4 set dnsservers name=7 source=static address=1.1.1.1 register=primary validate=no",
+            "netsh interface ipv4 add dnsservers name=7 address=9.9.9.9 index=2 validate=no",
         ], cmds);
         Assert.True(plan.Steps[0].Critical);
         Assert.False(plan.Steps[1].Critical);
@@ -35,7 +35,7 @@ public class PlannerTests
     public void DhcpProfile()
     {
         var plan = ApplyPlanner.Plan(new Profile { Name = "dhcp", Dhcp = true }, Fx.Adapter(dhcp: false));
-        Assert.Equal(["netsh interface ipv4 set address name=\"Ethernet\" source=dhcp", "netsh interface ipv4 set dnsservers name=\"Ethernet\" source=dhcp"], plan.Steps.Select(s => s.CommandLine));
+        Assert.Equal(["netsh interface ipv4 set address name=7 source=dhcp", "netsh interface ipv4 set dnsservers name=7 source=dhcp"], plan.Steps.Select(s => s.CommandLine));
         // Issued even when the (possibly stale) snapshot already says DHCP.
         var already = ApplyPlanner.Plan(new Profile { Name = "dhcp", Dhcp = true }, Fx.Adapter(dhcp: true));
         Assert.Equal(2, already.Steps.Count);
@@ -79,12 +79,12 @@ public class PlannerTests
         p.InterfaceMetric = 10; p.DnsSuffix = "lab.local"; p.VlanId = 42;
         var plan = ApplyPlanner.Plan(p, Fx.Adapter(), new Adapters.VlanInfo(true, 0, "VlanID"));
         var cmds = plan.Steps.Select(s => s.CommandLine).ToList();
-        Assert.Contains("netsh interface ipv4 add route prefix=10.0.0.0/8 interface=\"Ethernet\" nexthop=192.168.1.1 metric=5 store=persistent", cmds);
-        Assert.Contains("netsh interface ipv4 delete route prefix=10.0.0.0/8 interface=\"Ethernet\" nexthop=192.168.1.1", cmds);
+        Assert.Contains("netsh interface ipv4 add route prefix=10.0.0.0/8 interface=7 nexthop=192.168.1.1 metric=5 store=persistent", cmds);
+        Assert.Contains("netsh interface ipv4 delete route prefix=10.0.0.0/8 interface=7 nexthop=192.168.1.1", cmds);
         Assert.True(plan.Steps.First(s => s.Arguments.Contains("delete route")).ExpectFailure);
         Assert.True(new StepResult(plan.Steps.First(s => s.Arguments.Contains("delete route")), 1, "no such route").Ok);
-        Assert.Contains("netsh interface ipv4 add route prefix=172.16.0.0/12 interface=\"Ethernet\" store=persistent", cmds);
-        Assert.Contains("netsh interface ipv4 set interface \"Ethernet\" metric=10", cmds);
+        Assert.Contains("netsh interface ipv4 add route prefix=172.16.0.0/12 interface=7 store=persistent", cmds);
+        Assert.Contains("netsh interface ipv4 set interface 7 metric=10", cmds);
         Assert.Contains(cmds, c => c.StartsWith("powershell") && c.Contains("Set-DnsClient") && c.Contains("lab.local"));
         Assert.Contains(cmds, c => c.Contains("Set-NetAdapterAdvancedProperty") && c.Contains("-RegistryValue 42"));
     }
@@ -101,10 +101,27 @@ public class PlannerTests
     }
 
     [Fact]
-    public void AdapterNameIsQuoted()
+    public void NetshStepsAddressTheAdapterByIndexAndThePlanShowsTheAlias()
     {
+        // G5: the alias never reaches a netsh ipv4 step (a rename between resolve and run cannot redirect it); humans see it in the plan.
         var plan = ApplyPlanner.Plan(Fx.Static("x"), Fx.Adapter("Ethernet 2 (lab)"));
-        Assert.All(plan.Steps.Where(s => s.FileName == "netsh"), s => Assert.Contains("name=\"Ethernet 2 (lab)\"", s.Arguments));
+        Assert.All(plan.Steps.Where(s => s.FileName == "netsh"), s => Assert.Contains("name=7", s.Arguments));
+        Assert.DoesNotContain(plan.Steps, s => s.Arguments.Contains("Ethernet 2 (lab)"));
+        Assert.Equal("Ethernet 2 (lab)", plan.Adapter);
+        Assert.Equal(7, plan.AdapterIndex); Assert.Equal(Fx.Id("Ethernet 2 (lab)"), plan.AdapterId);
+        Assert.Equal("Ethernet 2 (lab) (#7)", plan.AdapterLabel);
+        var secondary = ApplyPlanner.PlanAddSecondary(Fx.Adapter("Ethernet 2 (lab)"), IpAddr.Parse("10.0.0.9/8"), "reach");
+        Assert.Contains("add address name=7 ", Assert.Single(secondary.Steps).Arguments);
+        Assert.Equal("Ethernet 2 (lab) (#7)", secondary.AdapterLabel);
+    }
+
+    [Fact]
+    public void AdapterResetKeepsTheAliasAndAnUnsafeNameIsRefused()
+    {
+        // `interface set interface` takes the name only, so the reset plan is the one place the alias still goes into netsh.
+        var reset = ApplyPlanner.PlanResetAdapter(Fx.Adapter("Ethernet 2 (lab)"));
+        Assert.All(reset.Steps, s => Assert.Contains("\"Ethernet 2 (lab)\"", s.Arguments));
+        Assert.Throws<InvalidOperationException>(() => ApplyPlanner.Plan(Fx.Static("x"), Fx.Adapter("a\" ; calc")));
     }
 
     [Fact]
@@ -188,5 +205,19 @@ public class V07PlannerTests
         Assert.Equal(["netsh interface set interface \"Wi-Fi\" admin=disable", "netsh interface set interface \"Wi-Fi\" admin=enable"], plan.Steps.Select(s => s.CommandLine));
         Assert.Single(plan.Warnings);
         Assert.Empty(ApplyPlanner.PlanResetAdapter(Fx.Adapter("Ethernet 2")).Warnings);
+    }
+
+    [Fact]
+    public void Plans_refuse_an_adapter_whose_index_is_not_positive()
+    {
+        var bad = Fx.Adapter("Ethernet") with { Index = -1 };
+        var ex = Assert.Throws<InvalidOperationException>(() => ApplyPlanner.Plan(Fx.Static("lab"), bad));
+        Assert.Contains("no usable interface index (-1)", ex.Message);
+        Assert.Throws<InvalidOperationException>(() => ApplyPlanner.PlanDhcp(bad));
+        Assert.Throws<InvalidOperationException>(() => ApplyPlanner.PlanResetAdapter(bad));
+        Assert.Throws<InvalidOperationException>(() => NetPaw.Connectivity.Advisor.PlanPrefer(bad, [bad]));
+        // another adapter with index 0 in the metric-50 list is skipped, never "set interface 0"
+        var plan = NetPaw.Connectivity.Advisor.PlanPrefer(Fx.Adapter("Ethernet", gw: "192.168.1.1"), [Fx.Adapter("Ethernet", gw: "192.168.1.1"), Fx.Adapter("Wi-Fi", gw: "192.168.2.1") with { Index = 0 }]);
+        Assert.DoesNotContain(plan.Steps, s => s.Arguments.Contains("interface 0 "));
     }
 }

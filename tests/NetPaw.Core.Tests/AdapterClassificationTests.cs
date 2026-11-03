@@ -8,7 +8,7 @@ namespace NetPaw.Core.Tests;
 public class AdapterClassificationTests
 {
     static AdapterInfo Nic(string name, bool physical, string mac, string[]? addrs = null, string? gw = null, bool up = true) =>
-        new(name, physical ? "Intel I219" : "Hyper-V Virtual Ethernet Adapter", "{" + name + "}", 1, up, physical, false,
+        new(name, physical ? "Intel I219" : "Hyper-V Virtual Ethernet Adapter", NetPaw.Tests.Fx.Id(name), 1, up, physical, false,
             (addrs ?? []).Select(IpAddr.Parse).ToList(), gw is null ? [] : [gw], [], mac) { HyperVVirtual = !physical };
 
     [Fact]

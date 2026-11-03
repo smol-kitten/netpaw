@@ -148,20 +148,20 @@ try
             var p = Need(svc, argv, 1);
             var adapter = adapterName is not null ? svc.ResolveAdapter(adapterName) : svc.AdapterFor(p);
             var plan = svc.PlanProfile(p, adapter);
-            var request = p.Managed ? ServiceChange.Managed(p.Id, adapter.Name) : ServiceChange.Profile(p, adapter.Name);
+            var request = p.Managed ? ServiceChange.Managed(p.Id, adapter) : ServiceChange.Profile(p, adapter);
             return Run(svc, request, plan, dryRun);
         }
-        case "dhcp": { var a = svc.ResolveAdapter(adapterName); return Run(svc, ServiceChange.Dhcp(a.Name), ApplyPlanner.PlanDhcp(a), dryRun); }
+        case "dhcp": { var a = svc.ResolveAdapter(adapterName); return Run(svc, ServiceChange.Dhcp(a), ApplyPlanner.PlanDhcp(a), dryRun); }
         case "revert":
         {
             // The pre-apply snapshot lives in the service's store; there is no in-process equivalent.
             if (!(OperatingSystem.IsWindows() && ServiceChange.ServiceAnswers())) return Fail("revert needs the NetPaw service (install the MSI); the pre-apply snapshot is kept by the service");
             return ReportChange(ServiceChange.Send(ServiceChange.RevertLastApply()));
         }
-        case "renew": { var a = svc.ResolveAdapter(adapterName); return Run(svc, ServiceChange.Renew(a.Name), NetPaw.Connectivity.Advisor.PlanRenew(a), dryRun); }
-        case "release": { var a = svc.ResolveAdapter(adapterName); return Run(svc, ServiceChange.Release(a.Name), NetPaw.Connectivity.Advisor.PlanRelease(a), dryRun); }
-        case "reset": { var a = svc.ResolveAdapter(adapterName); return Run(svc, ServiceChange.ResetAdapter(a.Name), ApplyPlanner.PlanResetAdapter(a), dryRun); }
-        case "prefer": { var all = svc.GetAdapters(); var a = svc.ResolveAdapter(adapterName, all); return Run(svc, ServiceChange.Prefer(a.Name), NetPaw.Connectivity.Advisor.PlanPrefer(a, all), dryRun); }
+        case "renew": { var a = svc.ResolveAdapter(adapterName); return Run(svc, ServiceChange.Renew(a), NetPaw.Connectivity.Advisor.PlanRenew(a), dryRun); }
+        case "release": { var a = svc.ResolveAdapter(adapterName); return Run(svc, ServiceChange.Release(a), NetPaw.Connectivity.Advisor.PlanRelease(a), dryRun); }
+        case "reset": { var a = svc.ResolveAdapter(adapterName); return Run(svc, ServiceChange.ResetAdapter(a), ApplyPlanner.PlanResetAdapter(a), dryRun); }
+        case "prefer": { var all = svc.GetAdapters(); var a = svc.ResolveAdapter(adapterName, all); return Run(svc, ServiceChange.Prefer(a), NetPaw.Connectivity.Advisor.PlanPrefer(a, all), dryRun); }
         case "verify":
         {
             var p = Need(svc, argv, 1);
@@ -267,7 +267,7 @@ try
             if (d.Kind is ReachKind.Invalid) return 2;
             if (d.Kind is ReachKind.AlreadyReachable) return 0;
             if (!dryRun && OperatingSystem.IsWindows() && ServiceChange.ServiceAnswers())
-                return ReportChange(ServiceChange.Send(ServiceChange.Reach(d.Target, adapter.Name, replace ? true : null)));
+                return ReportChange(ServiceChange.Send(ServiceChange.Reach(d.Target, adapter, replace ? true : null)));
             var (plan, outcome) = svc.Reach(d, adapter, dryRun, replace ? true : null);
             return Report(plan, outcome, dryRun);
         }
@@ -288,7 +288,7 @@ try
                 Console.WriteLine(d.Explanation);
                 if (d.Kind is ReachKind.AlreadyReachable) return 0;
                 if (!dryRun && OperatingSystem.IsWindows() && ServiceChange.ServiceAnswers())
-                    return ReportChange(ServiceChange.Send(ServiceChange.Reach(d.Target, adapter.Name, replace ? true : null)));
+                    return ReportChange(ServiceChange.Send(ServiceChange.Reach(d.Target, adapter, replace ? true : null)));
                 var (plan, outcome) = svc.ApplyPreset(hit, adapter, dryRun, replace ? true : null);
                 return Report(plan, outcome, dryRun);
             }

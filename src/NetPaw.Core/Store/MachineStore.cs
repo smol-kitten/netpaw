@@ -75,6 +75,8 @@ public sealed class MachineStore
                     var problems = Ipc.ProfileGuard.Check(p);
                     if (problems.Count > 0) { Errors.Add($"{Path.GetFileName(file)}: profile '{p.Name}' skipped: {string.Join(" ", problems)}"); continue; }
                     p.AutoSwitchConfirmed = false;
+                    // G5 review decision 3: managed profiles bind by MAC/alias (a GUID differs per host); an adapterId is dropped, visibly.
+                    if (p.AdapterId is not null) { Errors.Add($"{Path.GetFileName(file)}: profile '{p.Name}': adapterId ignored (managed profiles bind by MAC or name)"); p.AdapterId = null; }
                     p.Managed = true; p.Source = "managed";
                     // Deterministic id (file + name) so hotkeys and "current" checks are stable across machines.
                     p.Id = "m-" + Path.GetFileNameWithoutExtension(file) + "-" + p.Name.ToLowerInvariant().Replace(' ', '-');

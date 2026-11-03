@@ -30,6 +30,8 @@ public static partial class ProfileGuard
         errors.AddRange(p.Validate());
         Text("Name", p.Name, MaxName, errors);
         Text("Note", p.Note, MaxNote, errors);
+        Text("Adapter id", p.AdapterId, 64, errors);   // G5: never reaches a command line, but it is logged and compared
+        Text("Adapter MAC", p.AdapterMac, 32, errors);
         if (p.Dns.Count > MaxDns) errors.Add($"At most {MaxDns} DNS servers.");
         if (p.DnsSuffix is not null && !DnsName().IsMatch(p.DnsSuffix)) errors.Add("DNS suffix must be a DNS name (letters, digits, '-' and '.').");
         Metric("Gateway metric", p.GatewayMetric, errors);

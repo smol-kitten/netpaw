@@ -454,7 +454,7 @@ jobs:
           # elevated context, and assert it was NOT refused for privilege and reached execution (an "apply"
           # report). The #76 CheckTokenMembership defect wrongly refused a real elevated admin here; CallerPrivilege
           # (TOKEN_GROUPS) accepts them. Until now only the VM proved this.
-          '{"v":1,"kind":"DeleteRoute","adapter":"' + $nic + '","routePrefix":"203.0.113.0/24"}' | Set-Content "$env:PUBLIC\np-req.json"
+          '{"v":2,"kind":"DeleteRoute","adapter":"' + $nic + '","routePrefix":"203.0.113.0/24"}' | Set-Content "$env:PUBLIC\np-req.json"
           $ra = & ([ScriptBlock]::Create($send))
           "`nDeleteRoute as elevated admin (gate must accept, #76 regression): ``$ra``" >> $env:GITHUB_STEP_SUMMARY
           if ($ra -match 'needs tier' -or $ra -notmatch '"apply"') { SvcLog; throw "an elevated admin was refused the privilege gate over the pipe (the #76 regression): $ra" }
@@ -488,16 +488,16 @@ jobs:
           # (an empty plan). This proves a standard user's typed request is processed by the service, and changes
           # nothing on the runner's only NIC.
           $ip = (Get-NetIPAddress -InterfaceAlias $nic -AddressFamily IPv4 | Select-Object -First 1).IPAddress
-          '{"v":1,"kind":"Reach","adapter":"' + $nic + '","target":"' + $ip + '"}' | Set-Content "$env:PUBLIC\np-req.json"
+          '{"v":2,"kind":"Reach","adapter":"' + $nic + '","target":"' + $ip + '"}' | Set-Content "$env:PUBLIC\np-req.json"
           $r1 = AsNptest $send
           "`nReach own IP $ip as nptest (already reachable, empty plan): ``$r1``" >> $env:GITHUB_STEP_SUMMARY
           if ($r1 -notmatch '"ok":true' -or $r1 -notmatch '"apply"') { SvcLog; throw "an allowed typed request from a standard user was not processed by the service: $r1" }
           # A standard user may NOT reset an adapter or delete a route: DeleteRoute defaults to the NetworkConfigOperators tier (PR 4).
-          '{"v":1,"kind":"DeleteRoute","adapter":"' + $nic + '","routePrefix":"203.0.113.0/24"}' | Set-Content "$env:PUBLIC\np-req.json"
+          '{"v":2,"kind":"DeleteRoute","adapter":"' + $nic + '","routePrefix":"203.0.113.0/24"}' | Set-Content "$env:PUBLIC\np-req.json"
           $r1b = AsNptest $send
           "DeleteRoute as nptest (expected refused): ``$r1b``" >> $env:GITHUB_STEP_SUMMARY
           if ($r1b -notmatch '"ok":false' -or $r1b -notmatch 'needs tier' -or $r1b -match '"apply"') { SvcLog; throw "DeleteRoute from a standard user was not gated: $r1b" }
-          '{"v":1,"kind":"ApplyProfile","adapter":"' + $nic + '","profile":{"name":"x","dnsSuffix":"a'' ; calc ; ''","addresses":[{"address":"192.0.2.10","prefixLength":24}]}}' | Set-Content "$env:PUBLIC\np-req.json"
+          '{"v":2,"kind":"ApplyProfile","adapter":"' + $nic + '","profile":{"name":"x","dnsSuffix":"a'' ; calc ; ''","addresses":[{"address":"192.0.2.10","prefixLength":24}]}}' | Set-Content "$env:PUBLIC\np-req.json"
           $r2 = AsNptest $send
           "injection attempt as nptest: ``$r2``" >> $env:GITHUB_STEP_SUMMARY
           if ($r2 -notmatch '"ok":false' -or $r2 -notmatch 'DNS suffix' -or $r2 -match '"apply"') { throw "injection attempt was not refused before planning: $r2" }
@@ -511,7 +511,7 @@ jobs:
           '[{ "name": "PR3Managed", "addresses": [{ "address": "192.0.2.77", "prefixLength": 24 }], "gateway": "192.0.2.1" }]' | Set-Content $managed
           $listed0 = & "$dir\netpaw-cli.exe" list 2>&1 | Out-String
           if ($listed0 -notmatch 'PR3Managed') { throw "a properly-owned managed profile was not loaded: $listed0" }
-          '{"v":1,"kind":"ApplyProfile","adapter":"NoSuchAdapterPR3","profileId":"m-pr3-pr3managed"}' | Set-Content "$env:PUBLIC\np-req.json"
+          '{"v":2,"kind":"ApplyProfile","adapter":"NoSuchAdapterPR3","profileId":"m-pr3-pr3managed"}' | Set-Content "$env:PUBLIC\np-req.json"
           $r3 = AsNptest $send
           "`nManaged ApplyProfile by id as nptest (bogus adapter, nothing applied): ``$r3``" >> $env:GITHUB_STEP_SUMMARY
           if ($r3 -notmatch '"ok":false' -or $r3 -match 'no managed profile' -or $r3 -notmatch 'not found' -or $r3 -match '"apply"') { SvcLog; throw "a standard user's managed-profile apply did not route through the service as expected: $r3" }
@@ -521,7 +521,7 @@ jobs:
           # the reason once (Event Log) and falls back to last-known-good/defaults, so an allowed request still succeeds.
           New-Item -Path HKLM:\SOFTWARE\Policies\NetPaw -Force | Out-Null
           New-ItemProperty -Path HKLM:\SOFTWARE\Policies\NetPaw -Name PolicySchemaVersion -Value '2' -PropertyType String -Force | Out-Null
-          '{"v":1,"kind":"Reach","adapter":"' + $nic + '","target":"' + $ip + '"}' | Set-Content "$env:PUBLIC\np-req.json"
+          '{"v":2,"kind":"Reach","adapter":"' + $nic + '","target":"' + $ip + '"}' | Set-Content "$env:PUBLIC\np-req.json"
           $r9 = AsNptest $send
           "`nReach with PolicySchemaVersion=2 (policy invalid -> defaults; request still allowed): ``$r9``" >> $env:GITHUB_STEP_SUMMARY
           if ($r9 -notmatch '"ok":true') { SvcLog; throw "an allowed request failed under an unsupported policy schema (should fall back to defaults): $r9" }
@@ -533,7 +533,7 @@ jobs:
           # gate (Admin by default); the runner admin gets to the resolve step and is refused there (this build's version
           # is above anything the source offers, so "downgrade not allowed" — or "download failed" when the source is
           # unreachable from the runner); in both cases nothing is downloaded or installed.
-          '{"v":1,"kind":"InstallUpdate"}' | Set-Content "$env:PUBLIC\np-req.json"
+          '{"v":2,"kind":"InstallUpdate"}' | Set-Content "$env:PUBLIC\np-req.json"
           $u1 = AsNptest $send
           "`nInstallUpdate from a standard user: ``$u1``" >> $env:GITHUB_STEP_SUMMARY
           if ($u1 -notmatch '"ok":false' -or $u1 -notmatch 'needs tier Admin') { SvcLog; throw "InstallUpdate from a standard user was not refused by the tier gate: $u1" }

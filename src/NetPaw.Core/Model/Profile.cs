@@ -70,8 +70,12 @@ public sealed class Profile
 {
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
     public string Name { get; set; } = "";
-    /// <summary>Adapter name (alias) or null = the configured work adapter.</summary>
+    /// <summary>Adapter name (alias) or null = the configured work adapter. Display, and the last resort for resolving (G5).</summary>
     public string? Adapter { get; set; }
+    /// <summary>G5: the adapter's NetCfgInstanceId ("{GUID}", <see cref="NetPaw.Adapters.AdapterInfo.Id"/>), written by the editor for
+    /// user profiles. Resolved before <see cref="AdapterMac"/> and <see cref="Adapter"/>; a profile whose id is not present is
+    /// refused, never redirected by alias. Managed profiles never carry one (a GUID is per host; the loader drops it).</summary>
+    public string? AdapterId { get; set; }
     /// <summary>MAC of that adapter, so the binding survives "Ethernet" → "Ethernet 3" after a dock/driver change. Resolved before the name.</summary>
     public string? AdapterMac { get; set; }
     /// <summary>Optional: restrict which adapters this profile may be applied to (enforced by the service). Absent =

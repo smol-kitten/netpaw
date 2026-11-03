@@ -11,6 +11,10 @@ namespace NetPaw.Planning;
 public static class ApplyPlanner
 {
     static string Q(string adapter) => "\"" + adapter + "\"";
+    /// <summary>G5: every `netsh interface ipv4` step names the adapter by interface index ("Interface name or index" in netsh's
+    /// own help), taken from the resolved live adapter, so an alias rename between resolve and run cannot redirect a step.
+    /// The alias stays in the plan (<see cref="ApplyPlan.Adapter"/>) and the step descriptions for humans.</summary>
+    static string Idx(AdapterInfo adapter) => adapter.Index.ToString(System.Globalization.CultureInfo.InvariantCulture);
 
     /// <summary>netsh's "already on DHCP" message in the locales measured so far (en, de); other locales still report
     /// the step as failed until their text is added here.</summary>
@@ -19,8 +23,8 @@ public static class ApplyPlanner
     public static ApplyPlan Plan(Profile p, AdapterInfo adapter, VlanInfo? vlan = null)
     {
         if (!Ipc.ProfileGuard.IsSafeAdapterName(adapter.Name)) throw new InvalidOperationException($"adapter name '{adapter.Name}' contains characters that are not allowed.");
-        var plan = new ApplyPlan { Title = p.Name, Adapter = adapter.Name };
-        var n = Q(adapter.Name);
+        var plan = ApplyPlan.For(p.Name, adapter);
+        var n = Idx(adapter);
         if (!adapter.Up) plan.Warnings.Add($"Adapter '{adapter.Name}' is down; settings are stored but will only take effect once it comes up.");
 
         if (p.Dhcp)
@@ -82,17 +86,21 @@ public static class ApplyPlanner
 
     /// <summary>Disable → enable: the documented cure for the Windows "static applied but ipconfig still shows DHCP / two gateways" state. Never automatic.</summary>
     /// <summary>Delete one route (the stale VPN default, the leftover lab route). Interface by index so renamed adapters do not matter.</summary>
-    public static ApplyPlan PlanDeleteRoute(RouteEntry r, string adapterName)
+    public static ApplyPlan PlanDeleteRoute(RouteEntry r, AdapterInfo adapter) => PlanDeleteRoute(r, adapter.Name, adapter);
+
+    public static ApplyPlan PlanDeleteRoute(RouteEntry r, string adapterName, AdapterInfo? adapter = null)
     {
-        var plan = new ApplyPlan { Title = $"delete route {r.Prefix}", Adapter = adapterName };
+        var plan = adapter is null ? new ApplyPlan { Title = $"delete route {r.Prefix}", Adapter = adapterName } : ApplyPlan.For($"delete route {r.Prefix}", adapter);
         plan.Steps.Add(Step.Netsh($"Delete route {r.Prefix}{(r.Gateway is null ? "" : " via " + r.Gateway)}", $"interface ipv4 delete route prefix={r.Prefix} interface={r.InterfaceIndex}{(r.Gateway is null ? "" : " nexthop=" + r.Gateway)}"));
         return plan;
     }
 
     public static ApplyPlan PlanResetAdapter(AdapterInfo adapter)
     {
-        var plan = new ApplyPlan { Title = "reset adapter", Adapter = adapter.Name };
+        var plan = ApplyPlan.For("reset adapter", adapter);
         if (adapter.HasGateway) plan.Warnings.Add($"{adapter.Name} carries the default route: the link drops for a few seconds and remote sessions over it will stall.");
+        // The top-level `interface set interface` context documents name= as the interface name only (unlike the ipv4 context,
+        // which takes an index), so this is the one pair of steps still addressed by alias; the name was checked by IsSafeAdapterName.
         plan.Steps.Add(Step.Netsh("Disable adapter", $"interface set interface {Q(adapter.Name)} admin=disable"));
         plan.Steps.Add(Step.Netsh("Enable adapter", $"interface set interface {Q(adapter.Name)} admin=enable"));
         return plan;
@@ -105,13 +113,23 @@ public static class ApplyPlanner
     /// <summary>Adds a secondary address without touching the primary/gateway/DNS.</summary>
     public static ApplyPlan PlanAddSecondary(AdapterInfo adapter, IpAddr addr, string title)
     {
-        var plan = new ApplyPlan { Title = title, Adapter = adapter.Name };
+        var plan = ApplyPlan.For(title, adapter);
         if (adapter.Addresses.Any(a => a.Address == addr.Address)) { plan.Warnings.Add($"{addr.Address} is already on {adapter.Name}."); return plan; }
         if (adapter.Dhcp) plan.Warnings.Add("Adapter is on DHCP: netsh cannot add a static secondary next to a DHCP lease. Switch to a static profile first (or use 'replace' mode).");
-        else plan.Steps.Add(Step.Netsh($"Add {addr}", $"interface ipv4 add address name={Q(adapter.Name)} address={addr.Address} mask={addr.Mask}"));
+        else plan.Steps.Add(Step.Netsh($"Add {addr}", $"interface ipv4 add address name={Idx(adapter)} address={addr.Address} mask={addr.Mask}"));
         return plan;
     }
 
+    /// <summary>Live adapter known: steps by index (G5).</summary>
+    public static ApplyPlan PlanRemoveAddresses(AdapterInfo adapter, IEnumerable<IpAddr> addrs, string title)
+    {
+        var plan = ApplyPlan.For(title, adapter);
+        foreach (var a in addrs)
+            plan.Steps.Add(Step.Netsh($"Remove {a}", $"interface ipv4 delete address name={Idx(adapter)} address={a.Address}", critical: false));
+        return plan;
+    }
+
+    /// <summary>Adapter known by alias only (a temp address whose adapter is no longer listed): best effort by name.</summary>
     public static ApplyPlan PlanRemoveAddresses(string adapterName, IEnumerable<IpAddr> addrs, string title)
     {
         var plan = new ApplyPlan { Title = title, Adapter = adapterName };

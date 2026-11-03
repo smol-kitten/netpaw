@@ -76,8 +76,8 @@ public sealed class UpdateChecker(Func<string, CancellationToken, Task<string>> 
     }
 
     /// <summary>Where a verified installer named <paramref name="msiName"/> by the feed is written: directly inside
-    /// <paramref name="dir"/>, or null when the name is not a plain file name (a directory part, "..", a drive, a
-    /// reserved name, no .msi extension). The feed is signed data, but the name is used as a path, so it is checked as
+    /// <paramref name="dir"/>, or null when the name is not a plain file name (a directory part, "..", a drive,
+    /// no .msi extension). The feed is signed data, but the name is used as a path, so it is checked as
     /// a path: the resolved full path must sit one level below the resolved cache dir.</summary>
     public static string? CachePath(string dir, string msiName)
     {

@@ -87,6 +87,30 @@ public static class AdapterSelector
             ?? host.FirstOrDefault();
     }
 
+    /// <summary>G5: the one resolver for requests and profiles. (1) <paramref name="id"/> given: the live adapter with that
+    /// <see cref="AdapterInfo.Id"/>, or an <see cref="InvalidOperationException"/> when it is not present; a <paramref name="mac"/>
+    /// that differs from the live MAC refuses too. Never a fallback to the alias. (2) No id, <paramref name="mac"/> given: by MAC,
+    /// vSwitch uplinks excluded and the Hyper-V management vNIC first (it shares the uplink's MAC). (3) Otherwise, or when no
+    /// adapter carries the MAC: by <paramref name="alias"/> (legacy profiles, pre-v2 clients). Null = nothing bound or the bound
+    /// alias/MAC is not present; the caller words that refusal or picks the work adapter.</summary>
+    public static AdapterInfo? Resolve(string? id, string? mac, string? alias, IReadOnlyList<AdapterInfo> adapters)
+    {
+        if (id is { Length: > 0 })
+        {
+            var byId = adapters.FirstOrDefault(a => string.Equals(a.Id, id, StringComparison.OrdinalIgnoreCase))
+                ?? throw new InvalidOperationException($"adapter {id}{(alias is null ? "" : $" ('{alias}')")} is not present (unplugged dock or USB NIC?)");
+            if (mac is { Length: > 0 } && !string.Equals(byId.Mac, mac, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException($"adapter {id} ('{byId.Name}') is not the adapter expected any more (MAC differs: live {byId.Mac}, expected {mac}); refused");
+            return byId;
+        }
+        if (mac is { Length: > 0 } && ByMac(mac, adapters) is { } byMac) return byMac;
+        return alias is null ? null : adapters.FirstOrDefault(a => string.Equals(a.Name, alias, StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>By MAC, never the address-less vSwitch uplink (a Hyper-V host vEthernet shares the physical NIC's MAC).</summary>
+    public static AdapterInfo? ByMac(string mac, IReadOnlyList<AdapterInfo> adapters) =>
+        adapters.Where(a => !a.VSwitchUplink).OrderBy(a => a.HyperVVirtual ? 0 : 1).FirstOrDefault(a => string.Equals(a.Mac, mac, StringComparison.OrdinalIgnoreCase));
+
     /// <summary>Adapters worth watching besides the work adapter: up, host-facing, not a vSwitch uplink, carrying a real address. Work adapter excluded.</summary>
     public static IReadOnlyList<AdapterInfo> Secondaries(IReadOnlyList<AdapterInfo> adapters, AdapterInfo? work) =>
         adapters.Where(a => a.Up && a.HostFacing && !a.VSwitchUplink && a.HasRealAddress

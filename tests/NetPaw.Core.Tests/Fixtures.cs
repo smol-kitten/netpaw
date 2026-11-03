@@ -6,15 +6,18 @@ namespace NetPaw.Tests;
 
 static class Fx
 {
+    /// <summary>A Windows-shaped adapter id ("{GUID}"), stable per name so tests can compare it.</summary>
+    public static string Id(string name) => new Guid(System.Security.Cryptography.MD5.HashData(System.Text.Encoding.UTF8.GetBytes(name))).ToString("B").ToUpperInvariant();
+
     public static AdapterInfo Adapter(string name = "Ethernet", bool dhcp = false, string[]? addrs = null, string? gw = null, bool up = true) =>
-        new(name, "Intel I219", "{guid}", 7, up, true, dhcp,
+        new(name, "Intel I219", Id(name), 7, up, true, dhcp,
             (addrs ?? ["192.168.1.10/24"]).Select(IpAddr.Parse).ToList(),
             gw is null ? [] : [gw], ["192.168.1.1"], "AA:BB:CC:DD:EE:FF");
 
     /// <summary>One builder for every "live adapter" a test needs; the per-file copies used to drift.</summary>
     public static AdapterInfo Nic(string name = "Ethernet", string desc = "x", bool up = true, bool physical = true, bool dhcp = false,
         string[]? addrs = null, string? gw = null, string[]? dns = null, bool hyperv = false, bool wireless = false, int index = 1, string? dhcpServer = null) =>
-        new(name, desc, "{" + name + "}", index, up, physical, dhcp, (addrs ?? []).Select(IpAddr.Parse).ToList(), gw is null ? [] : [gw], dns ?? [], "AA")
+        new(name, desc, Id(name), index, up, physical, dhcp, (addrs ?? []).Select(IpAddr.Parse).ToList(), gw is null ? [] : [gw], dns ?? [], "AA:BB:CC:DD:EE:01")
         { HyperVVirtual = hyperv, Wireless = wireless, DhcpServers = dhcpServer is null ? [] : [dhcpServer] };
 
     public static Profile Static(string name, string? gw = "192.168.1.1", params string[] addrs) => new()
