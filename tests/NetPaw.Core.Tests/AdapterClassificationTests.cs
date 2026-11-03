@@ -88,6 +88,17 @@ public class AdapterClassificationTests
     }
 
     [Fact]
+    public void Find_with_a_duplicate_mac_throws_the_named_refusal_for_the_cli_to_print()
+    {
+        // The CLI catches this around "-a" and prints "netpaw: <message>" with exit 2; it must be this exception type, not a crash.
+        var a = NetPaw.Tests.Fx.Adapter("Ethernet") with { Index = 7, Mac = "AA:BB:CC:00:00:01" };
+        var b = NetPaw.Tests.Fx.Adapter("Ethernet 2") with { Index = 8, Mac = "AA:BB:CC:00:00:01" };
+        var ex = Assert.Throws<InvalidOperationException>(() => AdapterSelector.Find("aa:bb:cc:00:00:01", [a, b]));
+        Assert.Contains("MAC aa:bb:cc:00:00:01 is on 2 adapters (Ethernet, Ethernet 2); name the adapter", ex.Message);
+        Assert.Equal("Ethernet 2", AdapterSelector.Find("Ethernet 2", [a, b])!.Name);   // the alias is the way out
+    }
+
+    [Fact]
     public void A_request_mac_that_matches_nothing_refuses_a_profile_mac_falls_back_to_the_alias()
     {
         AdapterInfo[] all = [NetPaw.Tests.Fx.Adapter("Ethernet") with { Mac = "AA:BB:CC:00:00:01" }];

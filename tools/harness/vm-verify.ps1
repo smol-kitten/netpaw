@@ -106,7 +106,9 @@ if ((Get-NetAdapter -Name $renamed -ErrorAction SilentlyContinue)) {
     $isLoop = $shown -match '127\.0\.0\.1'
     R 'netsh-numeric-name' ("alias '$loopIdx' present; name=$loopIdx shows " + $(if ($isLoop) { 'the loopback (index wins)' } else { 'the test NIC (ALIAS WINS - refuse digit aliases)' }))
     Rename-NetAdapter -Name "$loopIdx" -NewName $TestNic -ErrorAction SilentlyContinue
-    if (-not (Get-NetAdapter -Name $TestNic -ErrorAction SilentlyContinue)) { Rename-NetAdapter -Name $renamed -NewName $TestNic -ErrorAction SilentlyContinue }
+    if (-not (Get-NetAdapter -Name $TestNic -ErrorAction SilentlyContinue)) {   # whatever name the NIC has now: find it by its GUID, not by a guessed alias
+        Get-NetAdapter | Where-Object { $_.InterfaceGuid -eq $testGuid } | Rename-NetAdapter -NewName $TestNic -ErrorAction SilentlyContinue
+    }
     R 'rename-restored' "$((Get-NetAdapter -Name $TestNic -ErrorAction SilentlyContinue).Name)"
 } else { Bad 'rename' "could not rename $TestNic" }
 

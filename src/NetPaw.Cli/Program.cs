@@ -111,13 +111,18 @@ if (argv.Count > 0 && argv[0] == "service")
 }
 
 var svc = NetPawService.CreateDefault();
-// 18b: "-a" is an alias, an interface index, a {GUID} or a MAC, resolved here against the live list; the request then carries the id.
+// 18b: "-a" is an alias, an interface index, a {GUID} or a MAC, resolved here against the live list to the adapter's name; each
+// command below re-resolves that name to the live AdapterInfo, and ServiceChange.On() puts its id and MAC into the request.
 string? adapterName = null;
 if (adapterArg is not null)
 {
-    var hit = NetPaw.Adapters.AdapterSelector.Find(adapterArg, svc.GetAdapters());
-    if (hit is null) return Fail($"Adapter '{adapterArg}' not found (alias, index, GUID or MAC); see 'adapters'.");
-    adapterName = hit.Name;
+    try
+    {
+        var hit = NetPaw.Adapters.AdapterSelector.Find(adapterArg, svc.GetAdapters());
+        if (hit is null) return Fail($"Adapter '{adapterArg}' not found (alias, index, GUID or MAC); see 'adapters'.");
+        adapterName = hit.Name;
+    }
+    catch (InvalidOperationException ex) { return Fail(ex.Message); }   // a MAC on two adapters: a message and exit 2, not a stack trace
 }
 try
 {
