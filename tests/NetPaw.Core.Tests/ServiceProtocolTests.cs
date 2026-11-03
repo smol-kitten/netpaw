@@ -120,4 +120,11 @@ public class ServiceProtocolTests
         }
         Assert.Null(ServiceChange.Dhcp("Ethernet 2").AdapterId);   // name-only callers still work, the service logs them as pre-0.17
     }
+
+    [Fact]
+    public void An_adapter_without_a_readable_id_or_mac_sends_null_not_empty()
+    {
+        var r = ServiceChange.Dhcp(Fx.Adapter("Ethernet 2") with { Id = "", Mac = " " });
+        Assert.Equal("Ethernet 2", r.Adapter); Assert.Null(r.AdapterId); Assert.Null(r.AdapterMac);
+    }
 }

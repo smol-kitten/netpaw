@@ -283,4 +283,29 @@ public class MacBindingTests
         Assert.Equal("AA:BB:CC:00:00:99", cap.AdapterMac);
         Assert.Equal("Ethernet 3", svc.PlanProfile(cap).Adapter);
     }
+
+    [Fact]
+    public void TempAddressesFollowTheAdapterIdThroughARename()
+    {
+        var dir = Directory.CreateTempSubdirectory().FullName; var runner = new FakeRunner();
+        var live = new SwappableAdapters(Fx.Adapter("Ethernet", gw: "192.168.1.1"));
+        var svc = new NetPawService(new JsonStore(dir), live, new FakeVlan(false), runner);
+        Assert.True(svc.Reach(svc.ResolveReach("172.20.5.1")).Item2!.Success);
+        var t = Assert.Single(svc.TempAddresses); Assert.Equal(Fx.Id("Ethernet"), t.AdapterId); Assert.Equal("Ethernet", t.Adapter);
+        live.Current = Fx.Adapter("Ethernet 9", gw: "192.168.1.1") with { Id = Fx.Id("Ethernet"), Index = 21 };   // renamed, new index
+        svc.ClearTemp();
+        Assert.Contains(runner.Ran, s => s.Arguments.Contains("delete address name=21") && s.Arguments.Contains("172.20.5.254"));
+        Assert.Empty(svc.TempAddresses);
+        // a 0.16 entry without an id still matches by alias
+        var store = new JsonStore(dir);
+        store.SaveTemp([new TempAddress("Ethernet 9", IpAddr.Parse("172.20.5.250/24"), "old", DateTimeOffset.Now)]);
+        Assert.True(svc.TempAddresses.Single().IsOn(live.Current));
+        Assert.False(svc.TempAddresses.Single().IsOn(Fx.Adapter("Ethernet")));
+    }
+
+    sealed class SwappableAdapters(Adapters.AdapterInfo first) : Adapters.IAdapterProvider
+    {
+        public Adapters.AdapterInfo Current = first;
+        public IReadOnlyList<Adapters.AdapterInfo> GetAdapters() => [Current];
+    }
 }

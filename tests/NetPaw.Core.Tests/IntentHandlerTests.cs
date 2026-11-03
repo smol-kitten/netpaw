@@ -587,7 +587,8 @@ public class RevertLastApplyTests
         Directory.CreateDirectory(Path.GetDirectoryName(r.Handler.PreApplyPath)!);
         File.WriteAllText(r.Handler.PreApplyPath, System.Text.Json.JsonSerializer.Serialize(stale, ServiceProtocol.Json));
         var resp = r.Handler.Handle(Revert(), "PC\\anna (session 2)", privileged: false);
-        Assert.False(resp.Ok); Assert.Contains("MAC differs", resp.Error);
+        // 18b: the snapshot's MAC matches nothing live, so the strict request path refuses before the alias is even tried.
+        Assert.False(resp.Ok); Assert.Contains("is not the adapter the last apply changed any more", resp.Error); Assert.Contains("MAC 11:22:33:44:55:66", resp.Error);
     }
 
     [Fact]
@@ -673,6 +674,15 @@ public class RevertLastApplyTests
         r.Adapters.Current = Fx.Adapter("Ethernet") with { Index = index };
         var resp = r.Handler.Handle(DhcpOn("Ethernet"), "PC\\anna (session 2)", privileged: false);
         Assert.False(resp.Ok); Assert.Contains("no usable interface index", resp.Error);
+        Assert.Empty(r.Runner.Ran);
+    }
+
+    [Fact]
+    public void A_request_whose_mac_matches_no_adapter_is_refused_not_resolved_by_alias()
+    {
+        var r = Make();
+        var resp = r.Handler.Handle(DhcpOn("Ethernet", id: null, mac: "11:22:33:44:55:66"), "PC\\anna (session 2)", privileged: false);
+        Assert.False(resp.Ok); Assert.Contains("MAC 11:22:33:44:55:66 ('Ethernet') is not present", resp.Error);
         Assert.Empty(r.Runner.Ran);
     }
 }

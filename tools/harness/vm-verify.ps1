@@ -78,6 +78,38 @@ Start-Sleep 5
 $dh = (Get-NetIPInterface -InterfaceAlias $TestNic -AddressFamily IPv4).Dhcp
 $after = Get-NetIPAddress -InterfaceAlias $TestNic -AddressFamily IPv4 | Select-Object -First 1 -ExpandProperty IPAddress
 if ($rc -eq 0 -and $dh -eq 'Enabled' -and $after -ne '10.99.0.42') { R 'revert' "rc=0 dhcp=$dh test NIC now $after" } else { Bad 'revert' "rc=$rc dhcp=$dh ip=$after: $($rv -join ' ')" }
+# --- G5 (18b): identity. Apply by GUID; a renamed test NIC: the old alias is refused, the id-bound profile still lands; netsh name=<digits> ---
+$testGuid = (Get-NetAdapter -Name $TestNic).InterfaceGuid
+$ap = & $cli apply harness-static -a $testGuid 2>&1; $rc = $LASTEXITCODE
+Start-Sleep 3
+$now = Get-NetIPAddress -InterfaceAlias $TestNic -AddressFamily IPv4 | Select-Object -First 1 -ExpandProperty IPAddress
+if ($rc -eq 0 -and $now -eq '10.99.0.42') { R 'apply-by-guid' "rc=0 $testGuid -> $now" } else { Bad 'apply-by-guid' "rc=$rc ip=$now: $($ap -join ' ')" }
+& $cli revert 2>&1 | Out-Null; Start-Sleep 3
+$renamed = "$TestNic g5"
+Rename-NetAdapter -Name $TestNic -NewName $renamed -ErrorAction SilentlyContinue
+if ((Get-NetAdapter -Name $renamed -ErrorAction SilentlyContinue)) {
+    $ap = & $cli apply harness-static -a $TestNic 2>&1; $rc = $LASTEXITCODE          # old alias: nothing by that name any more
+    if ($rc -ne 0 -and ($ap -join ' ') -match 'not found') { R 'apply-old-alias-refused' "rc=$rc" } else { Bad 'apply-old-alias-refused' "rc=$rc: $($ap -join ' ')" }
+    $prof = @(@{ Name = 'harness-byid'; Dhcp = $false; AdapterId = $testGuid; AdapterMac = $testMac; Addresses = @(@{ Address = '10.99.0.43'; PrefixLength = 24 }); Gateway = '10.99.0.1'; Dns = @('10.99.0.1') })
+    $prof | ConvertTo-Json -Depth 5 | Set-Content C:\harness\profile-byid.json -Encoding UTF8
+    & $cli import C:\harness\profile-byid.json 2>&1 | Out-Null
+    $ap = & $cli apply harness-byid 2>&1; $rc = $LASTEXITCODE                        # no -a: the profile's id finds the renamed NIC
+    Start-Sleep 3
+    $now = Get-NetIPAddress -InterfaceAlias $renamed -AddressFamily IPv4 | Select-Object -First 1 -ExpandProperty IPAddress
+    if ($rc -eq 0 -and $now -eq '10.99.0.43') { R 'apply-renamed-by-id' "rc=0 '$renamed' now $now" } else { Bad 'apply-renamed-by-id' "rc=$rc ip=$now: $($ap -join ' ')" }
+    & $cli revert 2>&1 | Out-Null; Start-Sleep 3
+    # Does netsh read name=<digits> as an index or as an alias? Alias "1" on the test NIC vs the loopback's index 1; read-only.
+    $loopIdx = (Get-NetAdapter -IncludeHidden | Where-Object { $_.InterfaceDescription -like '*Loopback*' } | Select-Object -First 1).ifIndex
+    if (-not $loopIdx) { $loopIdx = 1 }
+    Rename-NetAdapter -Name $renamed -NewName "$loopIdx" -ErrorAction SilentlyContinue
+    $shown = (& netsh interface ipv4 show addresses name=$loopIdx 2>&1) -join ' '
+    $isLoop = $shown -match '127\.0\.0\.1'
+    R 'netsh-numeric-name' ("alias '$loopIdx' present; name=$loopIdx shows " + $(if ($isLoop) { 'the loopback (index wins)' } else { 'the test NIC (ALIAS WINS - refuse digit aliases)' }))
+    Rename-NetAdapter -Name "$loopIdx" -NewName $TestNic -ErrorAction SilentlyContinue
+    if (-not (Get-NetAdapter -Name $TestNic -ErrorAction SilentlyContinue)) { Rename-NetAdapter -Name $renamed -NewName $TestNic -ErrorAction SilentlyContinue }
+    R 'rename-restored' "$((Get-NetAdapter -Name $TestNic -ErrorAction SilentlyContinue).Name)"
+} else { Bad 'rename' "could not rename $TestNic" }
+
 # --- #135 case B: the data root is a junction -> the service runs without its store, refuses changes, says why ----------
 if (Get-Service netpaw-svc -ErrorAction SilentlyContinue) {
   sc.exe stop netpaw-svc | Out-Null; Start-Sleep 3

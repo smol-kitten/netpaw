@@ -7,7 +7,7 @@ namespace NetPaw.Core.Tests;
 public class ProfileLintTests
 {
     static Profile P(string name, string? adapter = null, params string[] addrs) =>
-        new() { Id = name, Name = name, Adapter = adapter, Addresses = addrs.Select(IpAddr.Parse).ToList() };
+        new() { Id = name, Name = name, Adapter = adapter, AdapterId = adapter is null ? null : Fx.Id(adapter), Addresses = addrs.Select(IpAddr.Parse).ToList() };
 
     [Fact]
     public void Address_live_on_another_adapter_warns()
@@ -37,5 +37,17 @@ public class ProfileLintTests
         Assert.Single(ProfileLint.Warnings(p, [], []), x => x.Contains("own addresses"));
         var d = new Profile { Id = "d", Name = "d", Dhcp = true, Addresses = [IpAddr.Parse("192.0.2.10/24")] };
         Assert.Empty(ProfileLint.Warnings(d, [P("x", null, "192.0.2.10/24")], [Fx.Nic("Ethernet 2", addrs: ["192.0.2.10/24"])]));
+    }
+
+    [Fact]
+    public void A_user_profile_bound_by_alias_only_warns_a_managed_one_does_not()
+    {
+        var byAlias = P("lab", "Ethernet", "192.0.2.10/24"); byAlias.AdapterId = null;
+        Assert.Single(ProfileLint.Warnings(byAlias, [], []), x => x.Contains("alias 'Ethernet' only") && x.Contains("bind to the adapter in the editor"));
+        byAlias.Managed = true;
+        Assert.Empty(ProfileLint.Warnings(byAlias, [], []));
+        var dhcpByAlias = P("lab-dhcp", "Ethernet"); dhcpByAlias.Dhcp = true; dhcpByAlias.AdapterId = "";
+        Assert.Single(ProfileLint.Warnings(dhcpByAlias, [], []));                                  // the binding warning is not a static-only check
+        Assert.Empty(ProfileLint.Warnings(P("unbound", null, "192.0.2.10/24"), [], []));
     }
 }

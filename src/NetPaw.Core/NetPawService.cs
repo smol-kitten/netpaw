@@ -222,7 +222,7 @@ public sealed class NetPawService
     public AdapterInfo ResolveAdapter(string? name, IReadOnlyList<AdapterInfo>? adapters = null, string? id = null, string? mac = null)
     {
         adapters ??= GetAdapters();
-        if (AdapterSelector.Resolve(id, mac, name, adapters) is { } bound) return bound;
+        if (AdapterSelector.Resolve(id, mac, name, adapters, strictMac: true) is { } bound) return bound;
         if (name is not null)
             throw new InvalidOperationException($"Adapter '{name}' not found. Available: {string.Join(", ", adapters.Select(a => a.Name))}");
         if (mac is { Length: > 0 })
@@ -256,7 +256,9 @@ public sealed class NetPawService
         var outcome = PlanExecutor.Execute(plan, Runner, Store.Log);
         // A full "set address" wipes every address on the adapter, so forget temp addresses we tracked there.
         if (plan.Steps.Any(s => s.Arguments.Contains(" set address ")))
-            Store.SaveTemp(Store.LoadTemp().Where(t => !string.Equals(t.Adapter, plan.Adapter, StringComparison.OrdinalIgnoreCase)));
+            Store.SaveTemp(Store.LoadTemp().Where(t => !(plan.AdapterId is { Length: > 0 } && t.AdapterId is { Length: > 0 }
+                                                        ? string.Equals(t.AdapterId, plan.AdapterId, StringComparison.OrdinalIgnoreCase)
+                                                        : string.Equals(t.Adapter, plan.Adapter, StringComparison.OrdinalIgnoreCase))));
         return outcome;
     }
 
@@ -344,7 +346,7 @@ public sealed class NetPawService
         if (outcome.Success && addedSecondary && (d.Kind is ReachKind.TempAddress or ReachKind.UsePreset))
         {
             var temp = Store.LoadTemp();
-            temp.Add(new TempAddress(adapter.Name, d.Address!, d.Kind == ReachKind.UsePreset ? d.Preset!.Key : "reach " + d.Target, DateTimeOffset.Now));
+            temp.Add(new TempAddress(adapter.Name, d.Address!, d.Kind == ReachKind.UsePreset ? d.Preset!.Key : "reach " + d.Target, DateTimeOffset.Now, adapter.Id));
             Store.SaveTemp(temp);
         }
         return (plan, outcome);
@@ -431,10 +433,10 @@ public sealed class NetPawService
         if (temp.Count == 0) return null;
         ApplyOutcome? last = null;
         var live = GetAdapters();
-        foreach (var g in temp.GroupBy(t => t.Adapter))
+        foreach (var g in temp.GroupBy(t => t.AdapterId is { Length: > 0 } ? t.AdapterId : t.Adapter, StringComparer.OrdinalIgnoreCase))
         {
-            // The temp store keys by alias; address the live adapter by index when it is still there (G5), by alias otherwise.
-            var a = live.FirstOrDefault(x => string.Equals(x.Name, g.Key, StringComparison.OrdinalIgnoreCase));
+            // By id when the entry has one (18b: survives a rename), by alias for 0.16 entries; by index on the wire when the adapter is still there.
+            var a = live.FirstOrDefault(x => g.First().IsOn(x));
             var plan = a is null ? ApplyPlanner.PlanRemoveAddresses(g.Key, g.Select(t => t.Address), "clear temporary addresses")
                                  : ApplyPlanner.PlanRemoveAddresses(a, g.Select(t => t.Address), "clear temporary addresses");
             last = PlanExecutor.Execute(plan, Runner, Store.Log);

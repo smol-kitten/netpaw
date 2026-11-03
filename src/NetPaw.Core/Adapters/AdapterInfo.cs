@@ -93,7 +93,9 @@ public static class AdapterSelector
     /// vSwitch uplinks excluded and the Hyper-V management vNIC first (it shares the uplink's MAC). (3) Otherwise, or when no
     /// adapter carries the MAC: by <paramref name="alias"/> (legacy profiles, pre-v2 clients). Null = nothing bound or the bound
     /// alias/MAC is not present; the caller words that refusal or picks the work adapter.</summary>
-    public static AdapterInfo? Resolve(string? id, string? mac, string? alias, IReadOnlyList<AdapterInfo> adapters)
+    /// <param name="strictMac">Request path (18b): a MAC that matches no live adapter refuses instead of falling back to the alias.
+    /// Profiles keep the fallback (a fleet profile names the alias on purpose; a renamed dock NIC is the MAC's job).</param>
+    public static AdapterInfo? Resolve(string? id, string? mac, string? alias, IReadOnlyList<AdapterInfo> adapters, bool strictMac = false)
     {
         if (id is { Length: > 0 })
         {
@@ -103,13 +105,33 @@ public static class AdapterSelector
                 throw new InvalidOperationException($"adapter {id} ('{byId.Name}') is not the adapter expected any more (MAC differs: live {byId.Mac}, expected {mac}); refused");
             return byId;
         }
-        if (mac is { Length: > 0 } && ByMac(mac, adapters) is { } byMac) return byMac;
+        if (mac is { Length: > 0 })
+        {
+            if (ByMac(mac, adapters) is { } byMac) return byMac;
+            if (strictMac) throw new InvalidOperationException($"adapter with MAC {mac}{(alias is null ? "" : $" ('{alias}')")} is not present (unplugged dock or USB NIC?); refused");
+        }
         return alias is null ? null : adapters.FirstOrDefault(a => string.Equals(a.Name, alias, StringComparison.OrdinalIgnoreCase));
     }
 
+    /// <summary>What a tray or CLI user typed for "-a": an interface index, a {GUID}, a MAC or the alias. Null when nothing matches.</summary>
+    public static AdapterInfo? Find(string arg, IReadOnlyList<AdapterInfo> adapters)
+    {
+        arg = arg.Trim();
+        if (int.TryParse(arg, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var index) && index > 0)
+            return adapters.FirstOrDefault(a => a.Index == index);
+        if (Guid.TryParse(arg, out var g)) return adapters.FirstOrDefault(a => Guid.TryParse(a.Id, out var ag) && ag == g);
+        if (Ipc.IntentHandler.IsMac(arg)) return ByMac(arg, adapters);
+        return adapters.FirstOrDefault(a => string.Equals(a.Name, arg, StringComparison.OrdinalIgnoreCase));
+    }
+
     /// <summary>By MAC, never the address-less vSwitch uplink (a Hyper-V host vEthernet shares the physical NIC's MAC).</summary>
-    public static AdapterInfo? ByMac(string mac, IReadOnlyList<AdapterInfo> adapters) =>
-        adapters.Where(a => !a.VSwitchUplink).OrderBy(a => a.HyperVVirtual ? 0 : 1).FirstOrDefault(a => string.Equals(a.Mac, mac, StringComparison.OrdinalIgnoreCase));
+    public static AdapterInfo? ByMac(string mac, IReadOnlyList<AdapterInfo> adapters)
+    {
+        var hits = adapters.Where(a => !a.VSwitchUplink && string.Equals(a.Mac, mac, StringComparison.OrdinalIgnoreCase)).OrderBy(a => a.HyperVVirtual ? 0 : 1).ToList();
+        // 18b: two host-facing adapters with one MAC (a bridge, a cloned VM NIC) — never pick one by luck; the id or the alias must say which.
+        if (hits.Count > 1) throw new InvalidOperationException($"MAC {mac} is on {hits.Count} adapters ({string.Join(", ", hits.Select(a => a.Name))}); name the adapter");
+        return hits.FirstOrDefault();
+    }
 
     /// <summary>Adapters worth watching besides the work adapter: up, host-facing, not a vSwitch uplink, carrying a real address. Work adapter excluded.</summary>
     public static IReadOnlyList<AdapterInfo> Secondaries(IReadOnlyList<AdapterInfo> adapters, AdapterInfo? work) =>

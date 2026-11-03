@@ -195,7 +195,8 @@ sealed class ProfileEditorForm : Form
     {
         _loading = true;
         _name.Text = p.Name;
-        _adapter.SelectedIndex = p.Adapter is null ? 0 : Math.Max(0, _adapter.Items.IndexOf(p.Adapter));
+        var bound = p.AdapterId is { Length: > 0 } ? _adapters.FirstOrDefault(a => string.Equals(a.Id, p.AdapterId, StringComparison.OrdinalIgnoreCase)) : null;   // 18b: the id wins over a renamed alias
+        _adapter.SelectedIndex = bound is not null ? Math.Max(0, _adapter.Items.IndexOf(bound.Name)) : p.Adapter is null ? 0 : Math.Max(0, _adapter.Items.IndexOf(p.Adapter));
         _dhcp.Checked = p.Dhcp; _static.Checked = !p.Dhcp;
         _addresses.Text = string.Join(Environment.NewLine, p.Addresses.Select(a => a.ToString()));
         _gateway.Text = p.Gateway ?? ""; _gwMetric.Value = p.GatewayMetric ?? 0; _ifMetric.Value = p.InterfaceMetric ?? 0;
@@ -257,7 +258,9 @@ sealed class ProfileEditorForm : Form
         p.Name = _name.Text.Trim();
         if (p.Name.Length == 0) Err(_identity, "name", "Name is required.");
         p.Adapter = _adapter.SelectedIndex <= 0 ? null : (string)_adapter.SelectedItem!;
-        p.AdapterMac = p.Adapter is null ? null : _adapters.FirstOrDefault(a => a.Name == p.Adapter)?.Mac ?? p.AdapterMac;
+        var liveAdapter = p.Adapter is null ? null : _adapters.FirstOrDefault(a => a.Name == p.Adapter);
+        p.AdapterMac = p.Adapter is null ? null : liveAdapter?.Mac ?? p.AdapterMac;
+        p.AdapterId = p.Adapter is null ? null : liveAdapter?.Id is { Length: > 0 } id ? id : p.AdapterId;   // 18b: user profiles bind by id; kept when the adapter is absent now
         p.Dhcp = _dhcp.Checked;
         p.Addresses = [];
         var badAddr = new List<string>();
