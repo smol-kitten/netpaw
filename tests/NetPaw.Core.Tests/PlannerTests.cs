@@ -79,11 +79,11 @@ public class PlannerTests
         p.InterfaceMetric = 10; p.DnsSuffix = "lab.local"; p.VlanId = 42;
         var plan = ApplyPlanner.Plan(p, Fx.Adapter(), new Adapters.VlanInfo(true, 0, "VlanID"));
         var cmds = plan.Steps.Select(s => s.CommandLine).ToList();
-        Assert.Contains("netsh interface ipv4 add route prefix=10.0.0.0/8 interface=\"Ethernet\" nexthop=192.168.1.1 metric=5 store=persistent", cmds);
-        Assert.Contains("netsh interface ipv4 delete route prefix=10.0.0.0/8 interface=\"Ethernet\" nexthop=192.168.1.1", cmds);
+        Assert.Contains("netsh interface ipv4 add route prefix=10.0.0.0/8 interface=7 nexthop=192.168.1.1 metric=5 store=persistent", cmds);
+        Assert.Contains("netsh interface ipv4 delete route prefix=10.0.0.0/8 interface=7 nexthop=192.168.1.1", cmds);
         Assert.True(plan.Steps.First(s => s.Arguments.Contains("delete route")).ExpectFailure);
         Assert.True(new StepResult(plan.Steps.First(s => s.Arguments.Contains("delete route")), 1, "no such route").Ok);
-        Assert.Contains("netsh interface ipv4 add route prefix=172.16.0.0/12 interface=\"Ethernet\" store=persistent", cmds);
+        Assert.Contains("netsh interface ipv4 add route prefix=172.16.0.0/12 interface=7 store=persistent", cmds);
         Assert.Contains("netsh interface ipv4 set interface 7 metric=10", cmds);
         Assert.Contains(cmds, c => c.StartsWith("powershell") && c.Contains("Set-DnsClient") && c.Contains("lab.local"));
         Assert.Contains(cmds, c => c.Contains("Set-NetAdapterAdvancedProperty") && c.Contains("-RegistryValue 42"));
