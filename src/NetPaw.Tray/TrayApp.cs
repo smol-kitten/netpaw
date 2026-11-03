@@ -499,13 +499,11 @@ sealed class TrayApp : ApplicationContext
             _svc.Store.Log($"update {info.Version}: {(got.Verified ? "verified" : "NOT verified")} — {got.Reason}");
             if (got is { Verified: true, Path: { } msi })
             {
-                _balloonAction = () => InstallVerifiedUpdate(msi, info);
-                Notify($"NetPaw {info.Version} is available", (info.Headline is null ? "" : info.Headline + " — ") + "signature verified. Click to install.", ToolTipIcon.Info, force: true);
+                Notify($"NetPaw {info.Version} is available", (info.Headline is null ? "" : info.Headline + " — ") + "signature verified. Click to install.", ToolTipIcon.Info, force: true, onClick: () => InstallVerifiedUpdate(msi, info));
             }
             else
             {
-                _balloonAction = () => Process.Start(new ProcessStartInfo(info.Url) { UseShellExecute = true });
-                Notify($"NetPaw {info.Version} is available but NOT verified", got.Reason + " — not installing it. Click to open the release page.", ToolTipIcon.Warning, force: true);
+                Notify($"NetPaw {info.Version} is available but NOT verified", got.Reason + " — not installing it. Click to open the release page.", ToolTipIcon.Warning, force: true, onClick: () => Process.Start(new ProcessStartInfo(info.Url) { UseShellExecute = true }));
             }
         }
         catch (Exception ex) { _svc.Store.Error("update", ex.Message); if (manual) Notify("Update check failed", ex.Message, ToolTipIcon.Warning, force: true); }
@@ -555,8 +553,7 @@ sealed class TrayApp : ApplicationContext
                 if (t.IsFaulted) { var msg = t.Exception?.GetBaseException().Message ?? "failed"; Status?.Invoke("Diagnostics export failed: " + msg, "error"); Notify("Export failed", msg, ToolTipIcon.Error, force: true); return; }
                 _svc.Store.Log($"diagnostics exported to {path} ({t.Result.Count} entries)");
                 Status?.Invoke($"Diagnostics saved: {path}", "ok");
-                _balloonAction = () => Process.Start(new ProcessStartInfo("explorer.exe", $"/select,\"{path}\"") { UseShellExecute = true });
-                Notify("Diagnostics exported", $"{Path.GetFileName(path)} ({t.Result.Count} files). Click to show it. Addresses are included; credentials are not.", ToolTipIcon.Info, force: true);
+                Notify("Diagnostics exported", $"{Path.GetFileName(path)} ({t.Result.Count} files). Click to show it. Addresses are included; credentials are not.", ToolTipIcon.Info, force: true, onClick: () => Process.Start(new ProcessStartInfo("explorer.exe", $"/select,\"{path}\"") { UseShellExecute = true }));
                 TelemetryHost.Event("diag", "export");
             }, TaskScheduler.FromCurrentSynchronizationContext());
     }
@@ -940,11 +937,11 @@ sealed class TrayApp : ApplicationContext
         RefreshState();
     }
 
-    void StopCountdown(string? why)
+    void StopCountdown((string Text, ToolTipIcon Icon)? why)
     {
         if (_pendingConfirm is null) return;
         _pendingConfirm = null; _countdown.Stop();
-        if (why is not null) { Status?.Invoke(why, "info"); Notify("Auto-revert", why, ToolTipIcon.Info); }
+        if (why is { } w) { Status?.Invoke(w.Text, w.Icon == ToolTipIcon.Info ? "info" : w.Icon == ToolTipIcon.Error ? "error" : "warn"); Notify("Auto-revert", w.Text, w.Icon, force: w.Icon != ToolTipIcon.Info); }
         RefreshState();
     }
 
@@ -964,7 +961,7 @@ sealed class TrayApp : ApplicationContext
         Task.Run(() => ServiceChange.ServiceAnswers()).ContinueWith(_ =>
         {
             var p = ServiceChange.LastStatus?.PendingConfirm;
-            if (p is null) { if (_pendingConfirm is { } was) StopCountdown(SecondsLeft(was) <= 1 ? $"'{was.Title}' on {was.Adapter} was reverted by the service (not kept in time)." : $"The auto-revert window for '{was.Title}' on {was.Adapter} is closed."); return; }
+            if (p is null) { if (_pendingConfirm is { } was) StopCountdown(WindowEnded(was, ServiceChange.LastStatus?.LastConfirm)); return; }
             var title = _pendingConfirm is { } cur && cur.Adapter.Equals(p.Adapter, StringComparison.OrdinalIgnoreCase) ? cur.Title : ServiceChange.LastStatus?.LastApply ?? "the last apply";
             var fresh = _pendingConfirm is null;
             _pendingConfirm = (p.Adapter, title, DateTime.UtcNow.AddSeconds(p.SecondsLeft));
@@ -972,10 +969,34 @@ sealed class TrayApp : ApplicationContext
             {
                 _countdownTicks = 0; _countdown.Start();
                 var who = p.Reason == "policy" ? "your organisation's policy" : p.Caller;
-                _balloonAction = Keep; Notify("Auto-revert armed", $"'{title}' on {p.Adapter} reverts in {p.SecondsLeft} s unless kept (armed by {who}) — click here or use the menu.", ToolTipIcon.Warning, force: true);
+                Notify("Auto-revert armed", $"'{title}' on {p.Adapter} reverts in {p.SecondsLeft} s unless kept (armed by {who}) — click here or use the menu.", ToolTipIcon.Warning, force: true, onClick: Keep);
             }
             RefreshState();
         }, TaskScheduler.FromCurrentSynchronizationContext());
+    }
+
+    /// <summary>What to tell the user when the window vanished: the service's own record of how it ended (review of #154: a liveness revert
+    /// at 40 s of 120 must not read as "closed"); when the service has no record for this adapter, name both cases and point to the CLI.</summary>
+    static (string Text, ToolTipIcon Icon) WindowEnded((string Adapter, string Title, DateTime Deadline) was, LastConfirm? last)
+    {
+        var name = $"'{was.Title}' on {was.Adapter}";
+        if (last is null || !last.Adapter.Equals(was.Adapter, StringComparison.OrdinalIgnoreCase))
+            return ($"The auto-revert window for {name} ended: it was either kept or reverted by the service. Check the adapter, or run: netpaw-cli service status", ToolTipIcon.Warning);
+        var why = last.Reason switch
+        {
+            "liveness" => "the gateway and DNS stopped answering",
+            "timeout" => "it was not kept in time",
+            "interrupted" => "the revert was resumed after a service restart",
+            _ => last.Reason,
+        };
+        return last.Outcome switch
+        {
+            "kept" => ($"{name} was kept by {last.By}.", ToolTipIcon.Info),
+            "reverted" => ($"{name} was REVERTED by the service: {why}. The adapter is back in its pre-apply state.", ToolTipIcon.Warning),
+            "revert-failed" => ($"The service tried to revert {name} ({why}) and FAILED; the change is still in place. Use 'Revert last apply' or 'Reset adapter'.", ToolTipIcon.Error),
+            "cancelled" => ($"The auto-revert window for {name} was replaced by {last.By}.", ToolTipIcon.Info),
+            _ => ($"The auto-revert window for {name} ended ({last.Outcome}, {last.Reason}).", ToolTipIcon.Warning),
+        };
     }
 
     /// <summary>Keep: close the service's window on the adapter so the apply stays.</summary>
@@ -1145,7 +1166,7 @@ sealed class TrayApp : ApplicationContext
                     StartCountdown(armed.Adapter, armed.Title, armed.ConfirmSeconds ?? 0);
                     text += $" Reverts in {armed.ConfirmSeconds} s unless you keep it — click here or use the menu.";
                     Status?.Invoke(doneText + " — " + text, "warn");
-                    _balloonAction = Keep; Notify(doneText, text, ToolTipIcon.Warning, force: true);
+                    Notify(doneText, text, ToolTipIcon.Warning, force: true, onClick: Keep);
                 }
                 else if (result.Report is { ConfirmArmed: false } notArmed)
                 {
@@ -1171,8 +1192,9 @@ sealed class TrayApp : ApplicationContext
         }, TaskScheduler.FromCurrentSynchronizationContext());
     }
 
-    public void Notify(string title, string text, ToolTipIcon icon, bool force = false)
+    public void Notify(string title, string text, ToolTipIcon icon, bool force = false, Action? onClick = null)
     {
+        _balloonAction = onClick;   // a click action belongs to this balloon only; a later balloon without one falls back to the log
         _svc.Store.Log($"notify [{icon}] {title}: {text.ReplaceLineEndings(" | ")}");
         _lastStatus = $"{title}: {text.ReplaceLineEndings(" ")}";
         if (!force && icon == ToolTipIcon.Info && (!_svc.Settings.ShowNotifications || PanelShowing)) return; // the panel shows it inline

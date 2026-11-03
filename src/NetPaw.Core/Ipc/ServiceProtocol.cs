@@ -145,7 +145,15 @@ public sealed record ApplyReport(string Title, string Adapter, bool Success, boo
 /// there, which build it is, who the service thinks is calling and at which tier (G12: the effective tier, as the
 /// policy gate will see it). <paramref name="Tier"/> is null from a service older than 0.16.</summary>
 /// <param name="LastApply">G13: what a RevertLastApply would undo ("DHCP on Ethernet 2 at 00:58 by …"), null when nothing is recorded.</param>
-public sealed record ServiceStatus(string Version, int ProtocolVersion, string Caller, int CallerSession, string? Tier = null, string? LastApply = null, PendingConfirm? PendingConfirm = null);
+public sealed record ServiceStatus(string Version, int ProtocolVersion, string Caller, int CallerSession, string? Tier = null, string? LastApply = null, PendingConfirm? PendingConfirm = null, LastConfirm? LastConfirm = null);
+
+/// <summary>G4: how the most recent commit-confirm window ended (in memory since the service started), so a client that sees a window
+/// vanish can say whether the change was kept or reverted.</summary>
+/// <param name="Outcome">"kept" (confirmed), "reverted" (the service put the pre-apply state back), "revert-failed" (it tried and gave up;
+/// the change is still in place) or "cancelled" (a new apply or a manual revert on the adapter replaced it).</param>
+/// <param name="Reason">"confirm", "timeout", "liveness", "interrupted" (a revert resumed after a restart), "new-apply" or "revert".</param>
+/// <param name="By">The caller that confirmed, the caller whose apply replaced it, or "service".</param>
+public sealed record LastConfirm(string Adapter, string Title, string Outcome, string Reason, string By, DateTimeOffset At);
 
 /// <summary>G4: an apply the service will undo on its own unless it is confirmed — for the tray's countdown + Keep button and the CLI.</summary>
 /// <param name="Reason">"policy" when the window came from <c>CommitConfirmMinSeconds</c> rather than the request.</param>

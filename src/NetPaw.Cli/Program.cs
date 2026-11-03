@@ -122,6 +122,7 @@ if (argv.Count > 0 && argv[0] == "service")
     Console.WriteLine(resp.Status.PendingConfirm is { } pc
         ? $"pending   commit-confirm on {pc.Adapter}: {pc.SecondsLeft} s left, armed by {pc.Caller}{(pc.Reason is "policy" ? " (policy minimum)" : "")} — keep it with: netpaw-cli confirm"
         : "pending   no commit-confirm window armed");
+    if (resp.Status.LastConfirm is { } lc) Console.WriteLine($"last window {lc.Outcome} ('{lc.Title}' on {lc.Adapter}, {lc.Reason}, by {lc.By}, {lc.At:HH:mm:ss})");
     return 0;
 }
 

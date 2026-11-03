@@ -139,6 +139,11 @@ public class ServiceProtocolTests
         var wire = ServiceProtocol.Encode(new ServiceResponse(ServiceProtocol.Version, true) { Apply = new ApplyReport("lab", "Ethernet 2", true, false, [], [], []) { ConfirmArmed = true, ConfirmSeconds = 20 } });
         var back = System.Text.Json.JsonSerializer.Deserialize<ServiceResponse>(wire, ServiceProtocol.Json)!;
         Assert.Equal((true, 20), (back.Apply!.ConfirmArmed, back.Apply.ConfirmSeconds));
+        // how the last window ended travels in Status, so a client can tell a liveness revert from a keep
+        var st = ServiceProtocol.Encode(new ServiceResponse(ServiceProtocol.Version, true, Status: new("0.17.0", ServiceProtocol.Version, @"PC\anna", 2, LastConfirm: new("Ethernet 2", "lab", "reverted", "liveness", "service", DateTimeOffset.UnixEpoch))));
+        var lc = System.Text.Json.JsonSerializer.Deserialize<ServiceResponse>(st, ServiceProtocol.Json)!.Status!.LastConfirm!;
+        Assert.Equal(("reverted", "liveness", "service"), (lc.Outcome, lc.Reason, lc.By));
+        Assert.Null(System.Text.Json.JsonSerializer.Deserialize<ServiceResponse>(ServiceProtocol.Encode(new ServiceResponse(ServiceProtocol.Version, true, Status: new("0.16.0", 1, @"PC\anna", 2))), ServiceProtocol.Json)!.Status!.LastConfirm);   // an older service: absent, not an error
     }
 
     [Fact]
