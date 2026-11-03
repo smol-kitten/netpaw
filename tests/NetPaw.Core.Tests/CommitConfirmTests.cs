@@ -250,7 +250,7 @@ public class CommitConfirmTests
         // a static adapter, DHCP applied with a window: the revert puts the static state back
         var svc = new NetPawService(new JsonStore(Path.Combine(r.Dir, "service")), new Adapters(Fx.Adapter(dhcp: false, gw: "192.168.1.1")), new FakeVlan(false), r.Runner,
             new MachineStore(Path.Combine(r.Dir, "profiles.d")), () => PolicyReader.Read(new DictionaryPolicySource(new Dictionary<string, object>())));
-        r.Handler = new IntentHandler(svc, Path.Combine(r.Dir, "service"), r.Log.Add, settleMs: 0, liveness: r.Live) { Clock = () => r.Now };
+        r.Handler = new IntentHandler(svc, Path.Combine(r.Dir, "service"), r.Log.Add, settleMs: 0, liveness: r.Live) { Clock = () => r.Now, Monotonic = () => r.Mono };
         var resp = r.Handler.Handle(new ServiceRequest(ServiceProtocol.Version, RequestKind.Dhcp) { Adapter = "Ethernet", AdapterId = Fx.Id("Ethernet"), ConfirmSeconds = 10 }, "PC\\anna (session 2)", Tier.StandardUser);
         Assert.True(resp.Ok, resp.Error);
         Assert.Contains(r.Log, l => l.Contains("armed commit-confirm: 10 s") && l.Contains("probes: none, timer only"));   // a DHCP plan defines no gateway or DNS to probe
