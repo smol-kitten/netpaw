@@ -210,7 +210,9 @@ public static class ServiceChange
     /// <summary>G5 (18a review, must 1): a request on a live adapter carries its alias, id and MAC, so the service resolves
     /// by identity and refuses when the alias has moved to another NIC. The string overloads stay for callers that only
     /// hold a name (and for v1-era tests); the service logs those as "pre-v2 client".</summary>
-    static ServiceRequest On(ServiceRequest r, Adapters.AdapterInfo a) => r with { Adapter = a.Name, AdapterId = a.Id, AdapterMac = a.Mac };
+    static ServiceRequest On(ServiceRequest r, Adapters.AdapterInfo a) =>
+        r with { Adapter = a.Name, AdapterId = Some(a.Id), AdapterMac = Some(a.Mac) };   // 18b: an unreadable id or MAC travels as null, never ""
+    static string? Some(string? s) => string.IsNullOrWhiteSpace(s) ? null : s;
     public static ServiceRequest Profile(Model.Profile p, Adapters.AdapterInfo adapter) => On(Profile(p), adapter);
     public static ServiceRequest Managed(string profileId, Adapters.AdapterInfo adapter) => On(Managed(profileId), adapter);
     public static ServiceRequest Dhcp(Adapters.AdapterInfo adapter) => On(Dhcp(), adapter);

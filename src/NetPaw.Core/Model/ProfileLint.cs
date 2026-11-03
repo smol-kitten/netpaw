@@ -10,6 +10,9 @@ public static class ProfileLint
     public static IReadOnlyList<string> Warnings(Profile p, IEnumerable<Profile> others, IEnumerable<AdapterInfo> adapters)
     {
         var w = new List<string>();
+        // G5 (18b, review decision 3): a user profile that names an alias without the adapter's id follows a rename; managed profiles bind by MAC/alias on purpose.
+        if (!p.Managed && p.Adapter is { Length: > 0 } && p.AdapterId is not { Length: > 0 })
+            w.Add($"'{p.Name}' is bound to the alias '{p.Adapter}' only; bind to the adapter in the editor so a renamed adapter still matches.");
         if (p.Dhcp) return w;
         foreach (var a in p.Addresses)
         {
