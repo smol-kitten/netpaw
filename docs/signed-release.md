@@ -32,6 +32,10 @@ The release workflow (`.github/workflows/ci.yml`) uses the fleet workflow
    files.
 7. **release**: publishes the signed files, `SIGNATURES.md` (both passes), `r0.crt` and the winget facts.
    The winget `installerSha256` is the hash of the **signed** MSI.
+   With the `RELEASE_DISPATCH_TOKEN` secret set it then sends a `netpaw-release` dispatch to
+   `polo-nyan/catwinget` (the package source) and `smol-kitten/netpaw-site` (the download page, which tells
+   `smol-kitten/netpaw-site-deploy` once its image is pushed). Without the secret the step is skipped and the
+   hourly schedules of those repos pick the release up within the hour.
 
 Signing happens on `v*` tags only. Branch and PR runs pass the same files through unsigned (gate 1), and a
 tag that does not sign fails (`strict`).
