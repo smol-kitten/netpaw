@@ -81,6 +81,8 @@ public sealed class Settings
     public string TrayClick { get; set; } = "panel";
     public MainWindowState MainWindow { get; set; } = new();
     public bool ConfirmBeforeApply { get; set; } = false;
+    /// <summary>G4: seconds the service waits for a confirm before it reverts an apply by itself (0 = off, 5..600). Policy <c>CommitConfirmMinSeconds</c> raises it.</summary>
+    public int CommitConfirmSeconds { get; set; } = 0;
     public bool ShowNotifications { get; set; } = true;
     /// <summary>Prefix assumed for reach-mode targets that match no profile/preset.</summary>
     public int ReachDefaultPrefix { get; set; } = 24;

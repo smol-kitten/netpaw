@@ -4,7 +4,7 @@ namespace NetPaw.Ipc;
 
 /// <summary>The gated units policy tiers apply to. Most map 1:1 to <see cref="RequestKind"/>; VirtualUnlock is the
 /// extra gate for targeting a non-host-facing adapter (not a request kind of its own).</summary>
-public enum PolicyIntent { Status, ApplyProfile, Dhcp, Reach, Renew, ClearTemp, DeleteRoute, ResetAdapter, Release, Prefer, SetMtu, VirtualUnlock, RevertLastApply, InstallUpdate, Capture }
+public enum PolicyIntent { Status, ApplyProfile, Dhcp, Reach, Renew, ClearTemp, DeleteRoute, ResetAdapter, Release, Prefer, SetMtu, VirtualUnlock, RevertLastApply, InstallUpdate, Capture, ConfirmApply }
 
 /// <summary>One tier decision, for the audit line and the caller.</summary>
 public sealed record PolicyDecision(PolicyIntent Intent, Tier Required, Tier Caller, bool Allowed, string Via);
@@ -54,6 +54,7 @@ public sealed class PolicyTiers
         [PolicyIntent.SetMtu] = Tier.NetworkConfigOperators,
         [PolicyIntent.VirtualUnlock] = Tier.NetworkConfigOperators,
         [PolicyIntent.RevertLastApply] = Tier.StandardUser,
+        [PolicyIntent.ConfirmApply] = Tier.StandardUser,   // G4: keep a commit-confirmed apply; the service also requires the tier the apply needed
         [PolicyIntent.InstallUpdate] = Tier.Admin,   // CatWinget update: the service installs its own verified download   // G13: undo = re-apply the snapshotted pre-state; same class as ApplyProfile/Dhcp
     };
 

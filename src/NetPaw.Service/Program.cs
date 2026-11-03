@@ -10,7 +10,9 @@ if (args.Contains("--console"))
 {
     using var stop = new CancellationTokenSource();
     Console.CancelKeyPress += (_, e) => { e.Cancel = true; stop.Cancel(); };
-    await new PipeServer(Console.WriteLine, Startup.Intents(Console.WriteLine)).Run(stop.Token);
+    var consoleIntents = Startup.Intents(Console.WriteLine);
+    using var consoleTick = new Timer(_ => consoleIntents.Tick(), null, Startup.TickPeriod, Startup.TickPeriod);
+    await new PipeServer(Console.WriteLine, consoleIntents).Run(stop.Token);
     return 0;
 }
 ServiceBase.Run(new NetPawWindowsService());
@@ -21,6 +23,7 @@ sealed class NetPawWindowsService : ServiceBase
     const string Source = "NetPaw";
     readonly CancellationTokenSource _stop = new();
     Task? _run;
+    Timer? _tick;
 
     public NetPawWindowsService() { ServiceName = "NetPaw"; CanStop = true; CanShutdown = true; }
 
@@ -38,6 +41,8 @@ sealed class NetPawWindowsService : ServiceBase
             EventLog.WriteEntry(Source, "service store unavailable, change requests disabled: " + ex.Message, EventLogEntryType.Error);
         }
         var server = new PipeServer(log, intents);
+        // G4: the commit-confirm clock. Tick() returns at once with no window armed, skips a tick while a change runs and never throws.
+        if (intents is { } i) _tick = new Timer(_ => i.Tick(), null, Startup.TickPeriod, Startup.TickPeriod);
         _run = Task.Run(async () =>
         {
             try { await server.Run(_stop.Token); }
@@ -87,12 +92,15 @@ sealed class NetPawWindowsService : ServiceBase
         }
     }
 
-    protected override void OnStop() { _stop.Cancel(); try { _run?.Wait(TimeSpan.FromSeconds(10)); } catch (AggregateException) { } }
+    protected override void OnStop() { _tick?.Dispose(); _stop.Cancel(); try { _run?.Wait(TimeSpan.FromSeconds(10)); } catch (AggregateException) { } }
     protected override void OnShutdown() => OnStop();
 }
 
 static class Startup
 {
+    /// <summary>How often the service asks <see cref="IntentHandler.Tick"/> to check an armed commit-confirm window (docs/DESIGN-G4-commit-confirm.md).</summary>
+    public static readonly TimeSpan TickPeriod = TimeSpan.FromSeconds(2);
+
     /// <summary>The running build's three-part version, what a CatWinget update must be newer than.</summary>
     static Version CatWingetSourceVersion()
     {
