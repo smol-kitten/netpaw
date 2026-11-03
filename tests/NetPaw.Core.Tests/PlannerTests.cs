@@ -220,4 +220,15 @@ public class V07PlannerTests
         var plan = NetPaw.Connectivity.Advisor.PlanPrefer(Fx.Adapter("Ethernet", gw: "192.168.1.1"), [Fx.Adapter("Ethernet", gw: "192.168.1.1"), Fx.Adapter("Wi-Fi", gw: "192.168.2.1") with { Index = 0 }]);
         Assert.DoesNotContain(plan.Steps, s => s.Arguments.Contains("interface 0 "));
     }
+
+    [Fact]
+    public void PlanPrefer_tells_adapters_apart_by_index_even_with_empty_ids()
+    {
+        var eth = Fx.Adapter("Ethernet", gw: "192.168.1.1") with { Id = "", Index = 7 };
+        var wifi = Fx.Adapter("Wi-Fi", gw: "192.168.2.1") with { Id = "", Index = 12 };
+        var plan = NetPaw.Connectivity.Advisor.PlanPrefer(eth, [eth, wifi]);
+        Assert.Single(plan.Steps, s => s.Arguments.Contains("set interface 7 metric=10"));
+        Assert.Single(plan.Steps, s => s.Arguments.Contains("set interface 12 metric=50"));
+        Assert.Equal(2, plan.Steps.Count);
+    }
 }

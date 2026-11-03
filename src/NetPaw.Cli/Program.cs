@@ -74,8 +74,9 @@ bool Flag(params string[] names) { var i = argv.FindIndex(a => names.Contains(a)
 string? Opt(params string[] names) { var i = argv.FindIndex(a => names.Contains(a)); if (i < 0 || i + 1 >= argv.Count) return null; var v = argv[i + 1]; argv.RemoveRange(i, 2); return v; }
 
 var dryRun = Flag("-n", "--dry-run");
+var asJson = Flag("--json");
 var replace = Flag("--replace");
-var adapterName = Opt("-a", "--adapter");
+var adapterArg = Opt("-a", "--adapter");
 var timeoutOpt = Opt("--timeout");
 var source = Opt("--source");
 var channelOpt = Opt("--channel");
@@ -110,12 +111,31 @@ if (argv.Count > 0 && argv[0] == "service")
 }
 
 var svc = NetPawService.CreateDefault();
+// 18b: "-a" is an alias, an interface index, a {GUID} or a MAC, resolved here against the live list to the adapter's name; each
+// command below re-resolves that name to the live AdapterInfo, and ServiceChange.On() puts its id and MAC into the request.
+string? adapterName = null;
+if (adapterArg is not null)
+{
+    try
+    {
+        var hit = NetPaw.Adapters.AdapterSelector.Find(adapterArg, svc.GetAdapters());
+        if (hit is null) return Fail($"Adapter '{adapterArg}' not found (alias, index, GUID or MAC); see 'adapters'.");
+        adapterName = hit.Name;
+    }
+    catch (InvalidOperationException ex) { return Fail(ex.Message); }   // a MAC on two adapters: a message and exit 2, not a stack trace
+}
 try
 {
     switch (argv[0].ToLowerInvariant())
     {
         case "adapters":
         {
+            if (asJson)   // 18b: the only place the id is shown; "-a" takes it
+            {
+                Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(svc.GetAdapters().Select(a => new { a.Name, a.Id, a.Index, a.Mac, a.Up, a.Dhcp, a.IsPhysical,
+                    Addresses = a.Addresses.Select(x => x.ToString()), a.Gateways, a.Dns, a.Description }), new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
+                return 0;
+            }
             foreach (var a in svc.GetAdapters())
             {
                 var v = svc.Vlan.Query(a.Name);
