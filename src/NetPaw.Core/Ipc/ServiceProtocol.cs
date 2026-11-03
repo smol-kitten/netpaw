@@ -13,7 +13,11 @@ namespace NetPaw.Ipc;
 public static class ServiceProtocol
 {
     public const string PipeName = "NetPaw";
-    public const int Version = 1;
+    /// <summary>G5: v2 carries the adapter identity (<see cref="ServiceRequest.AdapterId"/>); the alias is display only.</summary>
+    public const int Version = 2;
+    /// <summary>What a 0.16 client speaks. Status is still answered, so an old tray or CLI can say "upgrade"; every change
+    /// intent at this version is refused (G5 review decision 1: no alias-addressed change may reach the service).</summary>
+    public const int LegacyVersion = 1;
     public const int MaxLine = 64 * 1024;
 
     public static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
@@ -55,8 +59,10 @@ public static class ServiceProtocol
         try { r = JsonSerializer.Deserialize<ServiceRequest>(line, Json); }
         catch (JsonException ex) { return (null, "invalid JSON: " + ex.Message); }
         if (r is null) return (null, "empty request");
-        if (r.V != Version) return (null, $"protocol version {r.V} is not supported (service speaks {Version})");
+        if (r.V is not (Version or LegacyVersion)) return (null, $"protocol version {r.V} is not supported (service speaks {Version})");
         if (!Enum.IsDefined(r.Kind) || r.Kind == RequestKind.None) return (null, "unknown request kind");
+        if (r.V == LegacyVersion && r.Kind != RequestKind.Status)
+            return (null, $"protocol v{LegacyVersion} is no longer accepted for changes: upgrade the client (service speaks v{Version})");
         return (r, null);
     }
 }
@@ -67,8 +73,15 @@ public enum RequestKind { None, Status, ApplyProfile, Dhcp, Reach, ClearTemp, De
 /// list, checks every value (<see cref="ProfileGuard"/>) and builds the commands itself.</summary>
 public sealed record ServiceRequest(int V, RequestKind Kind)
 {
-    /// <summary>Adapter name as Windows shows it; must match a live adapter. Null = the work adapter.</summary>
+    /// <summary>Adapter name (alias) as Windows shows it. With <see cref="AdapterId"/> it is display only; without one it must
+    /// match a live adapter (pre-v2 clients, logged). Null = the work adapter.</summary>
     public string? Adapter { get; init; }
+    /// <summary>G5 (v2): the adapter's NetCfgInstanceId ("{GUID}", <see cref="Adapters.AdapterInfo.Id"/>). Resolved against the
+    /// live list; not present = refused, never redirected to the alias. Never reaches a command line: the steps carry the
+    /// resolved adapter's interface index.</summary>
+    public string? AdapterId { get; init; }
+    /// <summary>G5 (v2): the adapter's MAC. With <see cref="AdapterId"/> a cross-check (a mismatch refuses); alone, the lookup key.</summary>
+    public string? AdapterMac { get; init; }
     /// <summary>ApplyProfile: a managed profile (from %ProgramData%) by id …</summary>
     public string? ProfileId { get; init; }
     /// <summary>… or a user's own profile, sent whole (the service has no access to the user's %APPDATA%).</summary>

@@ -144,13 +144,21 @@ public sealed class IntentHandler(NetPawService svc, string journalDirectory, Ac
 
     sealed class Rejected(string why) : Exception(why);
 
-    /// <summary>Resolves the request's adapter against the live list and refuses an unsafe name.</summary>
+    /// <summary>Resolves the request's adapter against the live list (G5: id first, MAC cross-checked, alias only for a request
+    /// that carries no id, logged) and refuses an unsafe name.</summary>
     AdapterInfo Adapter(ServiceRequest r)
     {
         if (r.Adapter is { Length: > 256 }) throw new Rejected("adapter name too long");
-        var a = svc.ResolveAdapter(r.Adapter);
-        // A resolved name is still untrusted (a user can name a VPN phonebook entry anything). Every repair
-        // plan below puts the name straight into a command, so refuse an unsafe one centrally.
+        if (r.AdapterId is { Length: > 64 } || r.AdapterMac is { Length: > 32 }) throw new Rejected("adapter id or MAC too long");
+        var a = svc.ResolveAdapter(r.Adapter, id: r.AdapterId, mac: r.AdapterMac);
+        if (r.AdapterId is null) log($"adapter '{a.Name}' resolved by {(r.AdapterMac is { Length: > 0 } ? "MAC" : "alias")}: the request carried no adapter id (pre-v2 client?)");
+        return Safe(a);
+    }
+
+    /// <summary>A resolved name is still untrusted (a user can name a VPN phonebook entry anything). The ipconfig steps, the
+    /// VLAN step and every warning put the name into a command or a line, so refuse an unsafe one centrally.</summary>
+    static AdapterInfo Safe(AdapterInfo a)
+    {
         if (!ProfileGuard.IsSafeAdapterName(a.Name)) throw new Rejected($"adapter name '{a.Name}' contains characters that are not allowed");
         return a;
     }
@@ -176,7 +184,11 @@ public sealed class IntentHandler(NetPawService svc, string journalDirectory, Ac
             var errors = ProfileGuard.Check(p);
             if (errors.Count > 0) throw new Rejected("profile refused: " + string.Join(" ", errors));
         }
-        var adapter = r.Adapter is null && p.Adapter is not null ? svc.ResolveAdapter(p.Adapter) : Adapter(r);
+        // No adapter in the request: the profile's own binding (G5: id, then MAC, then alias; a bound adapter that is not present refuses).
+        var bound = p.AdapterId is { Length: > 0 } || p.AdapterMac is { Length: > 0 } || p.Adapter is not null;
+        var adapter = r.Adapter is null && r.AdapterId is null && r.AdapterMac is null && bound ? Safe(svc.AdapterFor(p)) : Adapter(r);
+        if (r.Adapter is null && r.AdapterId is null && r.AdapterMac is null && bound && p.AdapterId is null)
+            log($"adapter '{adapter.Name}' resolved by the profile's {(p.AdapterMac is { Length: > 0 } ? "MAC" : "alias")}: profile '{p.Name}' carries no adapter id");
         // appliesTo binding + virtual-adapter guard (t-0e5511).
         var listed = p.AppliesTo is { IsEmpty: false } b && b.Matches(adapter.Name, adapter.Mac);
         // RESTRICT: when appliesTo is present it binds the profile for ANY caller — no match, no apply.
@@ -231,7 +243,7 @@ public sealed class IntentHandler(NetPawService svc, string journalDirectory, Ac
         if (r.RoutePrefix is null || !r.RoutePrefix.Contains('/') || !ProfileGuard.IsIPv4OrPrefix(r.RoutePrefix)) throw new Rejected("route prefix must be a.b.c.d/n");
         if (r.RouteGateway is not null && !Net.IpMath.IsIPv4(r.RouteGateway)) throw new Rejected("route gateway must be an IPv4 address");
         var adapter = Adapter(r);
-        return Run(ApplyPlanner.PlanDeleteRoute(new RouteEntry(r.RoutePrefix, adapter.Index, r.RouteGateway, 0), adapter.Name), caller);
+        return Run(ApplyPlanner.PlanDeleteRoute(new RouteEntry(r.RoutePrefix, adapter.Index, r.RouteGateway, 0), adapter), caller);
     }
 
     /// <summary>SetMtu: validates 576..9000, then runs the MTU plan.</summary>
@@ -253,7 +265,9 @@ public sealed class IntentHandler(NetPawService svc, string journalDirectory, Ac
     /// <summary>What the adapter looked like right before an apply: enough to put it back — DHCP on/off, IPv4 addresses, the
     /// first gateway and the DNS servers. NOT captured: metrics, DNS suffix, VLAN, routes, IPv6, and "DHCP address + static DNS"
     /// (a DHCP pre-state restores DNS from DHCP too, as PlanDhcp does).</summary>
-    public sealed record PreApply(string Adapter, string Mac, string Title, string Caller, DateTimeOffset At, Model.Profile Before);
+    /// <param name="Id">G5: the adapter's NetCfgInstanceId; a revert resolves by it first, then checks the MAC. Null in a snapshot
+    /// written by 0.16 (alias + MAC only).</param>
+    public sealed record PreApply(string Adapter, string Mac, string Title, string Caller, DateTimeOffset At, Model.Profile Before, string? Id = null);
 
     /// <summary>Writes last-apply.json with the adapter's state before the first command; drops the previous snapshot on failure.</summary>
     void SavePreState(ApplyPlan plan, string caller)
@@ -261,11 +275,14 @@ public sealed class IntentHandler(NetPawService svc, string journalDirectory, Ac
         if (string.IsNullOrEmpty(plan.Adapter)) return;   // clear-temp and the like: no adapter is touched, the last snapshot stays valid
         try
         {
-            var a = svc.GetAdapters().FirstOrDefault(x => string.Equals(x.Name, plan.Adapter, StringComparison.OrdinalIgnoreCase));
+            // G5: by the id the plan was built from (a rename in between must not snapshot another adapter); by alias only for a plan without one.
+            var live = svc.GetAdapters();
+            var a = plan.AdapterId is { Length: > 0 } ? live.FirstOrDefault(x => string.Equals(x.Id, plan.AdapterId, StringComparison.OrdinalIgnoreCase))
+                                                      : live.FirstOrDefault(x => string.Equals(x.Name, plan.Adapter, StringComparison.OrdinalIgnoreCase));
             if (a is null) { DropPreState("adapter not found"); return; }   // never leave a PREVIOUS apply's snapshot as "last apply" (review of #105)
-            var before = new Model.Profile { Name = "pre-apply", Adapter = a.Name, AdapterMac = a.Mac, Dhcp = a.Dhcp };
+            var before = new Model.Profile { Name = "pre-apply", Adapter = a.Name, AdapterId = a.Id, AdapterMac = a.Mac, Dhcp = a.Dhcp };
             if (!a.Dhcp) { before.Addresses = [.. a.Addresses]; before.Gateway = a.Gateways.FirstOrDefault(); before.Dns = [.. a.Dns]; }
-            File.WriteAllText(PreApplyPath, JsonSerializer.Serialize(new PreApply(a.Name, a.Mac, plan.Title, caller, DateTimeOffset.Now, before), ServiceProtocol.Json));
+            File.WriteAllText(PreApplyPath, JsonSerializer.Serialize(new PreApply(a.Name, a.Mac, plan.Title, caller, DateTimeOffset.Now, before, a.Id), ServiceProtocol.Json));
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { DropPreState(ex.Message); }
     }
@@ -287,11 +304,14 @@ public sealed class IntentHandler(NetPawService svc, string journalDirectory, Ac
     /// <summary>One line for Status / the tray menu: "DHCP on Ethernet 2 at 00:58 by PC\anna (session 2)".</summary>
     public string? LastApplySummary() => LastApply() is { } la ? $"{la.Title} on {la.Adapter} at {la.At:HH:mm} by {la.Caller}" : null;
 
-    /// <summary>RevertLastApply: re-applies the snapshot to the same adapter (MAC-checked), with the virtual-adapter and user-profile gates.</summary>
+    /// <summary>RevertLastApply: re-applies the snapshot to the same adapter (G5: by id, MAC cross-checked; a 0.16 snapshot by alias + MAC),
+    /// with the virtual-adapter and user-profile gates.</summary>
     ApplyReport RevertLastApply(string caller, Tier callerTier, IReadOnlyDictionary<PolicyIntent, Tier> overrides)
     {
         var pre = LastApply() ?? throw new Rejected("nothing to revert: no apply has been recorded");
-        var adapter = Adapter(new ServiceRequest(ServiceProtocol.Version, RequestKind.RevertLastApply) { Adapter = pre.Adapter });
+        AdapterInfo adapter;
+        try { adapter = Adapter(new ServiceRequest(ServiceProtocol.Version, RequestKind.RevertLastApply) { Adapter = pre.Adapter, AdapterId = pre.Id, AdapterMac = pre.Mac }); }
+        catch (InvalidOperationException ex) { throw new Rejected($"'{pre.Adapter}' is not the adapter the last apply changed any more ({ex.Message}); nothing reverted"); }
         if (!string.Equals(adapter.Mac, pre.Mac, StringComparison.OrdinalIgnoreCase))
             throw new Rejected($"'{pre.Adapter}' is not the adapter the last apply changed any more (MAC differs); nothing reverted");
         // A managed profile may have targeted a VPN/TAP adapter (appliesTo); a revert must not let a lower tier flip that
@@ -322,7 +342,7 @@ public sealed class IntentHandler(NetPawService svc, string journalDirectory, Ac
         try { outcome = apply(); }
         finally { File.Delete(JournalPath); }
         var report = ApplyReport.From(plan, outcome);
-        log($"{plan.Title} on {plan.Adapter} for {caller}: {(report.Success ? "ok" : "FAILED")}{(report.VerifyDiffs.Count > 0 ? " (verify: " + string.Join("; ", report.VerifyDiffs) + ")" : "")}");
+        log($"{plan.Title} on {plan.AdapterLabel} for {caller}: {(report.Success ? "ok" : "FAILED")}{(report.VerifyDiffs.Count > 0 ? " (verify: " + string.Join("; ", report.VerifyDiffs) + ")" : "")}");
         return report;
     }
 }

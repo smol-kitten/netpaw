@@ -34,7 +34,7 @@ public class IntentHandlerTests
         var r = Make();
         var resp = r.Handler.Handle(Req(RequestKind.ApplyProfile) with { Profile = Fx.Static("lab", "192.168.1.1", "192.168.1.50/24") }, "PC\\anna (session 2)", privileged: true);
         Assert.True(resp.Ok, resp.Error);
-        Assert.Contains(r.Runner.Ran, s => s.Arguments.Contains("set address name=\"Ethernet\" source=static address=192.168.1.50"));
+        Assert.Contains(r.Runner.Ran, s => s.Arguments.Contains("set address name=7 source=static address=192.168.1.50"));
         Assert.Equal("Ethernet", resp.Apply!.Adapter);
         Assert.Contains(r.Log, l => l.Contains("PC\\anna"));
         Assert.False(File.Exists(r.Handler.JournalPath));
@@ -106,9 +106,23 @@ public class IntentHandlerTests
         Assert.Contains("no managed profile", r.Handler.Handle(Req(RequestKind.ApplyProfile) with { ProfileId = "m-corp-other" }, "u", privileged: true).Error);
         Assert.Contains("not both", r.Handler.Handle(Req(RequestKind.ApplyProfile) with { ProfileId = "m-corp-corp", Profile = Fx.Static("x") }, "u", privileged: true).Error);
         // "managed" is not part of the wire format: a sent profile is always a user profile.
-        var json = """{"v":1,"kind":"ApplyProfile","profile":{"name":"x","managed":true,"addresses":[{"address":"192.168.1.9","prefixLength":24}]}}""";
+        var json = """{"v":2,"kind":"ApplyProfile","profile":{"name":"x","managed":true,"addresses":[{"address":"192.168.1.9","prefixLength":24}]}}""";
         var (req, _) = ServiceProtocol.ParseRequest(Encoding.UTF8.GetBytes(json));
         Assert.False(req!.Profile!.Managed);
+    }
+
+    [Fact]
+    public void A_managed_profile_never_carries_an_adapter_id()
+    {
+        // G5 review decision 3: a GUID differs per host, so a fleet profile binds by MAC/alias; a planted adapterId is dropped and reported.
+        var r = Make(managedJson: """[{"name":"corp","adapterId":"{Ethernet}","adapterMac":"AA:BB:CC:DD:EE:FF","addresses":[{"address":"10.1.0.5","prefixLength":24}]}]""");
+        var store = new MachineStore(Path.Combine(r.Dir, "profiles.d"));
+        var managed = Assert.Single(store.Load());
+        Assert.Null(managed.AdapterId); Assert.True(managed.Managed); Assert.Equal("AA:BB:CC:DD:EE:FF", managed.AdapterMac);
+        Assert.Contains(store.Errors, e => e.Contains("adapterId ignored"));
+        var resp = r.Handler.Handle(Req(RequestKind.ApplyProfile) with { ProfileId = "m-corp-corp" }, "u", privileged: true);
+        Assert.True(resp.Ok, resp.Error);
+        Assert.Contains(r.Log, l => l.Contains("resolved by the profile's MAC"));
     }
 
     [Fact]
@@ -116,7 +130,7 @@ public class IntentHandlerTests
     {
         var r = Make();
         var p = Fx.Static("x"); p.Adapter = "VPN";
-        Assert.Contains("not found", r.Handler.Handle(Req(RequestKind.ApplyProfile) with { Profile = p }, "u", privileged: true).Error);
+        Assert.Contains("is not present", r.Handler.Handle(Req(RequestKind.ApplyProfile) with { Profile = p }, "u", privileged: true).Error);
     }
 
     [Theory]
@@ -392,6 +406,86 @@ public class RevertLastApplyTests
     }
 
     static ServiceRequest Revert() => new(ServiceProtocol.Version, RequestKind.RevertLastApply);
+
+    // ---- G5: adapters by identity ------------------------------------------------------------------------------
+
+    static ServiceRequest DhcpOn(string alias, string? id = "{Ethernet}", string? mac = null) =>
+        new(ServiceProtocol.Version, RequestKind.Dhcp) { Adapter = alias, AdapterId = id, AdapterMac = mac };
+
+    [Fact]
+    public void A_renamed_alias_with_the_same_id_resolves_to_the_same_nic()
+    {
+        var r = Make();
+        r.Adapters.Current = Fx.Adapter("Ethernet 2", dhcp: false, gw: "192.168.1.1") with { Id = "{Ethernet}" };   // renamed after the tray listed it
+        var resp = r.Handler.Handle(DhcpOn("Ethernet"), "PC\\anna (session 2)", privileged: false);
+        Assert.True(resp.Ok, resp.Error);
+        Assert.Equal("Ethernet 2", resp.Apply!.Adapter);                                     // the alias shown is the live one
+        Assert.Contains(r.Runner.Ran, s => s.Arguments.Contains("set address name=7 source=dhcp"));
+        Assert.Contains(r.Log, l => l.Contains("DHCP on Ethernet 2 (#7) for PC\\anna"));
+        Assert.DoesNotContain(r.Log, l => l.Contains("carried no adapter id"));
+    }
+
+    [Fact]
+    public void The_same_alias_on_another_nic_is_refused_when_an_id_is_given()
+    {
+        var r = Make();
+        r.Adapters.Current = Fx.Adapter("Ethernet") with { Id = "{USB}", Mac = "11:22:33:44:55:66" };   // alias swapped onto another NIC
+        var resp = r.Handler.Handle(DhcpOn("Ethernet"), "PC\\anna (session 2)", privileged: false);
+        Assert.False(resp.Ok); Assert.Contains("{Ethernet} ('Ethernet') is not present", resp.Error);
+        Assert.Empty(r.Runner.Ran);
+    }
+
+    [Fact]
+    public void An_id_whose_mac_differs_is_refused_and_never_falls_back_to_the_alias()
+    {
+        var r = Make();
+        r.Adapters.Current = Fx.Adapter("Ethernet") with { Mac = "11:22:33:44:55:66" };
+        var resp = r.Handler.Handle(DhcpOn("Ethernet", mac: "AA:BB:CC:DD:EE:FF"), "PC\\anna (session 2)", privileged: false);
+        Assert.False(resp.Ok); Assert.Contains("MAC differs", resp.Error);
+        Assert.Empty(r.Runner.Ran);
+    }
+
+    [Fact]
+    public void A_request_without_an_id_still_resolves_by_alias_and_says_so()
+    {
+        // Until every client sends an id (18b) the alias path stays; the audit line marks it.
+        var r = Make();
+        var resp = r.Handler.Handle(DhcpOn("Ethernet", id: null), "PC\\anna (session 2)", privileged: false);
+        Assert.True(resp.Ok, resp.Error);
+        Assert.Contains(r.Log, l => l.Contains("resolved by alias") && l.Contains("carried no adapter id"));
+    }
+
+    [Fact]
+    public void A_profile_bound_by_id_follows_the_nic_through_a_rename()
+    {
+        var r = Make();
+        var p = Fx.Static("lab", "192.168.1.1", "192.168.1.50/24"); p.Adapter = "Ethernet"; p.AdapterId = "{Ethernet}"; p.AdapterMac = "AA:BB:CC:DD:EE:FF";
+        r.Adapters.Current = Fx.Adapter("Ethernet 3", gw: "192.168.1.1") with { Id = "{Ethernet}" };
+        var resp = r.Handler.Handle(new ServiceRequest(ServiceProtocol.Version, RequestKind.ApplyProfile) { Profile = p }, "PC\\anna (session 2)", privileged: false);
+        Assert.True(resp.Ok, resp.Error); Assert.Equal("Ethernet 3", resp.Apply!.Adapter);
+        Assert.Equal("{Ethernet}", r.Handler.LastApply()!.Id);
+        // the same profile when its NIC is gone: refused, not redirected to whatever now carries the alias
+        r.Adapters.Current = Fx.Adapter("Ethernet", gw: "192.168.1.1") with { Id = "{Other}" };
+        var gone = r.Handler.Handle(new ServiceRequest(ServiceProtocol.Version, RequestKind.ApplyProfile) { Profile = p }, "PC\\anna (session 2)", privileged: false);
+        Assert.False(gone.Ok); Assert.Contains("is not present", gone.Error);
+    }
+
+    [Fact]
+    public void A_revert_resolves_the_snapshot_by_id_after_a_rename()
+    {
+        var r = Make();
+        Assert.True(r.Handler.Handle(Apply("192.168.1.50/24"), "PC\\anna (session 2)", privileged: false).Ok);
+        Assert.Equal("{Ethernet}", r.Handler.LastApply()!.Id);
+        r.Adapters.Current = Fx.Adapter("Ethernet 5", addrs: ["192.168.1.50/24"], gw: "192.168.1.1") with { Id = "{Ethernet}" };
+        var n = r.Runner.Ran.Count;
+        var revert = r.Handler.Handle(Revert(), "PC\\bob (session 3)", privileged: false);
+        Assert.True(revert.Ok, revert.Error);
+        Assert.Contains(Netsh(r, n), a => a.Contains("set address name=7 source=static address=192.168.1.10"));
+        // the snapshot's NIC replaced by another one under the old alias: refused
+        r.Adapters.Current = Fx.Adapter("Ethernet") with { Id = "{USB}" };
+        var stale = r.Handler.Handle(Revert(), "PC\\bob (session 3)", privileged: false);
+        Assert.False(stale.Ok); Assert.Contains("not the adapter the last apply changed", stale.Error);
+    }
     static ServiceRequest Apply(string ip) => new ServiceRequest(ServiceProtocol.Version, RequestKind.ApplyProfile) { Profile = Fx.Static("lab", "192.168.1.1", ip) };
     static IEnumerable<string> Netsh(Rig r, int from) => r.Runner.Ran.Skip(from).Select(s => s.Arguments);
 
@@ -416,7 +510,7 @@ public class RevertLastApplyTests
         var n = r.Runner.Ran.Count;
         var revert = r.Handler.Handle(Revert(), "PC\\bob (session 3)", privileged: false);
         Assert.True(revert.Ok, revert.Error);
-        Assert.Contains(Netsh(r, n), a => a.Contains("set address name=\"Ethernet\" source=static address=192.168.1.10"));
+        Assert.Contains(Netsh(r, n), a => a.Contains("set address name=7 source=static address=192.168.1.10"));
         Assert.Contains(r.Log, l => l.StartsWith("revert to the pre-apply state for PC\\bob"));
     }
 
@@ -428,7 +522,7 @@ public class RevertLastApplyTests
         Assert.True(r.Handler.LastApply()!.Before.Dhcp);
         var n = r.Runner.Ran.Count;
         Assert.True(r.Handler.Handle(Revert(), "PC\\anna (session 2)", privileged: false).Ok);
-        Assert.Contains(Netsh(r, n), a => a.Contains("set address name=\"Ethernet\" source=dhcp"));
+        Assert.Contains(Netsh(r, n), a => a.Contains("set address name=7 source=dhcp"));
     }
 
     [Fact]

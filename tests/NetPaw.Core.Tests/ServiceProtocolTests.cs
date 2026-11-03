@@ -11,6 +11,18 @@ public class ServiceProtocolTests
     static MemoryStream Bytes(string s) => new(Encoding.UTF8.GetBytes(s));
 
     [Fact]
+    public void A_v1_status_request_is_still_answered_and_a_v2_request_carries_the_identity()
+    {
+        // G5 review decision 1: a 0.16 tray or CLI may still ask Status (so it can print "upgrade"); every v1 change intent is refused.
+        var (v1, err) = ServiceProtocol.ParseRequest(Encoding.UTF8.GetBytes("{\"v\":1,\"kind\":\"Status\"}"));
+        Assert.Null(err); Assert.Equal(RequestKind.Status, v1!.Kind); Assert.Equal(1, v1.V);
+        Assert.Equal(2, ServiceProtocol.Version);
+        var req = new ServiceRequest(ServiceProtocol.Version, RequestKind.Dhcp) { Adapter = "Ethernet 2", AdapterId = "{E1}", AdapterMac = "AA:BB:CC:DD:EE:FF" };
+        var (back, err2) = ServiceProtocol.ParseRequest(ServiceProtocol.Encode(req)[..^1]);
+        Assert.Null(err2); Assert.Equal("{E1}", back!.AdapterId); Assert.Equal("AA:BB:CC:DD:EE:FF", back.AdapterMac); Assert.Equal("Ethernet 2", back.Adapter);
+    }
+
+    [Fact]
     public async Task Request_round_trips_as_one_line()
     {
         var wire = ServiceProtocol.Encode(new ServiceRequest(ServiceProtocol.Version, RequestKind.Status));
@@ -46,7 +58,10 @@ public class ServiceProtocolTests
     [Theory]
     [InlineData("not json", "invalid JSON")]
     [InlineData("null", "empty request")]
-    [InlineData("{\"v\":2,\"kind\":\"Status\"}", "protocol version 2 is not supported")]
+    [InlineData("{\"v\":3,\"kind\":\"Status\"}", "protocol version 3 is not supported")]
+    [InlineData("{\"v\":1,\"kind\":\"ApplyProfile\"}", "protocol v1 is no longer accepted for changes: upgrade the client")]
+    [InlineData("{\"v\":1,\"kind\":\"Dhcp\",\"adapter\":\"Ethernet\"}", "upgrade the client")]
+    [InlineData("{\"v\":1,\"kind\":\"RevertLastApply\"}", "upgrade the client")]
     [InlineData("{\"v\":1}", "unknown request kind")]
     [InlineData("{\"v\":1,\"kind\":\"None\"}", "unknown request kind")]
     [InlineData("{\"v\":1,\"kind\":\"RunCommand\"}", "invalid JSON")]

@@ -1,3 +1,5 @@
+using NetPaw.Adapters;
+
 namespace NetPaw.Planning;
 
 /// <summary>One external command in an apply plan. Shown verbatim in "preview" so admins see exactly what will run.
@@ -28,7 +30,17 @@ public sealed record StepResult(Step Step, int ExitCode, string Output)
 public sealed class ApplyPlan
 {
     public string Title { get; init; } = "";
+    /// <summary>Alias of the adapter the plan changes, for display ("" when no adapter is touched). The netsh steps address it
+    /// by <see cref="AdapterIndex"/> (G5), so a rename after planning cannot redirect them.</summary>
     public string Adapter { get; init; } = "";
+    /// <summary>G5: the resolved live adapter's interface index (what the netsh steps carry) and NetCfgInstanceId (what the
+    /// snapshot and the verify step look up). 0 / null when no adapter is touched or the plan was built from a name only.</summary>
+    public int AdapterIndex { get; init; }
+    public string? AdapterId { get; init; }
+    /// <summary>"Ethernet 2 (#12)": the alias with the index, for the preview and the audit line.</summary>
+    public string AdapterLabel => AdapterIndex > 0 ? $"{Adapter} (#{AdapterIndex})" : Adapter;
+    /// <summary>A plan on a resolved live adapter: alias for display, index and id for the steps and the journal.</summary>
+    public static ApplyPlan For(string title, AdapterInfo a) => new() { Title = title, Adapter = a.Name, AdapterIndex = a.Index, AdapterId = a.Id };
     public List<Step> Steps { get; } = [];
     public List<string> Warnings { get; } = [];
     /// <summary>The profile this plan applies, when it applies one — lets the service verify afterwards.</summary>

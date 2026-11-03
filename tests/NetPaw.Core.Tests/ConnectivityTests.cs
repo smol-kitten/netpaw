@@ -287,12 +287,14 @@ public class V07AdvisorTests
     public async Task TwoDefaultGatewaysAndPrefer()
     {
         var eth = Nic("Ethernet", true, false, ["10.0.0.5/24"], "10.0.0.1");
-        var wifi = Nic("Wi-Fi", true, true, ["192.168.1.20/24"], "192.168.1.1");
+        var wifi = Nic("Wi-Fi", true, true, ["192.168.1.20/24"], "192.168.1.1") with { Index = 2 };
         var snap = await new ConnectivityChecker(new FakeProbe()).Check(eth, new CheckSettings());
         var adv = Assert.Single(Advisor.Analyze(snap, [eth, wifi]), a => a.Title == "Two default gateways");
         Assert.Equal(RepairKind.Prefer, adv.Repair); Assert.Contains("Wi-Fi (192.168.1.1)", adv.Text);
         var plan = Advisor.PlanPrefer(eth, [eth, wifi]);
-        Assert.Equal(["netsh interface ipv4 set interface \"Ethernet\" metric=10", "netsh interface ipv4 set interface \"Wi-Fi\" metric=50"], plan.Steps.Select(s => s.CommandLine));
+        // G5: netsh ipv4 steps address adapters by interface index; the alias stays in the descriptions
+        Assert.Equal(["netsh interface ipv4 set interface 1 metric=10", "netsh interface ipv4 set interface 2 metric=50"], plan.Steps.Select(s => s.CommandLine));
+        Assert.Equal(["Metric 10 on Ethernet", "Metric 50 on Wi-Fi"], plan.Steps.Select(s => s.Description));
         Assert.Empty(Advisor.Analyze(snap, [eth]).Where(a => a.Title == "Two default gateways"));
     }
 

@@ -7,7 +7,7 @@ namespace NetPaw.Tests;
 static class Fx
 {
     public static AdapterInfo Adapter(string name = "Ethernet", bool dhcp = false, string[]? addrs = null, string? gw = null, bool up = true) =>
-        new(name, "Intel I219", "{guid}", 7, up, true, dhcp,
+        new(name, "Intel I219", "{" + name + "}", 7, up, true, dhcp,
             (addrs ?? ["192.168.1.10/24"]).Select(IpAddr.Parse).ToList(),
             gw is null ? [] : [gw], ["192.168.1.1"], "AA:BB:CC:DD:EE:FF");
 

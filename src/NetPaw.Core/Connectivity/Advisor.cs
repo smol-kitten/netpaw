@@ -164,15 +164,15 @@ public static class Advisor
     /// <summary>netsh set subinterface: the one knob that makes Windows fragment before a too-small link swallows the packet.</summary>
     public static ApplyPlan PlanSetMtu(AdapterInfo adapter, int mtu)
     {
-        var plan = new ApplyPlan { Title = $"MTU {mtu} on {adapter.Name}", Adapter = adapter.Name };
-        plan.Steps.Add(Step.Netsh($"Interface MTU {mtu}", $"interface ipv4 set subinterface \"{adapter.Name}\" mtu={mtu} store=persistent"));
+        var plan = ApplyPlan.For($"MTU {mtu} on {adapter.Name}", adapter);
+        plan.Steps.Add(Step.Netsh($"Interface MTU {mtu}", $"interface ipv4 set subinterface {adapter.Index} mtu={mtu} store=persistent"));   // G5: by index
         return plan;
     }
 
     /// <summary>The plan for `ipconfig /release` on the adapter (a dock's old NIC still holding the address).</summary>
     public static ApplyPlan PlanRelease(AdapterInfo adapter)
     {
-        var plan = new ApplyPlan { Title = "release DHCP lease", Adapter = adapter.Name };
+        var plan = ApplyPlan.For("release DHCP lease", adapter);   // ipconfig takes the alias only (not netsh); the name was checked by IsSafeAdapterName
         plan.Steps.Add(new Step("Release DHCP lease", "ipconfig", $"/release \"{adapter.Name}\""));
         return plan;
     }
@@ -180,17 +180,17 @@ public static class Advisor
     /// <summary>Interface metric 10 on the preferred adapter, 50 on every other adapter that has a gateway — explicit instead of "automatic metric".</summary>
     public static ApplyPlan PlanPrefer(AdapterInfo preferred, IEnumerable<AdapterInfo> all)
     {
-        var plan = new ApplyPlan { Title = $"prefer {preferred.Name}", Adapter = preferred.Name };
-        plan.Steps.Add(Step.Netsh($"Metric 10 on {preferred.Name}", $"interface ipv4 set interface \"{preferred.Name}\" metric=10"));
+        var plan = ApplyPlan.For($"prefer {preferred.Name}", preferred);
+        plan.Steps.Add(Step.Netsh($"Metric 10 on {preferred.Name}", $"interface ipv4 set interface {preferred.Index} metric=10"));   // G5: by index
         foreach (var o in all.Where(o => o.Name != preferred.Name && o.HasGateway))
-            plan.Steps.Add(Step.Netsh($"Metric 50 on {o.Name}", $"interface ipv4 set interface \"{o.Name}\" metric=50", critical: false));
+            plan.Steps.Add(Step.Netsh($"Metric 50 on {o.Name}", $"interface ipv4 set interface {o.Index} metric=50", critical: false));
         return plan;
     }
 
     /// <summary>`ipconfig /renew "<adapter>"` — release+renew is deliberately avoided: it drops the address even when the server is gone.</summary>
     public static ApplyPlan PlanRenew(AdapterInfo adapter)
     {
-        var plan = new ApplyPlan { Title = "renew DHCP lease", Adapter = adapter.Name };
+        var plan = ApplyPlan.For("renew DHCP lease", adapter);
         if (!adapter.Dhcp) { plan.Warnings.Add($"{adapter.Name} is static; nothing to renew."); return plan; }
         plan.Steps.Add(new Step("Renew DHCP lease", "ipconfig", $"/renew \"{adapter.Name}\""));
         return plan;
