@@ -40,7 +40,9 @@ public sealed class ApplyPlan
     /// <summary>"Ethernet 2 (#12)": the alias with the index, for the preview and the audit line.</summary>
     public string AdapterLabel => AdapterIndex > 0 ? $"{Adapter} (#{AdapterIndex})" : Adapter;
     /// <summary>A plan on a resolved live adapter: alias for display, index and id for the steps and the journal.</summary>
-    public static ApplyPlan For(string title, AdapterInfo a) => new() { Title = title, Adapter = a.Name, AdapterIndex = a.Index, AdapterId = a.Id };
+    public static ApplyPlan For(string title, AdapterInfo a) => a.Index > 0
+        ? new() { Title = title, Adapter = a.Name, AdapterIndex = a.Index, AdapterId = a.Id }
+        : throw new InvalidOperationException($"adapter '{a.Name}' has no usable interface index ({a.Index}); refused");
     public List<Step> Steps { get; } = [];
     public List<string> Warnings { get; } = [];
     /// <summary>The profile this plan applies, when it applies one — lets the service verify afterwards.</summary>

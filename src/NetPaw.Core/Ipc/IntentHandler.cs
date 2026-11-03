@@ -144,14 +144,20 @@ public sealed class IntentHandler(NetPawService svc, string journalDirectory, Ac
 
     sealed class Rejected(string why) : Exception(why);
 
+    /// <summary>AA:BB:CC:DD:EE:FF, either case; what Windows reports and what the journal stores.</summary>
+    public static bool IsMac(string s) => System.Text.RegularExpressions.Regex.IsMatch(s, "^[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}$");
+
     /// <summary>Resolves the request's adapter against the live list (G5: id first, MAC cross-checked, alias only for a request
     /// that carries no id, logged) and refuses an unsafe name.</summary>
     AdapterInfo Adapter(ServiceRequest r)
     {
         if (r.Adapter is { Length: > 256 }) throw new Rejected("adapter name too long");
         if (r.AdapterId is { Length: > 64 } || r.AdapterMac is { Length: > 32 }) throw new Rejected("adapter id or MAC too long");
+        // Both are logged and compared, never run; still, only a GUID and a colon-hex MAC get that far (log forging, #150 review).
+        if (r.AdapterId is { Length: > 0 } && !Guid.TryParse(r.AdapterId, out _)) throw new Rejected("adapter id must be a GUID");
+        if (r.AdapterMac is { Length: > 0 } && !IsMac(r.AdapterMac)) throw new Rejected("adapter MAC must be six colon-separated hex pairs");
         var a = svc.ResolveAdapter(r.Adapter, id: r.AdapterId, mac: r.AdapterMac);
-        if (r.AdapterId is null) log($"adapter '{a.Name}' resolved by {(r.AdapterMac is { Length: > 0 } ? "MAC" : "alias")}: the request carried no adapter id (pre-v2 client?)");
+        if (r.AdapterId is null) log($"adapter '{a.Name}' resolved by {(r.AdapterMac is { Length: > 0 } ? "MAC" : "alias")}: the request carried no adapter id (a client older than 0.17, or a name-only command)");
         return Safe(a);
     }
 

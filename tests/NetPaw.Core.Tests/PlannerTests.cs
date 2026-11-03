@@ -108,7 +108,7 @@ public class PlannerTests
         Assert.All(plan.Steps.Where(s => s.FileName == "netsh"), s => Assert.Contains("name=7", s.Arguments));
         Assert.DoesNotContain(plan.Steps, s => s.Arguments.Contains("Ethernet 2 (lab)"));
         Assert.Equal("Ethernet 2 (lab)", plan.Adapter);
-        Assert.Equal(7, plan.AdapterIndex); Assert.Equal("{Ethernet 2 (lab)}", plan.AdapterId);
+        Assert.Equal(7, plan.AdapterIndex); Assert.Equal(Fx.Id("Ethernet 2 (lab)"), plan.AdapterId);
         Assert.Equal("Ethernet 2 (lab) (#7)", plan.AdapterLabel);
         var secondary = ApplyPlanner.PlanAddSecondary(Fx.Adapter("Ethernet 2 (lab)"), IpAddr.Parse("10.0.0.9/8"), "reach");
         Assert.Contains("add address name=7 ", Assert.Single(secondary.Steps).Arguments);
@@ -205,5 +205,19 @@ public class V07PlannerTests
         Assert.Equal(["netsh interface set interface \"Wi-Fi\" admin=disable", "netsh interface set interface \"Wi-Fi\" admin=enable"], plan.Steps.Select(s => s.CommandLine));
         Assert.Single(plan.Warnings);
         Assert.Empty(ApplyPlanner.PlanResetAdapter(Fx.Adapter("Ethernet 2")).Warnings);
+    }
+
+    [Fact]
+    public void Plans_refuse_an_adapter_whose_index_is_not_positive()
+    {
+        var bad = Fx.Adapter("Ethernet") with { Index = -1 };
+        var ex = Assert.Throws<InvalidOperationException>(() => ApplyPlanner.Plan(Fx.Static("lab"), bad));
+        Assert.Contains("no usable interface index (-1)", ex.Message);
+        Assert.Throws<InvalidOperationException>(() => ApplyPlanner.PlanDhcp(bad));
+        Assert.Throws<InvalidOperationException>(() => ApplyPlanner.PlanResetAdapter(bad));
+        Assert.Throws<InvalidOperationException>(() => NetPaw.Connectivity.Advisor.PlanPrefer(bad, [bad]));
+        // another adapter with index 0 in the metric-50 list is skipped, never "set interface 0"
+        var plan = NetPaw.Connectivity.Advisor.PlanPrefer(Fx.Adapter("Ethernet", gw: "192.168.1.1"), [Fx.Adapter("Ethernet", gw: "192.168.1.1"), Fx.Adapter("Wi-Fi", gw: "192.168.2.1") with { Index = 0 }]);
+        Assert.DoesNotContain(plan.Steps, s => s.Arguments.Contains("interface 0 "));
     }
 }

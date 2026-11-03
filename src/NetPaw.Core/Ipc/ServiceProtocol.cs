@@ -207,6 +207,21 @@ public static class ServiceChange
     /// <summary>The last Status answer (caller + effective tier as the service sees this process); null when the service did not answer.</summary>
     public static ServiceStatus? LastStatus { get; private set; }
 
+    /// <summary>G5 (18a review, must 1): a request on a live adapter carries its alias, id and MAC, so the service resolves
+    /// by identity and refuses when the alias has moved to another NIC. The string overloads stay for callers that only
+    /// hold a name (and for v1-era tests); the service logs those as "pre-v2 client".</summary>
+    static ServiceRequest On(ServiceRequest r, Adapters.AdapterInfo a) => r with { Adapter = a.Name, AdapterId = a.Id, AdapterMac = a.Mac };
+    public static ServiceRequest Profile(Model.Profile p, Adapters.AdapterInfo adapter) => On(Profile(p), adapter);
+    public static ServiceRequest Managed(string profileId, Adapters.AdapterInfo adapter) => On(Managed(profileId), adapter);
+    public static ServiceRequest Dhcp(Adapters.AdapterInfo adapter) => On(Dhcp(), adapter);
+    public static ServiceRequest Reach(string target, Adapters.AdapterInfo adapter, bool? replacePrimary = null) => On(Reach(target, replacePrimary: replacePrimary), adapter);
+    public static ServiceRequest DeleteRoute(string prefix, string? gateway, Adapters.AdapterInfo adapter) => On(DeleteRoute(prefix, gateway), adapter);
+    public static ServiceRequest ResetAdapter(Adapters.AdapterInfo adapter) => On(ResetAdapter(), adapter);
+    public static ServiceRequest Renew(Adapters.AdapterInfo adapter) => On(Renew(), adapter);
+    public static ServiceRequest Release(Adapters.AdapterInfo adapter) => On(Release(), adapter);
+    public static ServiceRequest Prefer(Adapters.AdapterInfo adapter) => On(Prefer(), adapter);
+    public static ServiceRequest SetMtu(int mtu, Adapters.AdapterInfo adapter) => On(SetMtu(mtu), adapter);
+
     /// <summary>ApplyProfile request with an inline user profile.</summary>
     public static ServiceRequest Profile(Model.Profile p, string? adapter = null) => new(ServiceProtocol.Version, RequestKind.ApplyProfile) { Profile = p, Adapter = adapter };
     /// <summary>ApplyProfile request by managed profile id.</summary>

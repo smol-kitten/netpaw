@@ -182,7 +182,7 @@ public static class Advisor
     {
         var plan = ApplyPlan.For($"prefer {preferred.Name}", preferred);
         plan.Steps.Add(Step.Netsh($"Metric 10 on {preferred.Name}", $"interface ipv4 set interface {preferred.Index} metric=10"));   // G5: by index
-        foreach (var o in all.Where(o => o.Name != preferred.Name && o.HasGateway))
+        foreach (var o in all.Where(o => o.Id != preferred.Id && o.HasGateway && o.Index > 0))   // by id, not alias; never "set interface 0"
             plan.Steps.Add(Step.Netsh($"Metric 50 on {o.Name}", $"interface ipv4 set interface {o.Index} metric=50", critical: false));
         return plan;
     }

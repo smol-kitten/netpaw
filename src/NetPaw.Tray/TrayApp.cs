@@ -347,7 +347,7 @@ sealed class TrayApp : ApplicationContext
         var plan = Advisor.PlanRenew(w);
         if (!manual) { _renew.Mark(DateTimeOffset.Now); _svc.Store.Log($"auto-renew attempt {_renew.Attempts}/{_svc.Settings.Repair.AutoRenewMaxAttempts} on {w.Name}: {string.Join("; ", _advisories.Where(a => a.CanRenew).Select(a => a.Title))}"); }
         TelemetryHost.Event("repair", manual ? "renew-manual" : "renew-auto", _advisories.FirstOrDefault(a => a.CanRenew)?.Title);
-        RunInBackground($"Renewing DHCP lease on {w.Name}", () => _channel.Run(ServiceChange.Renew(w.Name), plan, () => _svc.Apply(plan)), $"Renewed lease on {w.Name}");
+        RunInBackground($"Renewing DHCP lease on {w.Name}", () => _channel.Run(ServiceChange.Renew(w), plan, () => _svc.Apply(plan)), $"Renewed lease on {w.Name}");
         // Re-probe once the lease had time to land.
         var later = new System.Windows.Forms.Timer { Interval = 8000 }; later.Tick += (_, _) => { later.Dispose(); _ = RunCheck(); }; later.Start();
     }
@@ -523,7 +523,7 @@ sealed class TrayApp : ApplicationContext
         if (_autoSwitchUndo is null) return;
         var p = _autoSwitchUndo; _autoSwitchUndo = null; _autoSwitchArmed = false;
         var adapter = _svc.AdapterFor(p, _adapters);
-        Execute(p.Managed ? ServiceChange.Managed(p.Id, adapter.Name) : ServiceChange.Profile(p, adapter.Name),
+        Execute(p.Managed ? ServiceChange.Managed(p.Id, adapter) : ServiceChange.Profile(p, adapter),
                 _svc.PlanProfile(p, adapter), subtitle: "Undo the last automatic switch.");
     }
 
@@ -571,8 +571,9 @@ sealed class TrayApp : ApplicationContext
     public IReadOnlyList<RouteEntry> ReadRoutes() { try { return OperatingSystem.IsWindows() ? RouteTable.ReadAll(_svc.Runner) : []; } catch (Exception ex) { _svc.Store.Log("routes: " + ex.Message); return []; } }
     public void DeleteRoute(RouteEntry r, Action? after = null)
     {
-        var adapterName = _adapters.FirstOrDefault(a => a.Index == r.InterfaceIndex)?.Name ?? r.InterfaceName;
-        Execute(ServiceChange.DeleteRoute(r.Prefix, r.Gateway, adapterName), ApplyPlanner.PlanDeleteRoute(r, adapterName),
+        var adapter = _adapters.FirstOrDefault(a => a.Index == r.InterfaceIndex);
+        var adapterName = adapter?.Name ?? r.InterfaceName;
+        Execute(adapter is null ? ServiceChange.DeleteRoute(r.Prefix, r.Gateway, adapterName) : ServiceChange.DeleteRoute(r.Prefix, r.Gateway, adapter), ApplyPlanner.PlanDeleteRoute(r, adapterName, adapter),
                 subtitle: "Removes one route; the adapter's own routes come back with the next apply or renew.", after: after);
     }
 
@@ -792,7 +793,7 @@ sealed class TrayApp : ApplicationContext
     {
         var w = Work; if (w is null) { Notify("No adapter", "Pick a work adapter first.", ToolTipIcon.Warning); return; }
         if (!_svc.Allowed(Capability.Dhcp)) { Denied(Capability.Dhcp); return; }
-        Execute(ServiceChange.Dhcp(w.Name), ApplyPlanner.PlanDhcp(w));
+        Execute(ServiceChange.Dhcp(w), ApplyPlanner.PlanDhcp(w));
     }
 
     void Denied(Capability c) { var msg = new DeniedByPolicyException(c).Message; Status?.Invoke(msg, "error"); Notify("Not allowed", msg, ToolTipIcon.Warning); }
@@ -803,7 +804,7 @@ sealed class TrayApp : ApplicationContext
         var d = _svc.ResolvePreset(preset, w);
         if (d.Kind == ReachKind.AlreadyReachable) { Status?.Invoke(d.Explanation, "ok"); Notify("Already reachable", d.Explanation, ToolTipIcon.Info); return; }
         var (plan, _) = _svc.Reach(d, w, dryRun: true);
-        Execute(ServiceChange.Reach(d.Target, w.Name), plan, () => _svc.Reach(d, w).Outcome!, d.Explanation);
+        Execute(ServiceChange.Reach(d.Target, w), plan, () => _svc.Reach(d, w).Outcome!, d.Explanation);
     }
 
     /// <summary>One TCP connect, verdict in the status line and a balloon. No address change — reach mode's read-only cousin.</summary>
@@ -830,7 +831,7 @@ sealed class TrayApp : ApplicationContext
             case ReachKind.AlreadyReachable: Status?.Invoke(d.Explanation, "ok"); Notify("Already reachable", d.Explanation, ToolTipIcon.Info); return;
         }
         var (plan, _) = _svc.Reach(d, w, dryRun: true, replace);
-        Execute(ServiceChange.Reach(d.Target, w.Name, replace), plan, () =>
+        Execute(ServiceChange.Reach(d.Target, w, replace), plan, () =>
         {
             // Elevated mode: re-run through the local service so temp addresses get tracked; plan is identical.
             // (In service mode the NetPaw service does this and tracks the temp address in its own store.)
@@ -932,7 +933,7 @@ sealed class TrayApp : ApplicationContext
     public string? LastVerifyAdapter { get; private set; }
 
     public void ApplyProfileVerified(Profile p, AdapterInfo adapter) =>
-        Execute(p.Managed ? ServiceChange.Managed(p.Id, adapter.Name) : ServiceChange.Profile(p, adapter.Name),
+        Execute(p.Managed ? ServiceChange.Managed(p.Id, adapter) : ServiceChange.Profile(p, adapter),
                 _svc.PlanProfile(p, adapter));
 
     /// <summary>A verify mismatch (the documented "still DHCP / two gateways" state, a route Windows refused, a
@@ -985,12 +986,12 @@ sealed class TrayApp : ApplicationContext
         var target = _adapters.FirstOrDefault(a => a.Name == adv.RepairAdapter); if (target is null) return;
         (ApplyPlan Plan, ServiceRequest Request)? step = adv.Repair switch
         {
-            RepairKind.Renew => (Advisor.PlanRenew(target), ServiceChange.Renew(target.Name)),
-            RepairKind.Release => (Advisor.PlanRelease(target), ServiceChange.Release(target.Name)),
-            RepairKind.Reset => (ApplyPlanner.PlanResetAdapter(target), ServiceChange.ResetAdapter(target.Name)),
-            RepairKind.Prefer => (Advisor.PlanPrefer(target, _adapters), ServiceChange.Prefer(target.Name)),
-            RepairKind.SetMtu => (Advisor.PlanSetMtu(target, adv.Value ?? 1500), ServiceChange.SetMtu(adv.Value ?? 1500, target.Name)),
-            RepairKind.DeleteRoute when adv.Route is { } route => (ApplyPlanner.PlanDeleteRoute(route, target.Name), ServiceChange.DeleteRoute(route.Prefix, route.Gateway, target.Name)),
+            RepairKind.Renew => (Advisor.PlanRenew(target), ServiceChange.Renew(target)),
+            RepairKind.Release => (Advisor.PlanRelease(target), ServiceChange.Release(target)),
+            RepairKind.Reset => (ApplyPlanner.PlanResetAdapter(target), ServiceChange.ResetAdapter(target)),
+            RepairKind.Prefer => (Advisor.PlanPrefer(target, _adapters), ServiceChange.Prefer(target)),
+            RepairKind.SetMtu => (Advisor.PlanSetMtu(target, adv.Value ?? 1500), ServiceChange.SetMtu(adv.Value ?? 1500, target)),
+            RepairKind.DeleteRoute when adv.Route is { } route => (ApplyPlanner.PlanDeleteRoute(route, target.Name), ServiceChange.DeleteRoute(route.Prefix, route.Gateway, target)),
             _ => null,
         };
         if (step is null) return;
@@ -1004,7 +1005,7 @@ sealed class TrayApp : ApplicationContext
     {
         var name = adapterName ?? LastVerifyAdapter ?? Work?.Name; if (name is null) return;
         var target = _adapters.FirstOrDefault(a => a.Name == name) ?? Work; if (target is null) return;
-        Execute(ServiceChange.ResetAdapter(target.Name), ApplyPlanner.PlanResetAdapter(target), subtitle: "Disable → enable. The documented cure for 'static applied but Windows still shows DHCP / two gateways'.");
+        Execute(ServiceChange.ResetAdapter(target), ApplyPlanner.PlanResetAdapter(target), subtitle: "Disable → enable. The documented cure for 'static applied but Windows still shows DHCP / two gateways'.");
     }
 
     /// <summary>Runs a plan on a worker thread (netsh can take a couple of seconds), optionally after a preview.</summary>

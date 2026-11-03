@@ -59,6 +59,9 @@ public class ServiceProtocolTests
     [InlineData("not json", "invalid JSON")]
     [InlineData("null", "empty request")]
     [InlineData("{\"v\":3,\"kind\":\"Status\"}", "protocol version 3 is not supported")]
+    [InlineData("{\"kind\":\"Status\"}", "protocol version 0 is not supported")]          // v missing
+    [InlineData("{\"v\":0,\"kind\":\"Dhcp\"}", "protocol version 0 is not supported")]
+    [InlineData("{\"v\":-1,\"kind\":\"Status\"}", "protocol version -1 is not supported")]
     [InlineData("{\"v\":1,\"kind\":\"ApplyProfile\"}", "protocol v1 is no longer accepted for changes: upgrade the client")]
     [InlineData("{\"v\":1,\"kind\":\"Dhcp\",\"adapter\":\"Ethernet\"}", "upgrade the client")]
     [InlineData("{\"v\":1,\"kind\":\"RevertLastApply\"}", "upgrade the client")]
@@ -103,5 +106,18 @@ public class ServiceProtocolTests
         var back = System.Text.Json.JsonSerializer.Deserialize<ServiceResponse>(wire, ServiceProtocol.Json)!;
         Assert.Equal("NetworkConfigOperators", back.Status!.Tier);
         Assert.Contains("\"tier\":\"NetworkConfigOperators\"", System.Text.Encoding.UTF8.GetString(wire));
+    }
+
+    [Fact]
+    public void A_request_built_on_a_live_adapter_carries_its_id_and_mac()
+    {
+        var a = Fx.Adapter("Ethernet 2");
+        foreach (var r in new[] { ServiceChange.Dhcp(a), ServiceChange.Renew(a), ServiceChange.Release(a), ServiceChange.ResetAdapter(a), ServiceChange.Prefer(a),
+                                  ServiceChange.SetMtu(1400, a), ServiceChange.Reach("10.0.0.1", a, true), ServiceChange.DeleteRoute("10.0.0.0/8", null, a),
+                                  ServiceChange.Profile(Fx.Static("lab"), a), ServiceChange.Managed("corp", a) })
+        {
+            Assert.Equal("Ethernet 2", r.Adapter); Assert.Equal(Fx.Id("Ethernet 2"), r.AdapterId); Assert.Equal("AA:BB:CC:DD:EE:FF", r.AdapterMac);
+        }
+        Assert.Null(ServiceChange.Dhcp("Ethernet 2").AdapterId);   // name-only callers still work, the service logs them as pre-0.17
     }
 }
