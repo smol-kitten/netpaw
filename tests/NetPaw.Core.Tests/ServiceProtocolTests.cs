@@ -122,6 +122,26 @@ public class ServiceProtocolTests
     }
 
     [Fact]
+    public void Confirm_requests_name_the_adapter_the_same_way_and_a_window_is_attached_only_when_asked()
+    {
+        var a = Fx.Adapter("Ethernet 2");
+        var c = ServiceChange.Confirm(a);
+        Assert.Equal(RequestKind.ConfirmApply, c.Kind);
+        Assert.Equal(("Ethernet 2", Fx.Id("Ethernet 2"), "AA:BB:CC:DD:EE:FF"), (c.Adapter, c.AdapterId, c.AdapterMac));
+        Assert.Null(ServiceChange.Confirm().Adapter);   // "the only armed window"
+        Assert.Equal("Ethernet 2", ServiceChange.Confirm("Ethernet 2").Adapter);
+        Assert.Equal(30, ServiceChange.Dhcp(a).WithConfirm(30).ConfirmSeconds);
+        Assert.Null(ServiceChange.Dhcp(a).WithConfirm(0).ConfirmSeconds);
+        Assert.Null(ServiceChange.Dhcp(a).WithConfirm(null).ConfirmSeconds);
+        Assert.True(ServiceChange.CanConfirm(RequestKind.ApplyProfile) && ServiceChange.CanConfirm(RequestKind.Dhcp) && ServiceChange.CanConfirm(RequestKind.Reach) && ServiceChange.CanConfirm(RequestKind.RevertLastApply));
+        Assert.False(ServiceChange.CanConfirm(RequestKind.ResetAdapter) || ServiceChange.CanConfirm(RequestKind.Status) || ServiceChange.CanConfirm(RequestKind.ConfirmApply));
+        // the armed seconds travel on the wire as their own field, so a client can show the policy-raised window
+        var wire = ServiceProtocol.Encode(new ServiceResponse(ServiceProtocol.Version, true) { Apply = new ApplyReport("lab", "Ethernet 2", true, false, [], [], []) { ConfirmArmed = true, ConfirmSeconds = 20 } });
+        var back = System.Text.Json.JsonSerializer.Deserialize<ServiceResponse>(wire, ServiceProtocol.Json)!;
+        Assert.Equal((true, 20), (back.Apply!.ConfirmArmed, back.Apply.ConfirmSeconds));
+    }
+
+    [Fact]
     public void An_adapter_without_a_readable_id_or_mac_sends_null_not_empty()
     {
         var r = ServiceChange.Dhcp(Fx.Adapter("Ethernet 2") with { Id = "", Mac = " " });

@@ -61,6 +61,11 @@ sealed class TrayApp : ApplicationContext
     IncidentLog? _incidents;
     NetState? _pendingState; DateTime _pendingSince;
     readonly System.Windows.Forms.Timer _confirm = new() { Interval = 3000 };
+    // G4: the countdown of the commit-confirm window the service holds; the service's Status is the source of truth (re-read every
+    // 5 ticks and whenever the channel is re-probed), the local deadline only paints the seconds in between.
+    readonly System.Windows.Forms.Timer _countdown = new() { Interval = 1000 };
+    (string Adapter, string Title, DateTime Deadline)? _pendingConfirm;
+    int _countdownTicks;
     bool _checking;
     bool _busy;
     bool _menuOpen;
@@ -106,6 +111,8 @@ sealed class TrayApp : ApplicationContext
         _tray.BalloonTipClicked += (_, _) => { if (_balloonAction is { } act) { _balloonAction = null; act(); } else OpenLog(); };
         _refresh.Tick += (_, _) => RefreshState();
         _refresh.Start();
+        _countdown.Tick += (_, _) => CountdownTick();
+        _channelTimer.Tick += (_, _) => SyncPendingConfirm();   // a window armed by the CLI or by policy shows up here
         _hotkeys.ShowRequested += () => ShowPanel();
         RegisterHotkeys();
         RefreshState();
@@ -639,6 +646,7 @@ sealed class TrayApp : ApplicationContext
         _tray.Icon = Icons.Paw(color, problem ? Theme.Error : null);
         var current = w is null ? null : _svc.Profiles.FirstOrDefault(p => ApplyPlanner.Matches(p, w));
         var text = w is null ? "NetPaw — no adapter" : $"NetPaw — {w.Name}: {(current?.Name is { } n ? n + " · " : "")}{w.Summary()}{(_snapshot is { ChecksEnabled: true } ? " · " + Snapshot.Describe(_snapshot.State) : "")}";
+        if (_pendingConfirm is { } pc) text += $" · auto-revert in {SecondsLeft(pc)} s";
         if (ChangeMode == ChannelMode.User) text += " · read-only (no service)";
         else if (ChangeMode == ChannelMode.Service && ServiceChange.LastStatus?.Tier is { } tier) text += $" · tier {tier}";   // G12: the tier the service will gate you at
         _tray.Text = text.Length > 127 ? text[..124] + "…" : text;
@@ -680,6 +688,9 @@ sealed class TrayApp : ApplicationContext
         // User mode (no service, not elevated): applying is refused anyway, so disable the change items and say why
         // once, rather than letting the user click into a refusal. Diagnostics, capture and the map stay enabled.
         var canApply = ChangeMode != ChannelMode.User;
+        // G4: the window the service holds; Keep is one click, the countdown is repainted while the menu is open by the 1-s timer.
+        if (_pendingConfirm is { } pc)
+            _menu.Items.Add(new ToolStripMenuItem($"Keep '{pc.Title}' on {pc.Adapter}  ({SecondsLeft(pc)} s left)", Icons.Dot(Theme.Accent), (_, _) => Keep()) { ToolTipText = "The service reverts this apply when the time is up (or sooner when the gateway and DNS stop answering) unless you keep it.", Enabled = canApply, Font = Theme.Section });
         if (!canApply)
             _menu.Items.Add(new ToolStripMenuItem("Read-only — changes need the NetPaw service (install the MSI) or an elevated run")
             { Enabled = false, Tag = Theme.Error, Font = Theme.Small });
@@ -907,9 +918,74 @@ sealed class TrayApp : ApplicationContext
     public void RevertLastApply()
     {
         var plan = new ApplyPlan { Title = "Revert last apply" };
-        RunInBackground("Reverting the last apply", () => _channel.Run(ServiceChange.RevertLastApply(), plan,
+        RunInBackground("Reverting the last apply", () => _channel.Run(WithConfirmSetting(ServiceChange.RevertLastApply()), plan,
             () => throw new InvalidOperationException("Revert needs the NetPaw service; it keeps the pre-apply snapshot.")), "Adapter put back to its pre-apply state",
             after: () => { ServiceChange.ServiceAnswers(); RefreshState(); });
+    }
+
+    // ---- G4 commit-confirm -----------------------------------------------------------------
+
+    /// <summary>The user's auto-revert setting, attached only in service mode (an in-process apply has nothing that could revert it)
+    /// and only to the kinds a window applies to. The service may raise it to the policy minimum and says so in its answer.</summary>
+    ServiceRequest WithConfirmSetting(ServiceRequest r) =>
+        ChangeMode == ChannelMode.Service && ServiceChange.CanConfirm(r.Kind) ? r.WithConfirm(_svc.Settings.CommitConfirmSeconds) : r;
+
+    static int SecondsLeft((string Adapter, string Title, DateTime Deadline) p) => Math.Max(0, (int)Math.Ceiling((p.Deadline - DateTime.UtcNow).TotalSeconds));
+
+    void StartCountdown(string adapter, string title, int seconds)
+    {
+        _pendingConfirm = (adapter, title, DateTime.UtcNow.AddSeconds(seconds));
+        _countdownTicks = 0;
+        _countdown.Start();
+        RefreshState();
+    }
+
+    void StopCountdown(string? why)
+    {
+        if (_pendingConfirm is null) return;
+        _pendingConfirm = null; _countdown.Stop();
+        if (why is not null) { Status?.Invoke(why, "info"); Notify("Auto-revert", why, ToolTipIcon.Info); }
+        RefreshState();
+    }
+
+    /// <summary>Once a second: repaint; every 5th tick and at the deadline re-read the service's Status, which decides whether the window is
+    /// still armed (a confirm from the CLI, a revert by the service, or a window the tray never saw).</summary>
+    void CountdownTick()
+    {
+        if (_pendingConfirm is not { } pc) { _countdown.Stop(); return; }
+        if (++_countdownTicks % 5 == 0 || SecondsLeft(pc) <= 0) SyncPendingConfirm();
+        else RefreshState();
+    }
+
+    /// <summary>Align the tray with the service's Status off the UI thread: a new window starts the countdown, a gone window ends it.</summary>
+    void SyncPendingConfirm()
+    {
+        if (ChangeMode != ChannelMode.Service) { StopCountdown(null); return; }
+        Task.Run(() => ServiceChange.ServiceAnswers()).ContinueWith(_ =>
+        {
+            var p = ServiceChange.LastStatus?.PendingConfirm;
+            if (p is null) { if (_pendingConfirm is { } was) StopCountdown(SecondsLeft(was) <= 1 ? $"'{was.Title}' on {was.Adapter} was reverted by the service (not kept in time)." : $"The auto-revert window for '{was.Title}' on {was.Adapter} is closed."); return; }
+            var title = _pendingConfirm is { } cur && cur.Adapter.Equals(p.Adapter, StringComparison.OrdinalIgnoreCase) ? cur.Title : ServiceChange.LastStatus?.LastApply ?? "the last apply";
+            var fresh = _pendingConfirm is null;
+            _pendingConfirm = (p.Adapter, title, DateTime.UtcNow.AddSeconds(p.SecondsLeft));
+            if (fresh)
+            {
+                _countdownTicks = 0; _countdown.Start();
+                var who = p.Reason == "policy" ? "your organisation's policy" : p.Caller;
+                _balloonAction = Keep; Notify("Auto-revert armed", $"'{title}' on {p.Adapter} reverts in {p.SecondsLeft} s unless kept (armed by {who}) — click here or use the menu.", ToolTipIcon.Warning, force: true);
+            }
+            RefreshState();
+        }, TaskScheduler.FromCurrentSynchronizationContext());
+    }
+
+    /// <summary>Keep: close the service's window on the adapter so the apply stays.</summary>
+    public void Keep()
+    {
+        if (_pendingConfirm is not { } pc) { Notify("Nothing to keep", "No auto-revert window is armed.", ToolTipIcon.Info); return; }
+        var plan = new ApplyPlan { Title = $"keep '{pc.Title}'", Adapter = pc.Adapter };
+        RunInBackground($"Keeping '{pc.Title}'", () => _channel.Run(ServiceChange.Confirm(pc.Adapter), plan,
+            () => throw new InvalidOperationException("Keep needs the NetPaw service; it holds the auto-revert window.")), $"'{pc.Title}' on {pc.Adapter} stays",
+            after: () => { _pendingConfirm = null; _countdown.Stop(); ServiceChange.ServiceAnswers(); RefreshState(); });
     }
 
     public void ClearTemp()
@@ -1030,6 +1106,7 @@ sealed class TrayApp : ApplicationContext
         if (_svc.Settings.ConfirmBeforeApply || plan.Warnings.Count > 0 || (Control.ModifierKeys & Keys.Shift) == Keys.Shift)
             if (!PlanPreviewForm.Confirm(plan, subtitle)) { Status?.Invoke("Cancelled.", "warn"); return; }
         var kind = plan.Title == "DHCP" ? "dhcp" : plan.Title.StartsWith("reach ") ? "reach" : subtitle is not null ? "preset" : "profile";
+        request = WithConfirmSetting(request);
         RunInBackground($"Applying {plan.Title}", () =>
         {
             ChangeResult? r = null;
@@ -1062,8 +1139,25 @@ sealed class TrayApp : ApplicationContext
                 after?.Invoke();
                 var soft = result.Report?.Steps.Where(s => !s.Ok).Select(s => s.Description + ": " + s.Output).ToList() ?? [];
                 var text = soft.Count == 0 ? "Done." : "Done, with warnings: " + string.Join("; ", soft);
-                Status?.Invoke(doneText + " — " + text, soft.Count == 0 ? "ok" : "warn");
-                Notify(doneText, text, soft.Count == 0 ? ToolTipIcon.Info : ToolTipIcon.Warning);
+                // G4: the structured answer says whether the service armed a window; the balloon's click is the Keep.
+                if (result.Report is { ConfirmArmed: true } armed)
+                {
+                    StartCountdown(armed.Adapter, armed.Title, armed.ConfirmSeconds ?? 0);
+                    text += $" Reverts in {armed.ConfirmSeconds} s unless you keep it — click here or use the menu.";
+                    Status?.Invoke(doneText + " — " + text, "warn");
+                    _balloonAction = Keep; Notify(doneText, text, ToolTipIcon.Warning, force: true);
+                }
+                else if (result.Report is { ConfirmArmed: false } notArmed)
+                {
+                    text += " Auto-revert was NOT armed: " + notArmed.ConfirmNotArmed;
+                    Status?.Invoke(doneText + " — " + text, "warn");
+                    Notify(doneText, text, ToolTipIcon.Warning, force: true);
+                }
+                else
+                {
+                    Status?.Invoke(doneText + " — " + text, soft.Count == 0 ? "ok" : "warn");
+                    Notify(doneText, text, soft.Count == 0 ? ToolTipIcon.Info : ToolTipIcon.Warning);
+                }
                 LastVerifyDiffs = []; LastVerifyAdapter = null;
                 if (result.Report is { VerifyDiffs.Count: > 0 } rep) SurfaceVerifyMismatch(rep);
             }

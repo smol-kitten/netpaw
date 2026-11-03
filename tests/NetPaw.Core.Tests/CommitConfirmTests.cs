@@ -66,7 +66,7 @@ public class CommitConfirmTests
         var r = new Rig();
         var resp = r.Apply(30);
         Assert.True(resp.Ok, resp.Error); Assert.True(r.Armed); Assert.Equal(0, r.Reverts);
-        Assert.True(resp.Apply!.ConfirmArmed); Assert.Null(resp.Apply.ConfirmNotArmed);
+        Assert.True(resp.Apply!.ConfirmArmed); Assert.Null(resp.Apply.ConfirmNotArmed); Assert.Equal(30, resp.Apply.ConfirmSeconds);
         Assert.Contains(r.Log, l => l.Contains("armed commit-confirm: 30 s on Ethernet (#7) for PC\\anna") && l.Contains("probes: gateway 192.168.1.1, dns 1.1.1.1"));
         var w = r.Handler.ArmedWindow()!;
         Assert.Equal(("Ethernet", 30, "PC\\anna (session 2)"), (w.Adapter, w.SecondsLeft, w.Caller)); Assert.Null(w.Reason);
@@ -231,7 +231,9 @@ public class CommitConfirmTests
     public void The_policy_minimum_raises_a_request_without_a_window_and_says_so()
     {
         var r = new Rig(storePolicy: new() { ["CommitConfirmMinSeconds"] = 20 });
-        Assert.True(r.Apply(confirm: null).Ok);
+        var raised = r.Apply(confirm: null);
+        Assert.True(raised.Ok);
+        Assert.True(raised.Apply!.ConfirmArmed); Assert.Equal(20, raised.Apply.ConfirmSeconds);   // the client learns the real window, not what it asked
         var w = r.Handler.ArmedWindow()!;
         Assert.Equal((20, "policy"), (w.SecondsLeft, w.Reason));
         Assert.Contains(r.Log, l => l.Contains("armed commit-confirm: 20 s") && l.Contains("(policy;"));

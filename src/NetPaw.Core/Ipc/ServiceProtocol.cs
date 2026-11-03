@@ -130,6 +130,8 @@ public sealed record ApplyReport(string Title, string Adapter, bool Success, boo
     public bool? ConfirmArmed { get; init; }
     /// <summary>G4: why a requested window was not armed (the apply failed, or the window file could not be written). Null otherwise.</summary>
     public string? ConfirmNotArmed { get; init; }
+    /// <summary>G4: the armed window in seconds — what the service actually armed, which a policy minimum may have raised above the request.</summary>
+    public int? ConfirmSeconds { get; init; }
 
     /// <summary>Flattens a plan and its outcome into the report the client sees (steps, exit codes, verify diffs).</summary>
     public static ApplyReport From(Planning.ApplyPlan plan, Planning.ApplyOutcome? outcome) => new(
@@ -263,6 +265,14 @@ public static class ServiceChange
     public static ServiceRequest SetMtu(int mtu, string? adapter = null) => new(ServiceProtocol.Version, RequestKind.SetMtu) { Mtu = mtu, Adapter = adapter };
     /// <summary>G13: put the adapter of the last apply back into the state the service snapshotted just before it.</summary>
     public static ServiceRequest RevertLastApply() => new(ServiceProtocol.Version, RequestKind.RevertLastApply);
+    /// <summary>G4: keep the change the commit-confirm window on this adapter guards (the only armed window when no adapter is named).</summary>
+    public static ServiceRequest Confirm(string? adapter = null) => new(ServiceProtocol.Version, RequestKind.ConfirmApply) { Adapter = adapter };
+    public static ServiceRequest Confirm(Adapters.AdapterInfo adapter) => On(Confirm(), adapter);
+    /// <summary>G4: the same request under a commit-confirm window of <paramref name="seconds"/> (0/null = none). The service validates the range
+    /// and the kind; a policy minimum may raise it.</summary>
+    public static ServiceRequest WithConfirm(this ServiceRequest r, int? seconds) => seconds is > 0 ? r with { ConfirmSeconds = seconds } : r;
+    /// <summary>The kinds a window applies to, for a client that decides whether to attach its setting.</summary>
+    public static bool CanConfirm(RequestKind k) => k is RequestKind.ApplyProfile or RequestKind.Dhcp or RequestKind.Reach or RequestKind.RevertLastApply;
     /// <summary>Update from CatWinget: the service resolves, downloads, verifies twice and installs. Never a URL or a path.</summary>
     public static ServiceRequest InstallUpdate(string? version = null, string? channel = null, bool allowDowngrade = false) => new(ServiceProtocol.Version, RequestKind.InstallUpdate) { Version = version, Channel = channel, AllowDowngrade = allowDowngrade ? true : null };
 }

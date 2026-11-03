@@ -383,7 +383,7 @@ public sealed class IntentHandler(NetPawService svc, string journalDirectory, Ac
         log($"{plan.Title} on {plan.AdapterLabel} for {caller}: {(report.Success ? "ok" : "FAILED")}{(report.VerifyDiffs.Count > 0 ? " (verify: " + string.Join("; ", report.VerifyDiffs) + ")" : "")}");
         if (confirm is not { } c) return report;
         var notArmed = report.Success ? Arm(plan, pre!, c, caller) : "the apply did not succeed, so nothing was armed; the pre-apply snapshot is kept for RevertLastApply";
-        if (notArmed is null) return report with { ConfirmArmed = true };
+        if (notArmed is null) return report with { ConfirmArmed = true, ConfirmSeconds = c.Seconds };
         plan.Warnings.Add("commit-confirm was NOT armed: " + notArmed);
         return ApplyReport.From(plan, outcome) with { ConfirmArmed = false, ConfirmNotArmed = notArmed };
     }
