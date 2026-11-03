@@ -5,11 +5,14 @@ namespace NetPaw.Planning;
 /// ipconfig steps); no policy, profile or IPC field ever reaches it. The launcher maps it to a System32 path
 /// (<see cref="SystemTool"/>).</summary>
 /// <param name="ExpectFailure">A failure is normal (e.g. deleting something that may not exist) and is not reported.</param>
-public sealed record Step(string Description, string FileName, string Arguments, bool Critical = true, bool ExpectFailure = false)
+/// <param name="NoopOutput">Output fragments (case-insensitive) that mean "already in the requested state": a non-zero exit
+/// whose output contains one counts as success. netsh exits 1 for that case exactly like for a real error, so the text is
+/// the only signal; the list carries the locales measured so far and a miss falls back to the old (failure) behaviour.</param>
+public sealed record Step(string Description, string FileName, string Arguments, bool Critical = true, bool ExpectFailure = false, string[]? NoopOutput = null)
 {
     public string CommandLine => $"{FileName} {Arguments}";
 
-    public static Step Netsh(string description, string args, bool critical = true, bool expectFailure = false) => new(description, "netsh", args, critical, expectFailure);
+    public static Step Netsh(string description, string args, bool critical = true, bool expectFailure = false, string[]? noopOutput = null) => new(description, "netsh", args, critical, expectFailure, noopOutput);
 
     public static Step PowerShell(string description, string command, bool critical = true) =>
         new(description, "powershell", "-NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"" + command.Replace("\"", "\\\"") + "\"", critical);
@@ -17,7 +20,9 @@ public sealed record Step(string Description, string FileName, string Arguments,
 
 public sealed record StepResult(Step Step, int ExitCode, string Output)
 {
-    public bool Ok => ExitCode == 0 || Step.ExpectFailure;
+    public bool Ok => ExitCode == 0 || Step.ExpectFailure || AlreadyDone;
+    /// <summary>The command failed only because the adapter was already in the requested state (<see cref="Step.NoopOutput"/>).</summary>
+    public bool AlreadyDone => ExitCode != 0 && Step.NoopOutput is { } m && m.Any(f => Output.Contains(f, StringComparison.OrdinalIgnoreCase));
 }
 
 public sealed class ApplyPlan
