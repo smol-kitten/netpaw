@@ -82,7 +82,9 @@ public sealed class UpdateChecker(Func<string, CancellationToken, Task<string>> 
     public static string? CachePath(string dir, string msiName)
     {
         if (string.IsNullOrWhiteSpace(msiName) || msiName != Path.GetFileName(msiName)) return null;
-        if (msiName.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0 || msiName.Contains(':')) return null;
+        // Both separators and the drive colon are named explicitly: on Linux (where the tests and the build run) a
+        // backslash is a legal file-name character, on Windows (where the service runs) it is a separator.
+        if (msiName.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0 || msiName.IndexOfAny(['\\', '/', ':']) >= 0) return null;
         if (msiName.Length <= 4 || !msiName.EndsWith(".msi", StringComparison.OrdinalIgnoreCase)) return null;   // a stem plus ".msi"
         var root = Path.GetFullPath(dir).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
         var full = Path.GetFullPath(Path.Combine(root, msiName));
