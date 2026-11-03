@@ -383,7 +383,7 @@ public sealed class IntentHandler(NetPawService svc, string journalDirectory, Ac
         log($"{plan.Title} on {plan.AdapterLabel} for {caller}: {(report.Success ? "ok" : "FAILED")}{(report.VerifyDiffs.Count > 0 ? " (verify: " + string.Join("; ", report.VerifyDiffs) + ")" : "")}");
         if (confirm is not { } c) return report;
         var notArmed = report.Success ? Arm(plan, pre!, c, caller) : "the apply did not succeed, so nothing was armed; the pre-apply snapshot is kept for RevertLastApply";
-        if (notArmed is null) return report with { ConfirmArmed = true };
+        if (notArmed is null) return report with { ConfirmArmed = true, ConfirmSeconds = c.Seconds };
         plan.Warnings.Add("commit-confirm was NOT armed: " + notArmed);
         return ApplyReport.From(plan, outcome) with { ConfirmArmed = false, ConfirmNotArmed = notArmed };
     }
@@ -428,6 +428,10 @@ public sealed class IntentHandler(NetPawService svc, string journalDirectory, Ac
     readonly Dictionary<string, Clocks> _clocks = new(StringComparer.OrdinalIgnoreCase);
     /// <summary>Revert attempts per adapter id in memory too, so the limit holds even when the file cannot record them (a dead disk).</summary>
     readonly Dictionary<string, int> _attempts = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>How the last window ended, for Status; in memory only (a restart forgets it; the Event Log keeps the line).</summary>
+    LastConfirm? _lastWindow;
+    void Ended(Pending p, string outcome, string reason, string by) => _lastWindow = new LastConfirm(p.Adapter, p.Title, outcome, reason, by, Clock());
+    public LastConfirm? LastWindow() { lock (_gate) return _lastWindow; }
     bool Due(Pending p, DateTimeOffset now) => _clocks.TryGetValue(p.Id, out var c) ? Monotonic() >= c.DeadlineMs : now >= p.Deadline;
     bool Settling(Pending p, DateTimeOffset now) => _clocks.TryGetValue(p.Id, out var c) ? Monotonic() < c.SettleUntilMs : now < p.ArmedAt.AddMilliseconds(settleMs);
     int SecondsLeft(Pending p) => Math.Max(0, (int)Math.Ceiling((_clocks.TryGetValue(p.Id, out var c) ? (c.DeadlineMs - Monotonic()) / 1000.0 : (p.Deadline - Clock()).TotalSeconds)));
@@ -509,7 +513,7 @@ public sealed class IntentHandler(NetPawService svc, string journalDirectory, Ac
         if (gone.Count == 0) return;
         list.RemoveAll(gone.Contains);
         SavePending(list);
-        foreach (var p in gone) { _clocks.Remove(p.Id); _attempts.Remove(p.Id); log($"commit-confirm window on {p.Adapter} ('{p.Title}' by {p.Caller}) cancelled by {why}"); }
+        foreach (var p in gone) { _clocks.Remove(p.Id); _attempts.Remove(p.Id); Ended(p, "cancelled", why.StartsWith("a new apply") ? "new-apply" : "revert", why); log($"commit-confirm window on {p.Adapter} ('{p.Title}' by {p.Caller}) cancelled by {why}"); }
     }
 
     /// <summary>ConfirmApply: the window on the named adapter (id, then MAC, then alias; the only one when none is named) is closed by a caller
@@ -533,6 +537,7 @@ public sealed class IntentHandler(NetPawService svc, string journalDirectory, Ac
         if (Due(p, Clock())) throw new Rejected($"too late: the commit-confirm window on {p.Adapter} has expired; the service reverts '{p.Title}' on its next tick");
         var left = SecondsLeft(p);
         list.Remove(p); SavePending(list); _clocks.Remove(p.Id); _attempts.Remove(p.Id);
+        Ended(p, "kept", "confirm", caller);
         log($"commit-confirm confirmed by {caller}: '{p.Title}' on {p.Adapter} stays (armed by {p.Caller}, {left} s were left)");
         return ApplyReport.From(new ApplyPlan { Title = $"confirm '{p.Title}'", Adapter = p.Adapter, AdapterId = p.Id }, null);
     }
@@ -606,6 +611,7 @@ public sealed class IntentHandler(NetPawService svc, string journalDirectory, Ac
             svc.Reload();
             var report = RevertTo(p.Before, caller, Tier.Admin, _policy.Resolve());
             log($"commit-confirm {reason}: '{p.Title}' on {p.Adapter} reverted {(report.Success ? "ok" : "with FAILED steps; the window is closed, nothing re-armed")}");
+            Ended(p, report.Success ? "reverted" : "revert-failed", reason, "service");
         }
         catch (Exception ex)
         {
@@ -615,6 +621,7 @@ public sealed class IntentHandler(NetPawService svc, string journalDirectory, Ac
                 return;   // stays "reverting" on disk
             }
             log($"commit-confirm {reason}: revert of '{p.Title}' on {p.Adapter} FAILED ({ex.Message}); given up after {attempt} attempts, the window is closed, nothing re-armed; the pre-apply snapshot is kept for RevertLastApply");
+            Ended(p, "revert-failed", reason, "service");
             // Each attempt went through Journaled, which snapshots the state before the revert (the bad change) into last-apply.json; put the
             // window's own snapshot back so that a RevertLastApply by hand returns to the state before the confirmed apply, not to the bad change.
             try { File.WriteAllText(PreApplyPath, JsonSerializer.Serialize(p.Before, ServiceProtocol.Json)); }

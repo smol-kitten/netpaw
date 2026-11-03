@@ -66,7 +66,7 @@ public class CommitConfirmTests
         var r = new Rig();
         var resp = r.Apply(30);
         Assert.True(resp.Ok, resp.Error); Assert.True(r.Armed); Assert.Equal(0, r.Reverts);
-        Assert.True(resp.Apply!.ConfirmArmed); Assert.Null(resp.Apply.ConfirmNotArmed);
+        Assert.True(resp.Apply!.ConfirmArmed); Assert.Null(resp.Apply.ConfirmNotArmed); Assert.Equal(30, resp.Apply.ConfirmSeconds);
         Assert.Contains(r.Log, l => l.Contains("armed commit-confirm: 30 s on Ethernet (#7) for PC\\anna") && l.Contains("probes: gateway 192.168.1.1, dns 1.1.1.1"));
         var w = r.Handler.ArmedWindow()!;
         Assert.Equal(("Ethernet", 30, "PC\\anna (session 2)"), (w.Adapter, w.SecondsLeft, w.Caller)); Assert.Null(w.Reason);
@@ -74,6 +74,8 @@ public class CommitConfirmTests
         Assert.Equal(0, r.Reverts); Assert.Equal(10, r.Handler.ArmedWindow()!.SecondsLeft);
         r.Ticks(6);                                             // 32 s
         Assert.Equal(1, r.Reverts); Assert.False(r.Armed); Assert.Null(r.Handler.ArmedWindow());
+        var ended = r.Handler.LastWindow()!;   // Status tells a client that saw the window vanish what happened to the change
+        Assert.Equal(("Ethernet", "lab", "reverted", "timeout", "service"), (ended.Adapter, ended.Title, ended.Outcome, ended.Reason, ended.By));
         Assert.Contains(r.Log, l => l.Contains("commit-confirm timeout: reverting 'lab' on Ethernet (armed by PC\\anna"));
         Assert.Contains(r.Log, l => l.Contains("DHCP on Ethernet (#7) for commit-confirm (timeout): ok"));
         r.Ticks(3);                                             // nothing is re-armed
@@ -93,6 +95,7 @@ public class CommitConfirmTests
         r.Ticks(1);                                             // third failed round in a row
         Assert.Equal(1, r.Reverts); Assert.False(r.Armed);
         Assert.Contains(r.Log, l => l.Contains("commit-confirm liveness: reverting 'lab' on Ethernet"));
+        Assert.Equal(("reverted", "liveness"), (r.Handler.LastWindow()!.Outcome, r.Handler.LastWindow()!.Reason));
         Assert.Contains(r.Log, l => l.Contains("for commit-confirm (liveness): ok"));
     }
 
@@ -103,6 +106,7 @@ public class CommitConfirmTests
         Assert.True(r.Apply(30).Ok);
         var c = r.Confirm();
         Assert.True(c.Ok, c.Error); Assert.False(r.Armed);
+        Assert.Equal(("kept", "confirm", "PC\\bob (session 3)"), (r.Handler.LastWindow()!.Outcome, r.Handler.LastWindow()!.Reason, r.Handler.LastWindow()!.By));
         Assert.Contains(r.Log, l => l.Contains("commit-confirm confirmed by PC\\bob (session 3): 'lab' on Ethernet stays (armed by PC\\anna (session 2), 30 s were left)"));
         r.Live.Up = false; r.Ticks(20);                         // 40 s of dead probes, past the deadline: nothing to revert
         Assert.Equal(0, r.Reverts);
@@ -131,6 +135,7 @@ public class CommitConfirmTests
         Assert.True(plain.Ok); Assert.Null(plain.Apply!.ConfirmArmed);
         Assert.False(r.Armed);
         Assert.Contains(r.Log, l => l.Contains("commit-confirm window on Ethernet ('lab' by PC\\anna (session 2)) cancelled by a new apply"));
+        Assert.Equal(("cancelled", "new-apply"), (r.Handler.LastWindow()!.Outcome, r.Handler.LastWindow()!.Reason));
         r.Ticks(20);
         Assert.Equal(0, r.Reverts);
         // and a confirmed second apply opens its own window with its own deadline
@@ -231,7 +236,9 @@ public class CommitConfirmTests
     public void The_policy_minimum_raises_a_request_without_a_window_and_says_so()
     {
         var r = new Rig(storePolicy: new() { ["CommitConfirmMinSeconds"] = 20 });
-        Assert.True(r.Apply(confirm: null).Ok);
+        var raised = r.Apply(confirm: null);
+        Assert.True(raised.Ok);
+        Assert.True(raised.Apply!.ConfirmArmed); Assert.Equal(20, raised.Apply.ConfirmSeconds);   // the client learns the real window, not what it asked
         var w = r.Handler.ArmedWindow()!;
         Assert.Equal((20, "policy"), (w.SecondsLeft, w.Reason));
         Assert.Contains(r.Log, l => l.Contains("armed commit-confirm: 20 s") && l.Contains("(policy;"));

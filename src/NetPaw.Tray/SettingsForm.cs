@@ -41,6 +41,11 @@ sealed class SettingsForm : Form
         var notify = new CheckBox { Text = "balloon notifications", Checked = s.ShowNotifications, AutoSize = true };
         var secondary = new CheckBox { Text = "add a secondary address (keeps current config)", Checked = s.ReachAsSecondary, AutoSize = true };
         var prefix = new NumericUpDown { Minimum = 8, Maximum = 30, Value = s.ReachDefaultPrefix, Width = 70 };
+        // G4: 0 = off; 5..600 = the service reverts an apply by itself after that many seconds unless "Keep" is clicked.
+        var commitConfirm = new NumericUpDown { Minimum = 0, Maximum = NetPaw.Ipc.IntentHandler.MaxConfirmSeconds, Value = Math.Clamp(s.CommitConfirmSeconds, 0, NetPaw.Ipc.IntentHandler.MaxConfirmSeconds), Width = 70 };
+        var commitRow = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.LeftToRight, WrapContents = false, Margin = Padding.Empty };
+        commitRow.Controls.Add(commitConfirm);
+        commitRow.Controls.Add(new Label { Text = pol.CommitConfirmMinSeconds is { } minCc && minCc > 0 ? $"s until the service reverts an apply unless you keep it (0 = off; your organisation sets at least {minCc} s)" : "s until the service reverts an apply unless you keep it (0 = off, else 5..600; needs the service)", AutoSize = true, Margin = new Padding(6, 6, 0, 0) });
         var flush = new CheckBox { Text = "flush the DNS cache after every apply (ipconfig /flushdns)", Checked = s.FlushDns, AutoSize = true };
         var startup = new CheckBox { Text = "start with Windows (your account, no UAC prompt)", Checked = app.Autorun.IsEnabled(), AutoSize = true };
         if (app.CurrentUserMismatch is not null) startup.Enabled = false;   // running as the wrong account: no autostart from here
@@ -78,6 +83,7 @@ sealed class SettingsForm : Form
         if (!app.Service.Allowed(Capability.UpdateCheck)) updates.Text += "  (disabled by policy)";
         Row("Reach mode", secondary);
         Row("Reach default prefix", prefix);
+        Row("Auto-revert", commitRow);
         Row("After apply", flush);
         Row("Startup", startup);
         // ---- connectivity -------------------------------------------------------------------
@@ -252,6 +258,7 @@ sealed class SettingsForm : Form
             s.LogLevel = (LogLevel)logLevel.SelectedIndex; app.Service.Store.MinLevel = s.LogLevel;
             s.ShowNotifications = notify.Checked;
             s.ReachAsSecondary = secondary.Checked; s.ReachDefaultPrefix = (int)prefix.Value; s.FlushDns = flush.Checked;
+            var cc = (int)commitConfirm.Value; s.CommitConfirmSeconds = cc is > 0 and < NetPaw.Ipc.IntentHandler.MinConfirmSeconds ? NetPaw.Ipc.IntentHandler.MinConfirmSeconds : cc;   // 1..4 would be refused by the service
             app.Service.SaveSettings();
             if (app.CurrentUserMismatch is null)
             {

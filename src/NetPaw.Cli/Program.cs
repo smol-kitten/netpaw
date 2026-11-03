@@ -14,8 +14,9 @@ const string Usage = """
       netpaw-cli adapters                         list adapters, current config, VLAN capability
       netpaw-cli list                             list profiles (* = matches the adapter right now)
       netpaw-cli show <profile>                   profile details
-      netpaw-cli apply <profile> [-a X] [-n]      apply a profile (-n = dry run, print the plan)
-      netpaw-cli dhcp [-a X] [-n]                 switch the adapter to DHCP
+      netpaw-cli apply <profile> [-a X] [-n] [--confirm N]   apply a profile (-n = dry run, print the plan)
+      netpaw-cli dhcp [-a X] [-n] [--confirm N]   switch the adapter to DHCP
+      netpaw-cli confirm [-a X]                   keep a change applied with --confirm N (else the service reverts it when N s are up or the link is lost)
       netpaw-cli renew [-a X] [-n]                ipconfig /renew on the adapter (DHCP only)
       netpaw-cli release [-a X] [-n]              ipconfig /release on the adapter (the dock's old NIC still holding the address)
       netpaw-cli reset [-a X] [-n]                disable → enable the adapter (cures 'static applied but still shows DHCP / two gateways')
@@ -27,7 +28,7 @@ const string Usage = """
       netpaw-cli switch [--seconds N] [-a X]      which switch/port am I on? LLDP/CDP via pktmon (passive, default 35 s)
       netpaw-cli find-routers [-a X] [--force]    borrow an address in each common subnet, ARP the usual gateways, report who answers (--force: ok to drop a DHCP lease)
       netpaw-cli incidents [-n 30]                show the incident log (enable it in settings: repair.incidentLog)
-      netpaw-cli reach <ip[/prefix]> [--replace] [-a X] [-n]
+      netpaw-cli reach <ip[/prefix]> [--replace] [-a X] [-n] [--confirm N]
       netpaw-cli stuck                              programs waiting on an unanswered connection, why, and the profile that covers the target (rc 1 when any)
       netpaw-cli diag [file.zip]                    diagnostics bundle (ipconfig, routes, arp, log, incidents, redacted settings)
       netpaw-cli wake <mac> [subnet/prefix]         Wake-on-LAN magic packet (global + subnet broadcast)
@@ -38,11 +39,11 @@ const string Usage = """
                                               make <ip> reachable: pick a covering profile, else a preset,
                                               else add a temporary secondary in the assumed /24
       netpaw-cli preset [query]                   list presets (factory default addresses of gear)
-      netpaw-cli preset apply <vendor/model|query> [--replace] [-a X] [-n]
+      netpaw-cli preset apply <vendor/model|query> [--replace] [-a X] [-n] [--confirm N]
       netpaw-cli capture <name> [-a X]            save the adapter's live config as a profile
       netpaw-cli temp                             list temporary addresses NetPaw added
       netpaw-cli clear-temp                       remove them again
-      netpaw-cli revert                           put the adapter of the last apply back to its pre-apply state (service only)
+      netpaw-cli revert [--confirm N]             put the adapter of the last apply back to its pre-apply state (service only)
       netpaw-cli vlan <adapter> [id]              query / set the driver VLAN id (0 = untagged)
       netpaw-cli where                            print the config directory (profiles.json etc.)
       netpaw-cli update verify <msi> [SIGNATURES.md] [--root <crt>]
@@ -62,7 +63,10 @@ const string Usage = """
       netpaw-cli pack verify <index.json> [pubkey-base64]
       netpaw-cli pack build <presets.json> <index.json> [--name N]   turn a presets list into a pack
 
-    Exit codes: 0 ok · 1 a step failed · 2 usage/unknown · 3 not VLAN capable · 4 denied by policy · 5 service not reachable
+    --confirm N (5..600, service only): the service reverts the change on its own after N seconds, or sooner when the gateway and DNS
+    stop answering, unless 'netpaw-cli confirm' arrives first; a policy minimum may lengthen N. The reply says what was armed.
+
+    Exit codes: 0 ok · 1 a step failed (or --confirm asked and not armed) · 2 usage/unknown · 3 not VLAN capable · 4 denied by policy · 5 service not reachable
 
     Profiles live in %APPDATA%\NetPaw\profiles.json (override with NETPAW_HOME).
     """;
@@ -77,6 +81,14 @@ var dryRun = Flag("-n", "--dry-run");
 var asJson = Flag("--json");
 var replace = Flag("--replace");
 var adapterArg = Opt("-a", "--adapter");
+var confirmOpt = Opt("--confirm");
+int? confirmSeconds = null;   // G4: validated here for a clear message; the service validates again
+if (confirmOpt is not null)
+{
+    if (!int.TryParse(confirmOpt, out var cs) || cs < NetPaw.Ipc.IntentHandler.MinConfirmSeconds || cs > NetPaw.Ipc.IntentHandler.MaxConfirmSeconds)
+        return Fail($"--confirm takes {NetPaw.Ipc.IntentHandler.MinConfirmSeconds}..{NetPaw.Ipc.IntentHandler.MaxConfirmSeconds} seconds");
+    confirmSeconds = cs;
+}
 var timeoutOpt = Opt("--timeout");
 var source = Opt("--source");
 var channelOpt = Opt("--channel");
@@ -107,6 +119,10 @@ if (argv.Count > 0 && argv[0] == "service")
     Console.WriteLine($"caller    {resp.Status.Caller} (session {resp.Status.CallerSession})");
     Console.WriteLine($"tier      {resp.Status.Tier ?? "unknown (service older than 0.16)"}");
     Console.WriteLine($"last apply {resp.Status.LastApply ?? "none recorded (nothing to revert)"}");
+    Console.WriteLine(resp.Status.PendingConfirm is { } pc
+        ? $"pending   commit-confirm on {pc.Adapter}: {pc.SecondsLeft} s left, armed by {pc.Caller}{(pc.Reason is "policy" ? " (policy minimum)" : "")} — keep it with: netpaw-cli confirm"
+        : "pending   no commit-confirm window armed");
+    if (resp.Status.LastConfirm is { } lc) Console.WriteLine($"last window {lc.Outcome} ('{lc.Title}' on {lc.Adapter}, {lc.Reason}, by {lc.By}, {lc.At:HH:mm:ss})");
     return 0;
 }
 
@@ -169,14 +185,24 @@ try
             var adapter = adapterName is not null ? svc.ResolveAdapter(adapterName) : svc.AdapterFor(p);
             var plan = svc.PlanProfile(p, adapter);
             var request = p.Managed ? ServiceChange.Managed(p.Id, adapter) : ServiceChange.Profile(p, adapter);
-            return Run(svc, request, plan, dryRun);
+            return Run(svc, request.WithConfirm(confirmSeconds), plan, dryRun);
         }
-        case "dhcp": { var a = svc.ResolveAdapter(adapterName); return Run(svc, ServiceChange.Dhcp(a), ApplyPlanner.PlanDhcp(a), dryRun); }
+        case "dhcp": { var a = svc.ResolveAdapter(adapterName); return Run(svc, ServiceChange.Dhcp(a).WithConfirm(confirmSeconds), ApplyPlanner.PlanDhcp(a), dryRun); }
         case "revert":
         {
             // The pre-apply snapshot lives in the service's store; there is no in-process equivalent.
             if (!(OperatingSystem.IsWindows() && ServiceChange.ServiceAnswers())) return Fail("revert needs the NetPaw service (install the MSI); the pre-apply snapshot is kept by the service");
-            return ReportChange(ServiceChange.Send(ServiceChange.RevertLastApply()));
+            return ReportChange(ServiceChange.Send(ServiceChange.RevertLastApply().WithConfirm(confirmSeconds)));
+        }
+        case "confirm":
+        {
+            // G4: closes the window the service armed for an apply with --confirm (or by policy); the adapter is only needed when two are armed.
+            if (!(OperatingSystem.IsWindows() && ServiceChange.ServiceAnswers())) return Fail("confirm needs the NetPaw service; it keeps the commit-confirm window");
+            var req = adapterName is not null ? ServiceChange.Confirm(svc.ResolveAdapter(adapterName)) : ServiceChange.Confirm();
+            var res = ServiceChange.Send(req);
+            if (res.Report is not { } kept) return Fail(res.Error ?? "the NetPaw service did not answer");
+            Console.WriteLine($"kept: {kept.Title} on {kept.Adapter} stays; the service will not revert it");
+            return 0;
         }
         case "renew": { var a = svc.ResolveAdapter(adapterName); return Run(svc, ServiceChange.Renew(a), NetPaw.Connectivity.Advisor.PlanRenew(a), dryRun); }
         case "release": { var a = svc.ResolveAdapter(adapterName); return Run(svc, ServiceChange.Release(a), NetPaw.Connectivity.Advisor.PlanRelease(a), dryRun); }
@@ -287,7 +313,7 @@ try
             if (d.Kind is ReachKind.Invalid) return 2;
             if (d.Kind is ReachKind.AlreadyReachable) return 0;
             if (!dryRun && OperatingSystem.IsWindows() && ServiceChange.ServiceAnswers())
-                return ReportChange(ServiceChange.Send(ServiceChange.Reach(d.Target, adapter, replace ? true : null)));
+                return ReportChange(ServiceChange.Send(ServiceChange.Reach(d.Target, adapter, replace ? true : null).WithConfirm(confirmSeconds)));
             var (plan, outcome) = svc.Reach(d, adapter, dryRun, replace ? true : null);
             return Report(plan, outcome, dryRun);
         }
@@ -308,7 +334,7 @@ try
                 Console.WriteLine(d.Explanation);
                 if (d.Kind is ReachKind.AlreadyReachable) return 0;
                 if (!dryRun && OperatingSystem.IsWindows() && ServiceChange.ServiceAnswers())
-                    return ReportChange(ServiceChange.Send(ServiceChange.Reach(d.Target, adapter, replace ? true : null)));
+                    return ReportChange(ServiceChange.Send(ServiceChange.Reach(d.Target, adapter, replace ? true : null).WithConfirm(confirmSeconds)));
                 var (plan, outcome) = svc.ApplyPreset(hit, adapter, dryRun, replace ? true : null);
                 return Report(plan, outcome, dryRun);
             }
@@ -654,6 +680,8 @@ static int Run(NetPawService svc, ServiceRequest request, ApplyPlan plan, bool d
     if (dryRun || plan.IsEmpty) return Report(plan, null, dryRun);
     if (OperatingSystem.IsWindows() && ServiceChange.ServiceAnswers())
         return ReportChange(ServiceChange.Send(request));
+    // G4: the window lives in the service; an in-process apply could not revert on its own, so it is refused rather than silently unguarded.
+    if (request.ConfirmSeconds is > 0) return Fail("--confirm needs the NetPaw service (install the MSI); without it nothing would revert the change");
     if (OperatingSystem.IsWindows() && !IsElevated())
         return Fail("changing adapter settings needs the NetPaw service (install the MSI) or an elevated prompt (run as Administrator)");
     return Report(plan, svc.ApplyAndVerify(plan), dryRun);
@@ -679,6 +707,9 @@ static int ReportChange(ChangeResult result)
         Console.WriteLine($"[{(s.Ok ? "ok" : "FAIL")}] {s.Description}{(s.Ok || string.IsNullOrEmpty(s.Output) ? "" : " — " + s.Output.ReplaceLineEndings(" "))}");
     Console.WriteLine(rep.Success ? $"applied '{rep.Title}' on {rep.Adapter}" : "FAILED" + (rep.Aborted ? " (aborted at first critical step)" : ""));
     if (rep.VerifyDiffs.Count > 0) { Console.WriteLine("verify: Windows did not fully take the change — " + string.Join("; ", rep.VerifyDiffs) + "\n        try: netpaw-cli reset -a \"" + rep.Adapter + "\""); return 1; }
+    // G4: the structured answer, not the warning text, says whether a safety net is in place.
+    if (rep.ConfirmArmed == true) Console.WriteLine($"commit-confirm: the service reverts this in {rep.ConfirmSeconds} s, or sooner if the gateway and DNS stop answering, unless you run: netpaw-cli confirm -a \"{rep.Adapter}\"");
+    if (rep.ConfirmArmed == false) { Console.WriteLine("commit-confirm: NOT armed — " + rep.ConfirmNotArmed); return 1; }
     return rep.Success ? 0 : 1;
 }
 
