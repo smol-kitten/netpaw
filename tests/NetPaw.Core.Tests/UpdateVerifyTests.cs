@@ -115,4 +115,44 @@ public class UpdateVerifyTests
         }
         finally { if (Directory.Exists(dir)) Directory.Delete(dir, true); }
     }
+
+    /// <summary>PLAN-improvements-25 step 5: the feed's installer name is used as a path, so it is validated as one.</summary>
+    [Theory]
+    [InlineData("NetPaw-0.15.0.msi", true)]
+    [InlineData("NetPaw-0.15.0-telemetry.msi", true)]
+    [InlineData("../NetPaw.msi", false)]
+    [InlineData("..\\NetPaw.msi", false)]
+    [InlineData("sub/NetPaw.msi", false)]
+    [InlineData("..", false)]
+    [InlineData(".msi", false)]
+    [InlineData("a.msi", true)]
+    [InlineData("NetPaw.exe", false)]
+    [InlineData("C:NetPaw.msi", false)]
+    [InlineData("", false)]
+    [InlineData("  ", false)]
+    public void CachePathAcceptsOnlyAPlainMsiFileName(string name, bool accepted)
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "netpaw-upd-cache");
+        var path = UpdateChecker.CachePath(dir, name);
+        if (!accepted) { Assert.Null(path); return; }
+        Assert.NotNull(path);
+        Assert.Equal(Path.GetFullPath(dir), Path.GetDirectoryName(path));
+        Assert.Equal(name, Path.GetFileName(path));
+    }
+
+    [Fact]
+    public async Task DownloadRefusesAnInstallerNameWithADirectoryPart()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "netpaw-upd-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            // SIGNATURES.md names "valid.msi", so a poisoned name already fails verification; this asserts the
+            // outcome either way: not verified, no path returned, nothing written outside the cache dir.
+            var info = new UpdateInfo("0.13.0", "u", null, "../valid.msi", "https://x/valid.msi", "https://x/SIGNATURES.md");
+            var r = await UpdateChecker.DownloadAndVerify(info, (u, _) => Task.FromResult(u.EndsWith("SIGNATURES.md") ? File_("SIGNATURES.md") : File_("valid.msi")), dir, TestRoot);
+            Assert.False(r.Verified); Assert.Null(r.Path);
+            Assert.False(File.Exists(Path.Combine(Path.GetTempPath(), "valid.msi")));
+        }
+        finally { if (Directory.Exists(dir)) Directory.Delete(dir, true); }
+    }
 }

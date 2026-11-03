@@ -75,6 +75,22 @@ public sealed class UpdateChecker(Func<string, CancellationToken, Task<string>> 
         return info;
     }
 
+    /// <summary>Where a verified installer named <paramref name="msiName"/> by the feed is written: directly inside
+    /// <paramref name="dir"/>, or null when the name is not a plain file name (a directory part, "..", a drive, a
+    /// reserved name, no .msi extension). The feed is signed data, but the name is used as a path, so it is checked as
+    /// a path: the resolved full path must sit one level below the resolved cache dir.</summary>
+    public static string? CachePath(string dir, string msiName)
+    {
+        if (string.IsNullOrWhiteSpace(msiName) || msiName != Path.GetFileName(msiName)) return null;
+        // Both separators and the drive colon are named explicitly: on Linux (where the tests and the build run) a
+        // backslash is a legal file-name character, on Windows (where the service runs) it is a separator.
+        if (msiName.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0 || msiName.IndexOfAny(['\\', '/', ':']) >= 0) return null;
+        if (msiName.Length <= 4 || !msiName.EndsWith(".msi", StringComparison.OrdinalIgnoreCase)) return null;   // a stem plus ".msi"
+        var root = Path.GetFullPath(dir).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var full = Path.GetFullPath(Path.Combine(root, msiName));
+        return Path.GetDirectoryName(full) == root && Path.GetFileName(full) == msiName ? full : null;
+    }
+
     /// <summary>
     /// Downloads the release's installer and SIGNATURES.md and verifies them (<see cref="UpdateTrust.Verify"/>). The
     /// installer is written to <paramref name="dir"/> ONLY when it verified; an unverified download never touches
@@ -95,8 +111,9 @@ public sealed class UpdateChecker(Func<string, CancellationToken, Task<string>> 
         if (msi.LongLength > UpdateTrust.MaxDownload || sigs.Length > 1024 * 1024) return new(false, "download too large");
         var check = UpdateTrust.Verify(msi, info.MsiName, System.Text.Encoding.UTF8.GetString(sigs), roots);
         if (!check.Ok) return new(false, check.Reason);
+        var path = CachePath(dir, info.MsiName);
+        if (path is null) return new(false, "the release names an installer that is not a plain file name");
         Directory.CreateDirectory(dir);
-        var path = Path.Combine(dir, Path.GetFileName(info.MsiName));   // the feed names the file; never let it carry a directory
         await File.WriteAllBytesAsync(path, msi, ct);
         return new(true, $"signed by {check.Signer}, timestamped {check.Timestamp:yyyy-MM-dd HH:mm} UTC", path);
     }
