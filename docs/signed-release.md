@@ -91,6 +91,32 @@ Get-ChildItem Cert:\LocalMachine\Root | Where-Object Thumbprint -eq (Get-PfxCert
 
 Do not import a staging root on machines that you do not use for testing.
 
+### Distributing a root to a managed fleet
+
+When a production root exists (or for a test fleet, R0), put it in the machine **Trusted Root Certification
+Authorities** store on every machine. Then SmartScreen and UAC show the publisher instead of "Unknown
+publisher", and `Get-AuthenticodeSignature` reports `Valid`. The update check inside NetPaw is unaffected
+either way: it pins its own roots.
+
+- **GPO**: *Computer Configuration → Policies → Windows Settings → Security Settings → Public Key Policies →
+  Trusted Root Certification Authorities → Import*, pick the `.crt`. Applies at the next policy refresh
+  (`gpupdate /force` to hurry it).
+- **Intune**: *Devices → Configuration → Create profile → Windows 10 and later → Templates → Trusted
+  certificate*, destination store **Computer certificate store – Root**, upload the `.crt`, assign to the
+  device group.
+- **Check on a machine** (any user):
+  ```powershell
+  Get-ChildItem Cert:\LocalMachine\Root | Where-Object Thumbprint -eq (Get-PfxCertificate .\r0.crt).Thumbprint
+  Get-AuthenticodeSignature "$env:ProgramFiles\NetPaw\NetPaw.exe" | Select-Object Status, StatusMessage
+  ```
+  `Status` is `Valid` once the root is trusted; before that it is `UnknownError` with "A certificate chain
+  processed, but terminated in a root certificate which is not trusted".
+
+SmartScreen keeps a reputation score per publisher certificate on top of trust. A freshly trusted root
+stops the "Unknown publisher" line immediately; the "Windows protected your PC" interstitial can still
+appear for the first downloads until the certificate has reputation, and does not appear at all for a
+GPO/Intune-deployed MSI (no Mark-of-the-Web on the file).
+
 ## The update check
 
 When the update check is on (Settings → Updates; policy `AllowUpdateCheck`), NetPaw downloads the

@@ -27,6 +27,25 @@ Managed profiles show a *managed* badge and cannot be edited or deleted; *Copy* 
 ### What the MSI does
 Installs `NetPaw.exe`, `netpaw-cli.exe` and `netpaw-svc.exe` to `%ProgramFiles%\NetPaw`, adds the folder to the system `PATH`, creates `%ProgramData%\NetPaw\profiles.d\` (SYSTEM/Administrators write, Users read), registers and starts the **NetPaw service** (LocalSystem, automatic; standard MSI ServiceInstall/ServiceControl tables, no custom actions), and adds a Start-menu shortcut. Upgrades in place (major-upgrade table; downgrades are refused — uninstall first). Users start NetPaw themselves or via *Settings → start with Windows*, which is a per-user `HKCU\…\Run` entry: no scheduled task and no elevation (the tray is `asInvoker`; every change goes through the service).
 
+### What uninstall keeps
+`msiexec /x` removes the program folder, the `PATH` entry, the shortcut, the service registration and the
+`HKLM\SOFTWARE\NetPaw` pointer. The MSI only removes folders it created **and that are empty**, so these stay
+behind on purpose (data is never deleted by an uninstall) and are yours to clean when a machine is retired:
+
+| Location | Content | Remove with |
+|---|---|---|
+| `%ProgramData%\NetPaw\profiles.d\` | managed profiles you deployed | delete the folder (admin) |
+| `%ProgramData%\NetPaw\service\`, `…\capture\` | the service's own store (last-known-good policy, interrupted-apply marker, verified update installers, captures taken for users) | delete `%ProgramData%\NetPaw` (admin) |
+| `%APPDATA%\NetPaw\` (per user) | settings, the user's own profiles, revert state | delete per user |
+| `%LOCALAPPDATA%\NetPaw\updates\` (per user) | installers the tray downloaded and verified | delete per user |
+| `HKCU\…\CurrentVersion\Run\NetPaw` (per user) | *start with Windows*, if the user enabled it | turn the setting off before uninstalling, or delete the value |
+| Event Log source `NetPaw` (Application log) | the service's audit entries and the registered source | leave it (entries age out) or `Remove-EventLog -Source NetPaw` |
+| `HKLM\Software\Policies\NetPaw` | your GPO/Intune policy; NetPaw never writes it | your policy tooling |
+
+Reinstalling finds the folders again with their ACLs re-applied; a reparse point or a foreign owner on
+`%ProgramData%\NetPaw` is refused at service start (see `docs/threat-model.md`), so a machine that was tampered
+with between uninstall and reinstall does not silently come back with the planted state.
+
 ### Portable
 The zip needs no install. Managed profiles and policy work exactly the same.
 
