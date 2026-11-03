@@ -409,8 +409,9 @@ public class RevertLastApplyTests
 
     // ---- G5: adapters by identity ------------------------------------------------------------------------------
 
-    static ServiceRequest DhcpOn(string alias, string? id = null, string? mac = null) =>
-        new(ServiceProtocol.Version, RequestKind.Dhcp) { Adapter = alias, AdapterId = id ?? Fx.Id("Ethernet"), AdapterMac = mac };
+    const string OwnId = "(the Ethernet fixture's id)";
+    static ServiceRequest DhcpOn(string alias, string? id = OwnId, string? mac = null) =>
+        new(ServiceProtocol.Version, RequestKind.Dhcp) { Adapter = alias, AdapterId = id == OwnId ? Fx.Id("Ethernet") : id, AdapterMac = mac };
 
     [Fact]
     public void A_renamed_alias_with_the_same_id_resolves_to_the_same_nic()

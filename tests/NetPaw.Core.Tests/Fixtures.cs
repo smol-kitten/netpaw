@@ -17,7 +17,7 @@ static class Fx
     /// <summary>One builder for every "live adapter" a test needs; the per-file copies used to drift.</summary>
     public static AdapterInfo Nic(string name = "Ethernet", string desc = "x", bool up = true, bool physical = true, bool dhcp = false,
         string[]? addrs = null, string? gw = null, string[]? dns = null, bool hyperv = false, bool wireless = false, int index = 1, string? dhcpServer = null) =>
-        new(name, desc, Id(name), index, up, physical, dhcp, (addrs ?? []).Select(IpAddr.Parse).ToList(), gw is null ? [] : [gw], dns ?? [], "AA")
+        new(name, desc, Id(name), index, up, physical, dhcp, (addrs ?? []).Select(IpAddr.Parse).ToList(), gw is null ? [] : [gw], dns ?? [], "AA:BB:CC:DD:EE:01")
         { HyperVVirtual = hyperv, Wireless = wireless, DhcpServers = dhcpServer is null ? [] : [dhcpServer] };
 
     public static Profile Static(string name, string? gw = "192.168.1.1", params string[] addrs) => new()
