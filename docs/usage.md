@@ -72,7 +72,7 @@ trunking on one NIC needs Intel PROSet / Hyper-V switch, which is out of scope.
 ### CLI
 
 ```
-netpaw-cli adapters                         list adapters, current config, VLAN capability
+netpaw-cli adapters [--json]                list adapters, current config, VLAN capability (--json adds the id)
 netpaw-cli list                             list profiles (* = matches the adapter right now)
 netpaw-cli show <profile>                   print one profile
 netpaw-cli apply <profile> [-a X] [-n]      apply a profile (-n = dry run, print the plan)
@@ -90,6 +90,11 @@ netpaw-cli capture <name> [-a X]            save the adapter's live config as a 
 netpaw-cli temp | clear-temp                list / remove temporary addresses
 netpaw-cli vlan <adapter> [id]              query / set the driver VLAN id (0 = untagged)
 netpaw-cli where                            print the config directory
+
+-a X names an adapter by alias, interface index, {GUID} (see adapters --json) or MAC. The request
+carries the adapter's id, so a rename between listing and applying is refused, never redirected.
+0.16 and older netpaw-cli/tray builds speak protocol v1: the 0.17 service answers their status
+queries and refuses their changes ("upgrade the client").
 ```
 
 ```
