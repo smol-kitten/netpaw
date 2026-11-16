@@ -617,13 +617,19 @@ jobs:
             rel/*.winget.json
           prerelease: ${{ needs.build.outputs.prerelease == 'true' }}
           generate_release_notes: true
-      - name: Tell catwinget (repository_dispatch; needs the CATWINGET_DISPATCH_TOKEN secret — polling is the fallback)
+      - name: Tell the downstream repos (repository_dispatch; needs the RELEASE_DISPATCH_TOKEN secret, else their hourly schedules pick the release up)
         if: needs.build.outputs.prerelease != 'true' && env.DISPATCH != ''
         env:
-          DISPATCH: ${{ secrets.CATWINGET_DISPATCH_TOKEN }}
+          DISPATCH: ${{ secrets.RELEASE_DISPATCH_TOKEN || secrets.CATWINGET_DISPATCH_TOKEN }}
           VER: ${{ needs.build.outputs.version }}
         run: |
           body=$(python3 -c 'import json,sys; v=sys.argv[1]; print(json.dumps({"event_type":"netpaw-release","client_payload":{"version":v,"facts":f"https://github.com/smol-kitten/netpaw/releases/download/v{v}/NetPaw-{v}.winget.json"}}))' "$VER")
-          curl -sS --fail -X POST https://api.github.com/repos/polo-nyan/catwinget/dispatches \
-            -H @<(printf 'Authorization: Bearer %s\n' "$DISPATCH") -H 'Accept: application/vnd.github+json' -d "$body"
-          echo "dispatched netpaw-release $VER to polo-nyan/catwinget"
+          # catwinget = the package source; netpaw-site = the download page, which tells netpaw-site-deploy itself once
+          # its image is pushed (t-b34fd9: dispatching the deploy from here would redeploy before the new image exists).
+          # A refused dispatch fails this step on purpose (the release is already published; the hourly schedules
+          # still pick it up within the hour, but a dead token must be seen).
+          for repo in polo-nyan/catwinget smol-kitten/netpaw-site; do
+            curl -sS --fail -X POST "https://api.github.com/repos/$repo/dispatches" \
+              -H @<(printf 'Authorization: Bearer %s\n' "$DISPATCH") -H 'Accept: application/vnd.github+json' -d "$body"
+            echo "dispatched netpaw-release $VER to $repo"
+          done
